@@ -3,13 +3,22 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
+  copyPanelScreenScale,
+  COPY_PANEL_BACK_Z,
+  COPY_PANEL_FRONT_EVENT,
+  COPY_PANEL_FRONT_Z,
   defaultPanelLeft,
   FLOATING_PANEL_FLAGS,
   FLOATING_PANEL_NODE_Z,
   hasOpenFloatingPanel,
   nextPanelPosition,
   orderNodesForFloatingPanels,
+  PROMPT_BAR_BACK_Z,
+  PROMPT_BAR_FRONT_EVENT,
+  PROMPT_BAR_FRONT_Z,
+  resolveCopyPanelZIndex,
   resolveNodeZIndex,
+  resolvePromptBarZIndex,
   shouldStartPanelDrag,
 } from "./floating-panel-layer";
 import {
@@ -222,5 +231,105 @@ describe("接线断言：InfiniteCanvas 必须真的用上这套逻辑", () => {
 
   it("⚠️ 关闭面板时必须清掉拖动位置，否则下次打开可能在视野外", () => {
     expect(source).toContain("if (!reversePromptPanelOpen) setReversePromptPanelPosition(null)");
+  });
+});
+
+describe("前后层切换：文案面板 ↔ 悬浮提示条", () => {
+  it("⚠️⚠️ 核心语义：谁被点中谁的 z 更高（两组状态各验一遍）", () => {
+    // 复刻用户看到的现象：两个面板互相压盖，点中谁谁在最前面，
+    // 另一个退到后面但保持可见可交互（不是隐藏）。
+    // 面板在前、提示条退后：
+    expect(resolveCopyPanelZIndex(true)).toBeGreaterThan(
+      resolvePromptBarZIndex(false)
+    );
+    // 提示条在前、面板退后：
+    expect(resolvePromptBarZIndex(true)).toBeGreaterThan(
+      resolveCopyPanelZIndex(false)
+    );
+  });
+
+  it("⚠️ 状态失同步时也不能出现双方都压不住对方的死锁", () => {
+    // 面板前值必须高于提示条前值、提示条前值必须高于面板后值 ——
+    // 否则事件丢失导致状态错位时，点击切换会失效且零报错。
+    expect(COPY_PANEL_FRONT_Z).toBeGreaterThan(PROMPT_BAR_FRONT_Z);
+    expect(PROMPT_BAR_FRONT_Z).toBeGreaterThan(COPY_PANEL_BACK_Z);
+    expect(COPY_PANEL_FRONT_Z).toBeGreaterThan(PROMPT_BAR_BACK_Z);
+  });
+
+  it("portal 后的补偿缩放：正常缩放区间恒为 1（与旧版节点内渲染逐位一致）", () => {
+    expect(copyPanelScreenScale(1)).toBe(1);
+    expect(copyPanelScreenScale(0.5)).toBe(1);
+    expect(copyPanelScreenScale(0.2)).toBe(1);
+    expect(copyPanelScreenScale(2.4)).toBe(1);
+  });
+
+  it("⚠️ 极端缩小（zoom<0.2）时要补回 zoom 那层缩放，NaN 归零不炸", () => {
+    expect(copyPanelScreenScale(0.1)).toBe(0.5);
+    expect(copyPanelScreenScale(Number.NaN)).toBe(0);
+    expect(Number.isFinite(copyPanelScreenScale(0))).toBe(true);
+  });
+});
+
+describe("接线断言：portal + 点击置前必须真的接上", () => {
+  const raw = readFileSync(canvasPath, "utf8");
+  const source = stripSourceComments(raw);
+
+  it("注释剥离没有吃掉源码", () => {
+    assertStripKeptSource(raw, source);
+  });
+
+  it("文案面板块：真的 portal 出去了，且根节点挂了点击置前", () => {
+    const start = source.indexOf("{extractedTextPanelOpen && (");
+    const end = source.indexOf("copyPanelPortalTarget ?? document.body");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const panelBlock = source.slice(start, end);
+    // portal 出节点（否则 z 永远赢不了画布根层的提示条）
+    expect(panelBlock).toContain("createPortal(");
+    // 点击置前的捕获阶段 handler（capture 才能覆盖标题栏/正文/输入框所有落点）
+    expect(panelBlock).toContain(
+      "onPointerDownCapture={handleCopyPanelPointerDown}"
+    );
+    // 零尺寸锚点：portal 后屏幕坐标的唯一来源
+    expect(panelBlock).toContain("ref={extractedTextPanelAnchorRef}");
+    // z 值来自纯函数常量，不许写死
+    expect(panelBlock).toContain("COPY_PANEL_FRONT_Z");
+    expect(panelBlock).toContain("COPY_PANEL_BACK_Z");
+  });
+
+  it("文案面板的置前 handler：置本面板为前 + 广播事件", () => {
+    const start = source.indexOf("const handleCopyPanelPointerDown");
+    expect(start).toBeGreaterThan(-1);
+    const handlerBlock = source.slice(start, start + 400);
+    expect(handlerBlock).toContain("setExtractedTextPanelFront(true)");
+    expect(handlerBlock).toContain("new CustomEvent(COPY_PANEL_FRONT_EVENT)");
+  });
+
+  it("⚠️ 面板位置靠锚点 rect 逐帧同步（rAF），portal 后才能跟着节点走", () => {
+    // 布局 effect + rAF 各同步一次 = 恰好 2 处调用
+    const calls = source.match(/syncCopyPanelToAnchor\(\);/g) || [];
+    expect(calls.length).toBe(2);
+    expect(source).toContain("requestAnimationFrame(tick)");
+  });
+
+  it("悬浮提示条：挂了点击置前，z 值不许再写死 106", () => {
+    const start = source.indexOf("function AssetEditPromptBar({");
+    expect(start).toBeGreaterThan(-1);
+    // 切到组件根节点的 zIndex 行为止（组件体很长，全文搜会扫到别人家）
+    const zIndexAt = source.indexOf("promptBarOnTop ? PROMPT_BAR_FRONT_Z", start);
+    expect(zIndexAt).toBeGreaterThan(start);
+    const barBlock = source.slice(start, zIndexAt + 80);
+    expect(barBlock).toContain(
+      "onPointerDownCapture={handlePromptBarPointerDown}"
+    );
+    expect(barBlock).toContain("setPromptBarOnTop(true)");
+    expect(barBlock).toContain("new CustomEvent(PROMPT_BAR_FRONT_EVENT)");
+  });
+
+  it("画布根容器必须带 portal 挂载标记", () => {
+    const start = source.indexOf("ref={containerRef}");
+    expect(start).toBeGreaterThan(-1);
+    const rootBlock = source.slice(start, start + 200);
+    expect(rootBlock).toContain('data-artx-canvas-root=""');
   });
 });

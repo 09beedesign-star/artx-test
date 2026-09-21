@@ -53,11 +53,18 @@ import {
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT, VOD_IMAGE_EXPANSION_MODEL } from "../../../../shared/image-expansion";
 import {
+  copyPanelScreenScale,
   defaultPanelLeft,
   nextPanelPosition,
   orderNodesForFloatingPanels,
   shouldStartPanelDrag,
   PANEL_DRAG_IGNORE_SELECTOR,
+  COPY_PANEL_BACK_Z,
+  COPY_PANEL_FRONT_EVENT,
+  COPY_PANEL_FRONT_Z,
+  PROMPT_BAR_BACK_Z,
+  PROMPT_BAR_FRONT_EVENT,
+  PROMPT_BAR_FRONT_Z,
   type PanelPosition,
 } from "./floating-panel-layer";
 import {
@@ -6696,6 +6703,92 @@ function AssetNodeComponent({
   } | null>(null);
   const [extractedTextPanelPosition, setExtractedTextPanelPosition] =
     useState<PanelPosition | null>(null);
+  /*
+   * 智能文案编辑面板 2026-09-21 起改为 **portal 到画布根容器** 渲染。
+   *
+   * 为什么：面板原来渲染在节点内部，zIndex:110 被 ReactFlow viewport 的
+   * transform 关在节点的层叠上下文里（floating-panel-layer.ts 头注释说的
+   * 「两套标尺」），永远压不住画布根层级的悬浮提示词条
+   * （AssetEditPromptBar，zIndex:106）。portal 之后两个面板在同一层叠
+   * 上下文里，点中谁谁置前。
+   *
+   * 位置同步：portal 后面板脱离节点坐标系，靠节点内的零尺寸锚点
+   * （extractedTextPanelAnchorRef）的 getBoundingClientRect 反推屏幕位置；
+   * rAF 循环负责跟随节点拖动 / 画布平移缩放。
+   */
+  const extractedTextPanelAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [copyPanelPortalTarget, setCopyPanelPortalTarget] =
+    useState<HTMLElement | null>(null);
+  const [extractedTextPanelFront, setExtractedTextPanelFront] = useState(false);
+
+  // 前后层切换走 window 事件：面板与提示条分属不同组件子树，没有共同的
+  // 就近父级 state；项目既有模式就是 CustomEvent（asset-regenerate-request 等）。
+  useEffect(() => {
+    const bringPanelFront = () => setExtractedTextPanelFront(true);
+    const bringPromptBarFront = () => setExtractedTextPanelFront(false);
+    window.addEventListener(COPY_PANEL_FRONT_EVENT, bringPanelFront);
+    window.addEventListener(PROMPT_BAR_FRONT_EVENT, bringPromptBarFront);
+    return () => {
+      window.removeEventListener(COPY_PANEL_FRONT_EVENT, bringPanelFront);
+      window.removeEventListener(PROMPT_BAR_FRONT_EVENT, bringPromptBarFront);
+    };
+  }, []);
+
+  const handleCopyPanelPointerDown = useCallback(() => {
+    setExtractedTextPanelFront(true);
+    window.dispatchEvent(new CustomEvent(COPY_PANEL_FRONT_EVENT));
+  }, []);
+
+  // 面板打开时解析 portal 容器（layout effect：首帧绘制前就要挂对位置）；
+  // 关闭时把前层级归还给悬浮提示条。
+  useLayoutEffect(() => {
+    if (!extractedTextPanelOpen) {
+      setCopyPanelPortalTarget(null);
+      return;
+    }
+    setExtractedTextPanelFront(false);
+    setCopyPanelPortalTarget(
+      document.querySelector<HTMLElement>("[data-artx-canvas-root]")
+    );
+  }, [extractedTextPanelOpen]);
+
+  const syncCopyPanelToAnchor = useCallback(() => {
+    const anchor = extractedTextPanelAnchorRef.current;
+    const panel = extractedTextPanelRef.current;
+    if (!anchor || !panel) return;
+    const anchorRect = anchor.getBoundingClientRect();
+    if (copyPanelPortalTarget?.hasAttribute("data-artx-canvas-root")) {
+      // 常规路径：挂在画布根（relative + overflow-hidden），坐标系与旧版
+      // 节点内渲染的可见范围一致，超出画布的部分照旧被裁掉。
+      const rootRect = copyPanelPortalTarget.getBoundingClientRect();
+      panel.style.position = "absolute";
+      panel.style.left = `${anchorRect.left - rootRect.left}px`;
+      panel.style.top = `${anchorRect.top - rootRect.top}px`;
+    } else {
+      // 兜底：容器没找到（理论上不该发生）时落到 body，用视口坐标。
+      panel.style.position = "fixed";
+      panel.style.left = `${anchorRect.left}px`;
+      panel.style.top = `${anchorRect.top}px`;
+    }
+  }, [copyPanelPortalTarget]);
+
+  // 每次渲染后先同步一次，避免面板首帧落在 (0,0)。
+  useLayoutEffect(() => {
+    if (!extractedTextPanelOpen) return;
+    syncCopyPanelToAnchor();
+  });
+  // rAF 循环：节点拖动 / 画布平移缩放不改 React state（或改了也不经这里
+  // 重渲染），靠逐帧读锚点 rect 让面板贴住节点，手感与旧版节点内渲染一致。
+  useEffect(() => {
+    if (!extractedTextPanelOpen) return;
+    let raf = 0;
+    const tick = () => {
+      syncCopyPanelToAnchor();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [extractedTextPanelOpen, syncCopyPanelToAnchor]);
   // 提示词反推面板的拖动态。结构与上面的文字提取面板完全一致，
   // 几何计算共用 floating-panel-layer 的纯函数，别再各写一份。
   const reversePromptPanelRef = useRef<HTMLDivElement | null>(null);
@@ -9346,12 +9439,24 @@ function AssetNodeComponent({
             )}
         </div>
         {extractedTextPanelOpen && (
-          <div
-            ref={extractedTextPanelRef}
-            className="absolute nodrag nopan shadow-2xl"
-            style={{
-	              left: extractedTextPanelPosition?.left ?? dispW + 14 * stableUiScale,
-	              top: extractedTextPanelPosition?.top ?? 0,
+          <>
+            {/* 节点内的零尺寸锚点：面板 portal 出去后，靠它的 DOM rect 反推屏幕位置 */}
+            <div
+              ref={extractedTextPanelAnchorRef}
+              aria-hidden
+              className="pointer-events-none absolute"
+              style={{
+                left: extractedTextPanelPosition?.left ?? dispW + 14 * stableUiScale,
+                top: extractedTextPanelPosition?.top ?? 0,
+              }}
+            />
+            {createPortal(
+              <div
+                ref={extractedTextPanelRef}
+                className="nodrag nopan shadow-2xl"
+                onPointerDownCapture={handleCopyPanelPointerDown}
+                style={{
+                  position: "absolute",
 	              width: 292,
 	              height: 360,
 	              minWidth: 260,
@@ -9367,9 +9472,13 @@ function AssetNodeComponent({
               border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)"}`,
               color: isDark ? "rgba(255,255,255,0.88)" : "rgba(28,28,40,0.88)",
               backdropFilter: "blur(16px)",
-              zIndex: 110,
+              zIndex: extractedTextPanelFront
+                ? COPY_PANEL_FRONT_Z
+                : COPY_PANEL_BACK_Z,
               pointerEvents: "all",
-              transform: `scale(${stableUiScale})`,
+              // 面板已 portal 出节点：节点内的 zoom 缩放层没了，这里补回来，
+              // 保证极端缩小（zoom<0.2）下面板屏幕大小与旧版逐位一致。
+              transform: `scale(${copyPanelScreenScale(viewport.zoom)})`,
               transformOrigin: "top left",
               display: "flex",
               flexDirection: "column",
@@ -9741,7 +9850,10 @@ function AssetNodeComponent({
                     : "无法定位文字位置"}
               </button>
             </div>
-          </div>
+          </div>,
+              copyPanelPortalTarget ?? document.body
+            )}
+          </>
         )}
         {reversePromptPanelOpen && (
           <div
@@ -16294,6 +16406,27 @@ function AssetEditPromptBar({
     return () => window.removeEventListener("keydown", handler);
   }, [anchor, onClose]);
 
+  /*
+   * 前后层切换（2026-09-21）：与节点上的智能文案编辑面板互相压盖时，
+   * 点中谁谁在最前面。默认提示条在前 —— 不切换时行为与旧版逐位一致。
+   * 信号走 window CustomEvent，纯函数与常量收口在 floating-panel-layer.ts。
+   */
+  const [promptBarOnTop, setPromptBarOnTop] = useState(true);
+  useEffect(() => {
+    const panelTakesFront = () => setPromptBarOnTop(false);
+    const promptBarTakesFront = () => setPromptBarOnTop(true);
+    window.addEventListener(COPY_PANEL_FRONT_EVENT, panelTakesFront);
+    window.addEventListener(PROMPT_BAR_FRONT_EVENT, promptBarTakesFront);
+    return () => {
+      window.removeEventListener(COPY_PANEL_FRONT_EVENT, panelTakesFront);
+      window.removeEventListener(PROMPT_BAR_FRONT_EVENT, promptBarTakesFront);
+    };
+  }, []);
+  const handlePromptBarPointerDown = useCallback(() => {
+    setPromptBarOnTop(true);
+    window.dispatchEvent(new CustomEvent(PROMPT_BAR_FRONT_EVENT));
+  }, []);
+
   const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
   const subtext = isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.40)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
@@ -16393,6 +16526,7 @@ function AssetEditPromptBar({
 
   return (
     <div
+      onPointerDownCapture={handlePromptBarPointerDown}
       style={{
         position: "absolute",
         // 吸附模式：用调用方换算好的屏幕坐标，transform 把自身左右居中；
@@ -16416,7 +16550,7 @@ function AssetEditPromptBar({
               marginRight: "auto",
               transform: visible ? "translateY(0)" : "translateY(20px)",
             }),
-        zIndex: 106,
+        zIndex: promptBarOnTop ? PROMPT_BAR_FRONT_Z : PROMPT_BAR_BACK_Z,
         background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
@@ -35031,6 +35165,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   return (
     <div
       ref={containerRef}
+      data-artx-canvas-root=""
       className="flex-1 relative overflow-hidden"
       style={{
         height: "100%",

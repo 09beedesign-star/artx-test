@@ -178,3 +178,54 @@ export function shouldStartPanelDrag(
 ): boolean {
   return button === 0 && !isInteractiveTarget;
 }
+
+/* ════════════════════════════════════════════════════════════════
+ * 智能文案编辑面板 ↔ 悬浮提示词条（AssetEditPromptBar）：前后层切换
+ * ════════════════════════════════════════════════════════════════
+ *
+ * 文案面板 2026-09-21 起 portal 到画布根容器渲染。原因：它原来渲染在
+ * 节点内部，zIndex 写到天上去也被 ReactFlow viewport 的 transform 关在
+ * 节点的层叠上下文里（本文件头注释说的「两套标尺」），永远压不住画布
+ * 根层级的 AssetEditPromptBar（106）。portal 之后两个面板共用画布根这
+ * 一个层叠上下文，z 值才真正可比。
+ *
+ * 切换语义：点中谁谁在最前面，另一个退到后面但保持可见可交互。
+ * 切换信号走 window CustomEvent（面板与提示条分属不同组件子树，没有
+ * 共同的就近父级 state；项目既有模式如 asset-regenerate-request）。
+ */
+
+/** 文案面板被点中，要求置前。 */
+export const COPY_PANEL_FRONT_EVENT = "artx-copy-panel-front";
+/** 悬浮提示条被点中（或文案面板关闭归还），要求置前。 */
+export const PROMPT_BAR_FRONT_EVENT = "artx-prompt-bar-front";
+
+/** 文案面板在前。110 沿用它在节点内时的旧值，语义仍是「比提示条靠前」。 */
+export const COPY_PANEL_FRONT_Z = 110;
+/** 文案面板退后。必须低于 PROMPT_BAR_FRONT_Z。 */
+export const COPY_PANEL_BACK_Z = 100;
+/** 悬浮提示条在前（历史默认值，未切换时行为与旧版逐位一致）。 */
+export const PROMPT_BAR_FRONT_Z = 106;
+/** 悬浮提示条退后。必须低于 COPY_PANEL_FRONT_Z。 */
+export const PROMPT_BAR_BACK_Z = 100;
+
+export function resolveCopyPanelZIndex(panelFront: boolean): number {
+  return panelFront ? COPY_PANEL_FRONT_Z : COPY_PANEL_BACK_Z;
+}
+
+export function resolvePromptBarZIndex(promptBarOnTop: boolean): number {
+  return promptBarOnTop ? PROMPT_BAR_FRONT_Z : PROMPT_BAR_BACK_Z;
+}
+
+/**
+ * portal 后文案面板需要的补偿缩放。
+ *
+ * 面板在节点内时的总屏幕缩放 = zoom × stableUiScale
+ * （stableUiScale = 1/max(0.2, zoom)，见 AssetNodeComponent）。
+ * portal 出节点后 zoom 那一层没了，这里把它补回来：
+ * zoom ≥ 0.2 时恒为 1（与旧行为逐位一致），zoom < 0.2 时为 zoom/0.2。
+ */
+export function copyPanelScreenScale(zoom: number): number {
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 0;
+  const denom = Math.max(MIN_DRAG_ZOOM, safeZoom || 1);
+  return safeZoom / denom;
+}
