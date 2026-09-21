@@ -220,6 +220,12 @@ export function ModelSelector({
   surface,
   placement = "up",
   triggerClassName,
+  /**
+   * 「只留图标」模式（2026-09-21）：触发按钮隐藏模型名文案，只渲染
+   * 模型图标 + 展开箭头。节点悬浮提示条要求整行按钮去掉文案省空间，
+   * 当前选了什么模型由下拉面板与 title 表达。默认 false，既有调用零影响。
+   */
+  iconOnly = false,
 }: {
   model: string;
   onChange: (m: string) => void;
@@ -228,6 +234,7 @@ export function ModelSelector({
   surface?: ModelSelectorSurface;
   placement?: "up" | "down";
   triggerClassName?: string;
+  iconOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
@@ -277,6 +284,7 @@ export function ModelSelector({
     >
       <button
         type="button"
+        title={iconOnly ? `模型：${current.label}` : undefined}
         onClick={e => {
           e.stopPropagation();
           setOpen(o => !o);
@@ -309,7 +317,7 @@ export function ModelSelector({
           icon={current.icon}
           color={triggerIconColor}
         />
-        {current.label}
+        {!iconOnly && current.label}
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>
       {open && (

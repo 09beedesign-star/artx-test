@@ -130,8 +130,11 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(quickEditBlock).toBeTruthy();
 
     // 四组控制件都渲染进节点框，且张数/画幅绑定组件自身 state。
-    expect(barBlock).toContain("<SkillPointSelector");
-    expect(barBlock).toContain("onChange={handleSkillChange}");
+    // 2026-09-21 用户要求：面板上的 Skill 按钮移除 —— 选择器不许回来，
+    // 载荷 skill 恒为 null（类型保留，提交链路的通用消费不动）。
+    expect(barBlock).not.toContain("<SkillPointSelector");
+    expect(barBlock).not.toContain("handleSkillChange");
+    expect(barBlock).toContain("skill: null");
     expect(barBlock).toContain("<ImageCountSelector");
     expect(barBlock).toContain("value={imageCount}");
     expect(barBlock).toContain("<ImageRatioSelector");
@@ -143,12 +146,13 @@ describe("InfiniteCanvas prompt controls", () => {
     // 提交 payload 带齐全部参数。
     expect(barBlock).toContain("ratio: imageRatio");
     expect(barBlock).toContain("count: imageCount");
-    expect(barBlock).toContain("skill: activeSkill");
 
-    // Skill 加载后联动首选画幅（与主助手面板行为一致）。
-    expect(barBlock).toContain("getSkillPreferredRatio(skill, \"\")");
+    expect(barBlock).toContain("ratio: imageRatio");
+    expect(barBlock).toContain("count: imageCount");
 
-    // 提交链路真正消费 payload：画幅 / 张数 / Skill 上下文 / 用户所选模型。
+    // Skill 按钮已移除（2026-09-21）：面板里不再有「Skill 加载后联动画幅」
+    // 的逻辑 —— 那段代码跟着按钮一起删了，不许以死代码形式残留。
+    expect(barBlock).not.toContain("getSkillPreferredRatio");
     expect(quickEditBlock).toContain("ratio: selectedRatio");
     expect(quickEditBlock).toContain("count: requestedCount");
     expect(quickEditBlock).toContain("resultCount: requestedCount");
@@ -230,11 +234,15 @@ describe("InfiniteCanvas prompt controls", () => {
      * 需求 1 给四个可展开 icon 加了展开箭头，紧凑态要容得下「图标 + 箭头」，
      * 宽度从 32 提到 44 并抽成常量 COMPACT_DISCLOSURE_BUTTON_WIDTH。
      * 📌 约束本身没变：紧凑态是固定窄宽、展开态仍是 74。变的是数值来源。
-     * 所以断言改为锁「用常量 + 展开态 74」，并反向禁掉写死数字（防止各处又各写各的）。
+     *
+     * 【2026-09-21 修正】节点悬浮条给张数/画幅加了 ghost（图标幽灵态，
+     * 宽度交给内容），宽度三元变成嵌套：compact → 常量 / ghost → auto /
+     * 其余 → 74。用计数断言锁「这个嵌套三元恰好只有张数、画幅两处」，
+     * 防止哪天某处又各写各的。
      */
-    expect(source).toContain(
-      "width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74"
-    );
+    expect(
+      (source.match(/ghost\s*\?\s*"auto"\s*:\s*74/g) || []).length
+    ).toBe(2);
     expect(source).not.toContain("width: compact ? 32 : 74");
     expect(source).toContain('className="flex min-w-0 flex-1 items-center"');
     expect(source).toContain('className="flex shrink-0 items-center"');

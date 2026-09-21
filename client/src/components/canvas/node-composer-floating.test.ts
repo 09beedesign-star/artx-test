@@ -256,10 +256,11 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
       bottomBar.length,
       "底部按钮区切片为空 —— 后面每条断言都会恒假，等于没有锁"
     ).toBeGreaterThan(800);
+    // 2026-09-21：发送按钮改紫色 + ghost 按钮注释使切片变长，上限放宽到 3500。
     expect(
       bottomBar.length,
       "切片过宽，可能把组件其它区域也圈进来，断言会恒真"
-    ).toBeLessThan(3200);
+    ).toBeLessThan(3500);
   });
 
   it("外层必须是 justify-between 单行容器，不能是 flex-wrap", () => {
@@ -301,16 +302,18 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
     ).not.toContain("回车发送");
   });
 
-  it("发送按钮配色必须与全局输入框同源（#C5ED47 + 同款阴影）", () => {
-    expect(bottomBar, "发送按钮不是全局同款绿色").toContain('"#C5ED47"');
-    expect(bottomBar, "缺少全局同款投影").toContain(
-      '"0 12px 30px rgba(197,237,71,0.24)"'
+  it("发送按钮配色：紫色底 + 白色图标（2026-09-21 用户点名，替代原先对齐全局的绿）", () => {
+    expect(bottomBar, "发送按钮不是紫色底").toContain(
+      '"oklch(0.58 0.22 290)"'
     );
-    // 反向：旧的紫色方块不能留着
-    expect(
-      bottomBar,
-      "还在用旧的紫色发送按钮 —— 没对齐全局样式"
-    ).not.toContain("oklch(0.58 0.22 290)");
+    expect(bottomBar, "发送按钮图标不是白色").toContain(
+      'color: canSendPrompt ? "#fff" : subtext'
+    );
+    expect(bottomBar, "紫色投影丢失").toContain(
+      '"0 12px 30px oklch(0.58 0.22 290 / 0.28)"'
+    );
+    // 反向：旧绿色不能留着
+    expect(bottomBar, "还在用旧的绿色发送按钮").not.toContain('"#C5ED47"');
   });
 
   it("发送按钮的禁用条件必须与 handleSend 的放行条件同源", () => {
@@ -382,6 +385,78 @@ describe("需求 4：生成内容沉淀到右侧对话框", () => {
 
 /**
  * ─────────────────────────────────────────────────────────────
+ * 需求 7（2026-09-21）：面板视觉收敛
+ *   ① 头部紫色引用标签尺寸 = 提示词框引用标签（COMPOSER_REF_TOKEN_SIZE）；
+ *   ② 面板底色 = 对话气泡的灰；
+ *   ③ 「智能优化此图片」文案移除；
+ *   ④ 底部按钮行：Skill 移除、全按钮去文案只留 图标+箭头、
+ *      上传按钮带 hover、发送按钮紫色底白图标。
+ * ─────────────────────────────────────────────────────────────
+ */
+describe("需求 7（2026-09-21）：引用标签尺寸对齐 + 底部按钮行 icon 化", () => {
+  const header = sliceBetween(
+    "{/* Header: asset chip + close */}",
+    "{/* Prompt textarea */}"
+  );
+  // 与需求 6 同一窄切片口径（那里是 describe 局部变量，这里独立再切一份）。
+  const bottomBar = (() => {
+    const start = source.indexOf("{/* Bottom action bar：布局与右下角");
+    if (start === -1) return "";
+    const end = source.indexOf("// ── Zoom Control Bar", start);
+    return end === -1 ? "" : source.slice(start, end);
+  })();
+
+  it("切片非空", () => {
+    expect(header.length, "头部切片为空，锚点失效").toBeGreaterThan(300);
+  });
+
+  it("头部引用标签尺寸必须取 COMPOSER_REF_TOKEN_SIZE 常量（与提示词框同源）", () => {
+    expect(header).toContain("height: COMPOSER_REF_TOKEN_SIZE.height");
+    expect(header).toContain("maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth");
+    expect(header).toContain("padding: COMPOSER_REF_TOKEN_SIZE.padding");
+    expect(header).toContain("width: COMPOSER_REF_TOKEN_SIZE.iconSize");
+    // 计数断言：height/maxWidth/gap/padding 各 1 + iconSize 2 + labelMaxWidth/fontSize 2 = 8
+    expect(
+      header.split("COMPOSER_REF_TOKEN_SIZE").length - 1,
+      "尺寸常量引用次数异常 —— 可能某处又写回了硬编码尺寸"
+    ).toBe(8);
+  });
+
+  it("「智能优化此图片」文案必须移除", () => {
+    expect(header, "旧文案还在头部").not.toContain("智能优化此图片");
+  });
+
+  it("面板底色必须是对话气泡的灰（isDark ? #232326 : oklch(0 0 0 / 4%)）", () => {
+    expect(
+      source,
+      "面板底色没有换成气泡灰"
+    ).toContain('background: isDark ? "#232326" : "oklch(0 0 0 / 4%)"');
+  });
+
+  it("底部按钮行：Skill 移除，模型/张数/画幅走 ghost 统一口径", () => {
+    expect(bottomBar, "Skill 选择器必须从面板移除").not.toContain(
+      "<SkillPointSelector"
+    );
+    // 张数、画幅各传一次 ghost，颜色唯一出口是 iconRowButton。
+    expect(
+      bottomBar.split("ghost={iconRowButton}").length - 1,
+      "ghost 必须恰好传给张数、画幅两个选择器"
+    ).toBe(2);
+    expect(bottomBar, "模型选择器必须 iconOnly").toContain("iconOnly");
+  });
+
+  it("上传按钮必须带 hover 反馈（底色切换到 hoverBackground）", () => {
+    expect(bottomBar, "上传按钮缺 onMouseEnter hover").toContain(
+      "onMouseEnter={e =>"
+    );
+    expect(bottomBar, "hover 底色没有用 iconRowButton.hoverBackground").toContain(
+      "iconRowButton.hoverBackground"
+    );
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────
  * 2026-09-20 缺陷修复的回归锁
  *
  * 用户报告：「悬浮提示面板中，局部重绘提示词生成的图片完全没有基于原图的
@@ -397,9 +472,10 @@ describe("需求 4：生成内容沉淀到右侧对话框", () => {
  * ─────────────────────────────────────────────────────────────
  */
 describe("缺陷修复：局部重绘必须基于原图，且默认走即梦 4.0", () => {
+  // 2026-09-21：handleSkillChange 随 Skill 按钮一起删除，切片尾锚改为 iconRowButton。
   const bar = sliceBetween(
     "function AssetEditPromptBar(",
-    "const handleSkillChange ="
+    "const iconRowButton ="
   );
 
   it("切片非空", () => {

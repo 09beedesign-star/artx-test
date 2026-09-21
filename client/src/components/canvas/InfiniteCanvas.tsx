@@ -1212,18 +1212,28 @@ function ImageCountSelector({
         style={{
           // ⚠️ 紧凑态放宽到 44：原先 32 是「只放一个图标」的宽度，
           //    现在要同时容纳图标 + 展开箭头，继续用 32 会把两者挤变形。
-          width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,
-          background: compact
+          width: compact
+            ? COMPACT_DISCLOSURE_BUTTON_WIDTH
+            : ghost
+              ? "auto"
+              : 74,
+          background: ghost
             ? open || hovered
-              ? compactSelectedBg
-              : compactDefaultBg
-            : open || hovered
-              ? hoverBg
-              : bg,
-          border: compact
-            ? "none"
-            : `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
-          color: open || hovered ? "white" : text,
+              ? ghost.hoverBackground
+              : ghost.background
+            : compact
+              ? open || hovered
+                ? compactSelectedBg
+                : compactDefaultBg
+              : open || hovered
+                ? hoverBg
+                : bg,
+          border: ghost
+            ? "1px solid transparent"
+            : compact
+              ? "none"
+              : `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+          color: ghost ? ghost.text : open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
@@ -1236,14 +1246,14 @@ function ImageCountSelector({
         onMouseLeave={() => setHovered(false)}
       >
         <Images size={12} style={{ flex: "0 0 auto" }} />
-        {!compact && <span>{value}张</span>}
+        {!compact && !ghost && <span>{value}张</span>}
         <ComposerDisclosureCaret open={open} compact={compact} />
       </button>
       {/*
         紧凑模式下横向空间不够，徽标会把工具条挤换行，所以只在常规模式显示。
         紧凑模式的用户仍可点开弹层看到完整说明，信息不会丢失。
       */}
-      {showRecommendation && !compact && (
+      {showRecommendation && !compact && !ghost && (
         <span
           title={
             creditsPerImage > 0
@@ -1381,11 +1391,14 @@ function ImageRatioSelector({
   onChange,
   isDark,
   compact = false,
+  /** 图标幽灵态：颜色由调用方传入，与同排上传按钮保持一套视觉语言。 */
+  ghost,
 }: {
   value: CanvasAssistantImageRatio;
   onChange: (ratio: CanvasAssistantImageRatio) => void;
   isDark: boolean;
   compact?: boolean;
+  ghost?: { background: string; hoverBackground: string; text: string };
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1452,18 +1465,28 @@ function ImageRatioSelector({
         className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
         style={{
           // 紧凑态要容纳图标 + 展开箭头，见 COMPACT_DISCLOSURE_BUTTON_WIDTH 注释。
-          width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,
-          background: compact
+          width: compact
+            ? COMPACT_DISCLOSURE_BUTTON_WIDTH
+            : ghost
+              ? "auto"
+              : 74,
+          background: ghost
             ? open || hovered
-              ? compactSelectedBg
-              : compactDefaultBg
-            : open || hovered
-              ? hoverBg
-              : bg,
-          border: compact
-            ? "none"
-            : "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
-          color: open || hovered ? "white" : text,
+              ? ghost.hoverBackground
+              : ghost.background
+            : compact
+              ? open || hovered
+                ? compactSelectedBg
+                : compactDefaultBg
+              : open || hovered
+                ? hoverBg
+                : bg,
+          border: ghost
+            ? "1px solid transparent"
+            : compact
+              ? "none"
+              : "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
+          color: ghost ? ghost.text : open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
           letterSpacing: 0,
@@ -1476,7 +1499,7 @@ function ImageRatioSelector({
         onMouseLeave={() => setHovered(false)}
       >
         <Frame size={12} style={{ flex: "0 0 auto" }} />
-        {!compact && <span>{triggerLabel}</span>}
+        {!compact && !ghost && <span>{triggerLabel}</span>}
         <ComposerDisclosureCaret open={open} compact={compact} />
       </button>
       {open &&
@@ -16519,7 +16542,6 @@ function AssetEditPromptBar({
   const [model, setModel] = useState(NODE_COMPOSER_EDIT_AI_MODEL_ID);
   const [imageCount, setImageCount] = useState(1);
   const [imageRatio, setImageRatio] = useState<CanvasAssistantImageRatio>("auto");
-  const [activeSkill, setActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -16575,22 +16597,18 @@ function AssetEditPromptBar({
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
   /*
-   * 节点框的 Skill 与主 composer 的 activeSkill **各自独立**：
-   * 两条链路的提交语义不同（这里固定走图片编辑），互不干扰；
-   * 加载 Skill 后把画幅联动为该 Skill 的首选比例（与主 composer 行为一致），
-   * 但只在首选比例存在于选择器列表时才覆盖，避免出现选择器不认识的值。
+   * 底部一行 icon 按钮的统一口径（2026-09-21）。
+   *
+   * 用户要求：Skill 按钮去掉；剩余按钮全部只留 图标(+展开箭头)；
+   * 所有 icon 按钮大小/样式与最左侧上传按钮一致。
+   * 这三个字段就是「上传按钮的样子」，通过 ghost / surface 传给
+   * 模型 / 张数 / 画幅选择器 —— 颜色唯一出口在这里，选择器内部
+   * 不许再硬编码第二份（同一份视觉规格两个出口 = 必然跑偏）。
    */
-  const handleSkillChange = (skill: PendingSkillLoad | null) => {
-    setActiveSkill(skill);
-    if (skill) {
-      const preferred = getSkillPreferredRatio(skill, "");
-      if (
-        preferred &&
-        (CANVAS_ASSISTANT_IMAGE_RATIOS as readonly string[]).includes(preferred)
-      ) {
-        setImageRatio(preferred as CanvasAssistantImageRatio);
-      }
-    }
+  const iconRowButton = {
+    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+    hoverBackground: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)",
+    text: subtext,
   };
 
   /*
@@ -16607,9 +16625,7 @@ function AssetEditPromptBar({
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
       const countText = imageCount > 1 ? ` · ${imageCount} 张` : "";
       toast("AI 正在智能优化", {
-        description:
-          `${prompt.slice(0, 60)}${refText}${countText}`.trim() ||
-          (activeSkill ? `使用 Skill：${activeSkill.name}` : ""),
+        description: `${prompt.slice(0, 60)}${refText}${countText}`.trim(),
       });
       onSubmit({
         prompt: prompt.trim(),
@@ -16617,11 +16633,15 @@ function AssetEditPromptBar({
         references: uploadedRefs,
         ratio: imageRatio,
         count: imageCount,
-        skill: activeSkill,
+        /*
+         * 用户 2026-09-21 去掉了面板上的 Skill 按钮 —— 载荷恒为 null。
+         * 类型保留 PendingSkillLoad | null：提交链路（handleAssetEditSubmit）
+         * 对 skill 的消费是通用代码，别为省一个字段去动它。
+         */
+        skill: null,
       });
       setPrompt("");
       setUploadedRefs([]);
-      setActiveSkill(null);
       setImageCount(1);
       setImageRatio("auto");
       /*
@@ -16694,7 +16714,9 @@ function AssetEditPromptBar({
               transform: visible ? "translateY(0)" : "translateY(20px)",
             }),
         zIndex: promptBarOnTop ? PROMPT_BAR_FRONT_Z : PROMPT_BAR_BACK_Z,
-        background: isDark ? "rgba(18,18,28,0.97)" : "rgba(255,255,255,0.97)",
+        // 底色 = 画布助手对话里 AI 气泡的灰（2026-09-21 用户点名）。
+        // 颜色取自对话气泡的 chipBg，别在这里另调一个"差不多的灰"。
+        background: isDark ? "#232326" : "oklch(0 0 0 / 4%)",
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
@@ -16713,9 +16735,19 @@ function AssetEditPromptBar({
         className="flex items-center gap-2 px-3 pt-2.5 pb-2"
         style={{ borderBottom: `1px solid ${divider}` }}
       >
+        {/*
+         * 引用标签（2026-09-21）：尺寸必须与提示词框里的引用标签一致，
+         * 尺寸唯一事实源 = COMPOSER_REF_TOKEN_SIZE（height 26 / padding /
+         * 图标 18 / 字号 12 全部取常量）；只保留用户点名的紫色配色差异。
+         * 结构也对齐引用标签：缩略图 + 标题，不再塞第二个小图标。
+         */}
         <div
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-pill)] type-caption"
+          className="flex shrink-0 items-center overflow-hidden rounded-[var(--radius-md-design)]"
           style={{
+            height: COMPOSER_REF_TOKEN_SIZE.height,
+            maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth,
+            gap: COMPOSER_REF_TOKEN_SIZE.gap,
+            padding: COMPOSER_REF_TOKEN_SIZE.padding,
             background: isDark
               ? "oklch(0.58 0.22 290 / 0.18)"
               : "oklch(0.58 0.22 290 / 0.12)",
@@ -16727,18 +16759,20 @@ function AssetEditPromptBar({
             src={asset.src}
             alt=""
             style={{
-              width: 16,
-              height: 16,
-              borderRadius: 3,
+              width: COMPOSER_REF_TOKEN_SIZE.iconSize,
+              height: COMPOSER_REF_TOKEN_SIZE.iconSize,
+              borderRadius: 2,
               objectFit: "cover",
+              flexShrink: 0,
             }}
           />
-          <ImageIcon size={9} style={{ opacity: 0.7 }} />
-          <span>{asset.title}</span>
+          <span
+            className="type-caption truncate"
+            style={{ maxWidth: COMPOSER_REF_TOKEN_SIZE.labelMaxWidth }}
+          >
+            {asset.title}
+          </span>
         </div>
-        <span className="type-caption" style={{ color: subtext }}>
-          智能优化此图片
-        </span>
         <div className="flex-1" />
         <button
           onClick={onClose}
@@ -16831,32 +16865,48 @@ function AssetEditPromptBar({
           />
           <button
             type="button"
-            className="flex h-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] transition-colors active:scale-95"
             style={{
-              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+              background: iconRowButton.background,
               color: subtext,
             }}
             title="上传参考图片"
             aria-label="上传参考图片"
             onClick={() => fileInputRef.current?.click()}
+            /* hover 反馈 = 底色加深，与右侧各 icon 按钮同一套语言。 */
+            onMouseEnter={e =>
+              (e.currentTarget.style.background = iconRowButton.hoverBackground)
+            }
+            onMouseLeave={e =>
+              (e.currentTarget.style.background = iconRowButton.background)
+            }
           >
             <ImagePlus size={13} />
           </button>
-          <ModelSelector model={model} onChange={setModel} isDark={isDark} />
-          <SkillPointSelector
-            activeSkill={activeSkill}
-            onChange={handleSkillChange}
+          <ModelSelector
+            model={model}
+            onChange={setModel}
             isDark={isDark}
+            iconOnly
+            surface={{
+              background: iconRowButton.background,
+              border: "transparent",
+              text: iconRowButton.text,
+              hoverBackground: iconRowButton.hoverBackground,
+              hoverText: iconRowButton.text,
+            }}
           />
           <ImageCountSelector
             value={imageCount}
             onChange={setImageCount}
             isDark={isDark}
+            ghost={iconRowButton}
           />
           <ImageRatioSelector
             value={imageRatio}
             onChange={setImageRatio}
             isDark={isDark}
+            ghost={iconRowButton}
           />
         </div>
         <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
@@ -16866,16 +16916,17 @@ function AssetEditPromptBar({
             onClick={handleSend}
             title="发送"
             aria-label="发送"
-            className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+            className="h-8 w-8 shrink-0 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
             style={{
+              // 2026-09-21 用户点名：紫色底 + 白色图标（原先对齐全局的绿）。
               background: canSendPrompt
-                ? "#C5ED47"
+                ? "oklch(0.58 0.22 290)"
                 : isDark
                   ? "oklch(1 0 0 / 8%)"
                   : "oklch(0 0 0 / 8%)",
-              color: canSendPrompt ? "#000" : subtext,
+              color: canSendPrompt ? "#fff" : subtext,
               boxShadow: canSendPrompt
-                ? "0 12px 30px rgba(197,237,71,0.24)"
+                ? "0 12px 30px oklch(0.58 0.22 290 / 0.28)"
                 : "none",
             }}
           >
