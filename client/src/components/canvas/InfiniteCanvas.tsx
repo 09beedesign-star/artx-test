@@ -16304,8 +16304,16 @@ function AssetEditPromptBar({
     }
   };
 
+  /*
+   * 发送按钮的可用态。与右下角全局输入框的 canSubmit 同语义：
+   * 有文字 **或** 有参考图就能发。
+   * ⚠️ 必须与 handleSend 内部的放行条件写成同一个表达式来源，
+   *    否则会出现「按钮亮着点了没反应」或「按钮灰着其实能发」。
+   */
+  const canSendPrompt = prompt.trim().length > 0 || uploadedRefs.length > 0;
+
   const handleSend = () => {
-    if (prompt.trim() || uploadedRefs.length > 0) {
+    if (canSendPrompt) {
       const refText =
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
       const countText = imageCount > 1 ? ` · ${imageCount} 张` : "";
@@ -16507,77 +16515,83 @@ function AssetEditPromptBar({
         )}
       </div>
 
-      {/* Bottom action bar：与主画布助手面板同一套选择器
-          （上传 / 模型 / Skill / 张数 / 画幅）。各选择器的下拉自带
-          createPortal 到 body 的定位，不受本容器 overflow:hidden 影响。 */}
+      {/* Bottom action bar：布局与右下角「全局提示词输入框」严格同构
+          （:24822 一带）—— 外层 justify-between，左侧一组 icon 用 flex-1
+          自适应吃掉剩余宽度并贴左，右侧发送按钮 shrink-0 贴右。
+          ⚠️ 不要退回 flex-wrap + 空 div 占位符那套：
+             flex-wrap 在窄框下会把发送按钮挤到第二行，与全局输入框的
+             「永远一行、左右两端对齐」不一致（用户 2026-09-21 点名要对齐）。
+          各选择器的下拉自带 createPortal 到 body 的定位，
+          不受本容器 overflow:hidden 影响。 */}
       <div
-        className="flex flex-wrap items-center gap-2 px-3 pb-3"
-        style={{ borderTop: `1px solid ${divider}`, paddingTop: 8 }}
+        className="flex min-w-0 items-center justify-between px-3 pb-3"
+        style={{ borderTop: `1px solid ${divider}`, paddingTop: 8, gap: 6 }}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={event => handleUploadRefs(event.target.files)}
-        />
-        <button
-          type="button"
-          className="flex h-8 items-center justify-center rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
-          style={{
-            background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-            color: subtext,
-          }}
-          title="上传参考图片"
-          aria-label="上传参考图片"
-          onClick={() => fileInputRef.current?.click()}
+        <div
+          className="flex min-w-0 flex-1 items-center"
+          style={{ gap: 6 }}
         >
-          <ImagePlus size={13} />
-        </button>
-        <ModelSelector model={model} onChange={setModel} isDark={isDark} />
-        <SkillPointSelector
-          activeSkill={activeSkill}
-          onChange={handleSkillChange}
-          isDark={isDark}
-        />
-        <ImageCountSelector
-          value={imageCount}
-          onChange={setImageCount}
-          isDark={isDark}
-        />
-        <ImageRatioSelector
-          value={imageRatio}
-          onChange={setImageRatio}
-          isDark={isDark}
-        />
-        <div className="flex-1" />
-        <span className="type-caption" style={{ color: subtext }}>
-          回车发送
-        </span>
-        <button
-          onClick={handleSend}
-          className="h-8 w-8 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80 active:scale-90 transition-all"
-          style={{
-            background:
-              prompt.trim() || uploadedRefs.length > 0
-                ? "oklch(0.58 0.22 290)"
-                : isDark
-                  ? "rgba(255,255,255,0.10)"
-                  : "rgba(0,0,0,0.08)",
-          }}
-        >
-          <Send
-            size={13}
-            color={
-              prompt.trim() || uploadedRefs.length > 0
-                ? "white"
-                : isDark
-                  ? "rgba(255,255,255,0.69)"
-                  : "rgba(0,0,0,0.30)"
-            }
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={event => handleUploadRefs(event.target.files)}
           />
-        </button>
+          <button
+            type="button"
+            className="flex h-8 shrink-0 items-center justify-center rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
+            style={{
+              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+              color: subtext,
+            }}
+            title="上传参考图片"
+            aria-label="上传参考图片"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <ImagePlus size={13} />
+          </button>
+          <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+          <SkillPointSelector
+            activeSkill={activeSkill}
+            onChange={handleSkillChange}
+            isDark={isDark}
+          />
+          <ImageCountSelector
+            value={imageCount}
+            onChange={setImageCount}
+            isDark={isDark}
+          />
+          <ImageRatioSelector
+            value={imageRatio}
+            onChange={setImageRatio}
+            isDark={isDark}
+          />
+        </div>
+        <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
+          <button
+            type="button"
+            disabled={!canSendPrompt}
+            onClick={handleSend}
+            title="发送"
+            aria-label="发送"
+            className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
+            style={{
+              background: canSendPrompt
+                ? "#C5ED47"
+                : isDark
+                  ? "oklch(1 0 0 / 8%)"
+                  : "oklch(0 0 0 / 8%)",
+              color: canSendPrompt ? "#000" : subtext,
+              boxShadow: canSendPrompt
+                ? "0 12px 30px rgba(197,237,71,0.24)"
+                : "none",
+            }}
+          >
+            <Send size={15} />
+          </button>
+        </div>
       </div>
     </div>
   );

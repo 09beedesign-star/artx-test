@@ -234,6 +234,106 @@ describe("需求 2：复用右下角输入框的能力（含引用功能）", ()
   });
 });
 
+describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框左右自适应对齐", () => {
+  /*
+   * 用户原话：「悬浮提示词面板下方的按钮布局按照这个样式来调整。
+   *            icon按照全局提示词输入框左右两边自适应对齐。」
+   *
+   * ⚠️ 切片必须收窄到**底部按钮区本身**。
+   *    整个 AssetEditPromptBar 里 `justify-between` / `flex-1` 出现多处
+   *    （参考图条、字数提示等），在整段上 toContain 会恒真 —— 2026-09-21
+   *    的 B2 变异就是这么漏网的。
+   */
+  const bottomBar = (() => {
+    const start = source.indexOf("{/* Bottom action bar：布局与右下角");
+    if (start === -1) return "";
+    const end = source.indexOf("// ── Zoom Control Bar", start);
+    return end === -1 ? "" : source.slice(start, end);
+  })();
+
+  it("切片非空且足够窄（锚点有效，断言不会恒真）", () => {
+    expect(
+      bottomBar.length,
+      "底部按钮区切片为空 —— 后面每条断言都会恒假，等于没有锁"
+    ).toBeGreaterThan(800);
+    expect(
+      bottomBar.length,
+      "切片过宽，可能把组件其它区域也圈进来，断言会恒真"
+    ).toBeLessThan(3200);
+  });
+
+  it("外层必须是 justify-between 单行容器，不能是 flex-wrap", () => {
+    expect(
+      bottomBar,
+      "外层不是 justify-between —— 左右两端不会自适应对齐"
+    ).toContain('className="flex min-w-0 items-center justify-between px-3 pb-3"');
+    expect(
+      bottomBar,
+      "退回了 flex-wrap —— 窄框时发送按钮会被挤到第二行"
+    ).not.toContain("flex flex-wrap items-center gap-2 px-3 pb-3");
+  });
+
+  it("左侧 icon 组必须 flex-1 自适应吃掉剩余宽度", () => {
+    expect(
+      bottomBar,
+      "左侧 icon 没有包进 flex-1 容器 —— 无法自适应贴左"
+    ).toContain('className="flex min-w-0 flex-1 items-center"');
+  });
+
+  it("右侧发送按钮必须 shrink-0 贴右", () => {
+    expect(
+      bottomBar,
+      "右侧没有 shrink-0 容器 —— 空间不足时发送按钮会被压扁"
+    ).toContain('className="flex shrink-0 items-center"');
+  });
+
+  it("不能再用 `<div className=\"flex-1\" />` 空占位符撑开", () => {
+    expect(
+      bottomBar,
+      "还留着空 div 占位符 —— 那是旧布局，与全局输入框不同构"
+    ).not.toContain('<div className="flex-1" />');
+  });
+
+  it('「回车发送」文案必须移除（全局输入框右侧只有发送按钮）', () => {
+    expect(
+      bottomBar,
+      "底部仍有「回车发送」文案 —— 与全局输入框右侧结构不一致"
+    ).not.toContain("回车发送");
+  });
+
+  it("发送按钮配色必须与全局输入框同源（#C5ED47 + 同款阴影）", () => {
+    expect(bottomBar, "发送按钮不是全局同款绿色").toContain('"#C5ED47"');
+    expect(bottomBar, "缺少全局同款投影").toContain(
+      '"0 12px 30px rgba(197,237,71,0.24)"'
+    );
+    // 反向：旧的紫色方块不能留着
+    expect(
+      bottomBar,
+      "还在用旧的紫色发送按钮 —— 没对齐全局样式"
+    ).not.toContain("oklch(0.58 0.22 290)");
+  });
+
+  it("发送按钮的禁用条件必须与 handleSend 的放行条件同源", () => {
+    expect(
+      source,
+      "canSendPrompt 没有被定义成唯一事实源"
+    ).toContain(
+      "const canSendPrompt = prompt.trim().length > 0 || uploadedRefs.length > 0;"
+    );
+    expect(bottomBar, "按钮没绑禁用态").toContain("disabled={!canSendPrompt}");
+    // handleSend 必须复用同一个变量，而不是另写一遍条件
+    const sendFn = (() => {
+      const at = source.indexOf("const handleSend = () => {");
+      return at === -1 ? "" : source.slice(at, at + 160);
+    })();
+    expect(sendFn.length, "handleSend 锚点失效").toBeGreaterThan(50);
+    expect(
+      sendFn,
+      "handleSend 另写了一遍放行条件 —— 会出现「按钮亮着点了没反应」"
+    ).toContain("if (canSendPrompt) {");
+  });
+});
+
 describe("需求 4：生成内容沉淀到右侧对话框", () => {
   const submit = sliceBetween(
     "const handleNodeComposerSubmit = useCallback(",
