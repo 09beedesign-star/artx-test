@@ -512,4 +512,97 @@ describe("resolveRegionTargetTexts 行匹配公共口径", () => {
     const result = resolveRegionTargetTexts(regions, "第一行\n第二行\n第三行");
     expect(result.some(r => r.changed)).toBe(false);
   });
+
+  /**
+   * ⚠️⚠️⚠️ 2026-09-21 线上事故的回归测试，数据是实录不是构造。
+   *
+   * 前端 textRegions 来自 OCR（本函数再按 y 排序），而 editedText 来自大模型
+   * 「按商业设计阅读层级整理」的结果 —— 两套排序规则，行序天然不对应。
+   * 旧实现（纯 buildReplacementMap 下标对齐）在这组真实数据上判定 8/9 行被改动，
+   * 且每行都配错文案（标题被要求写成 "CADPA"），全程零报错。
+   */
+  it("区域顺序与文案顺序不一致时，仍然只命中真正被改的那一行", () => {
+    const posterRegions = [
+      { x: 0.921, y: 0.028, width: 0.045, height: 0.048, text: "16+" },
+      { x: 0.917, y: 0.075, width: 0.052, height: 0.026, text: "CADPA" },
+      { x: 0.906, y: 0.103, width: 0.066, height: 0.028, text: "适龄提示" },
+      { x: 0, y: 0.127, width: 0.05, height: 0.036, text: "PEACE" },
+      { x: 0.515, y: 0.355, width: 0.104, height: 0.048, text: "龙狮城" },
+      { x: 0.925, y: 0.348, width: 0.024, height: 0.078, text: "龙狮迎冰雪" },
+      { x: 0.578, y: 0.812, width: 0.235, height: 0.026, text: "GAME FOR PEACE" },
+      { x: 0.427, y: 0.843, width: 0.545, height: 0.079, text: "大吉大利和平年" },
+      { x: 0.575, y: 0.934, width: 0.246, height: 0.032, text: "龙 狮 迎 冰 雪" },
+    ];
+    // 阅读层级顺序：主标题在前，角标在后 —— 与上面的 y 序正好相反
+    const editedText = [
+      "GAME FOR PEACE",
+      "欢乐中国年",
+      "龙 狮 迎 冰 雪",
+      "",
+      "龙狮城",
+      "龙狮迎冰雪",
+      "",
+      "PEACE",
+      "",
+      "16+",
+      "CADPA",
+      "适龄提示",
+    ].join("\n");
+
+    const changed = resolveRegionTargetTexts(posterRegions, editedText).filter(r => r.changed);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].region.text).toBe("大吉大利和平年");
+    expect(changed[0].targetText).toBe("欢乐中国年");
+  });
+
+  it("整页文案全改时仍按原有顺序口径对齐，不因内容锚定而失效", () => {
+    // 一个锚点都命中不了 —— 必须原样回退 buildReplacementMap，保持历史语义
+    const result = resolveRegionTargetTexts(regions, "甲\n乙\n丙");
+    expect(result.map(r => r.changed)).toEqual([true, true, true]);
+    expect(result.map(r => r.targetText)).toEqual(["甲", "乙", "丙"]);
+  });
+
+  /**
+   * 咬住 usedUpdated 去重（每条新文案只能被一个区域锚走）。
+   *
+   * 原图有两处一模一样的「立即购买」，用户只改了其中一处。
+   * 不去重的话，第二个「立即购买」区域会重复锚到第一条未改动的新文案上，
+   * 于是它被误判成「没改」，用户输入的新文案静默消失 —— 零报错，只是没生效。
+   */
+  it("重复原文中只改了一处时，被改的那一处不能被重复锚定吞掉", () => {
+    const dupRegions = [
+      { x: 0.1, y: 0.1, width: 0.5, height: 0.1, text: "立即购买" },
+      { x: 0.1, y: 0.3, width: 0.5, height: 0.1, text: "立即购买" },
+      { x: 0.1, y: 0.5, width: 0.5, height: 0.1, text: "底部说明" },
+    ];
+    const result = resolveRegionTargetTexts(dupRegions, "立即购买\n马上抢购\n底部说明");
+    const changed = result.filter(r => r.changed);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].targetText).toBe("马上抢购");
+  });
+
+  it("整页全改且行数不等时，仍要给出目标文案而不是留空", () => {
+    const result = resolveRegionTargetTexts(regions, "甲\n乙");
+    const changed = result.filter(r => r.changed);
+    expect(changed.length).toBeGreaterThan(0);
+    // 关键：有 changed 就必须有对应文案，不能是「判定改了却不知道写什么」
+    for (const item of changed) {
+      expect(item.targetText).toBeTruthy();
+    }
+    expect(changed.map(c => c.targetText)).toEqual(["甲", "乙"]);
+  });
+
+  it("多行同名文案时，锚定不能把同一条新文案重复分配给多个区域", () => {
+    const dupRegions = [
+      { x: 0.1, y: 0.1, width: 0.5, height: 0.1, text: "立即购买" },
+      { x: 0.1, y: 0.3, width: 0.5, height: 0.1, text: "标题" },
+      { x: 0.1, y: 0.5, width: 0.5, height: 0.1, text: "立即购买" },
+    ];
+    // 两个「立即购买」都没动，只改中间的标题
+    const result = resolveRegionTargetTexts(dupRegions, "立即购买\n新标题\n立即购买");
+    const changed = result.filter(r => r.changed);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].region.text).toBe("标题");
+    expect(changed[0].targetText).toBe("新标题");
+  });
 });

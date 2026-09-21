@@ -1587,6 +1587,74 @@ export async function createModifiedRegionsMask(
 }
 
 /**
+ * 内容锚定的行匹配：先把「文本完全相同」的行钉死为未改动，剩下的才按顺序对齐。
+ *
+ * ⚠️⚠️⚠️ 2026-09-21 这一趟是必需的，不是优化。
+ *
+ * 【为什么不能直接 buildReplacementMap】
+ * buildReplacementMap 的两条路径都**隐含假设「两个数组的行序一一对应」**：
+ *   - n === m 时逐下标比对；
+ *   - n !== m 时用 LCS，而 LCS 同样是顺序敏感的。
+ * 但这个前提在真实前端链路上**根本不成立**：
+ *   - textRegions 来自 OCR，本函数还会再按 y 重排；
+ *   - editedText 来自大模型「按商业设计阅读层级整理」后的结果
+ *     （InfiniteCanvas.tsx 的 commercial-ocr-copy-structure 提示词明确要求
+ *      「保留主标题、副标题、卖点、按钮文案的阅读顺序」，还允许轻度去重清理）。
+ * 两者是两套排序规则，行序天然不对应。
+ *
+ * 【实测后果】线上海报 9 个区域，用户只改了 1 行（大吉大利和平年→欢乐中国年），
+ * 按 y 排序后的区域序是 16+/CADPA/适龄提示/PEACE/…，而 editedText 行序是
+ * GAME FOR PEACE/欢乐中国年/…/适龄提示。n===m 走逐下标比对，
+ * 判定结果是 **8/9 行「被改动」**，且每一行都配错了目标文案：
+ *   16+ → GAME FOR PEACE、CADPA → 欢乐中国年、大吉大利和平年 → CADPA …
+ * 📌 全程零报错。下游据此擦字/叠字，表现就是「改一行却动了大半张图」。
+ *
+ * 【为什么内容锚定是对的】
+ * 「文本一模一样」是比「下标相同」强得多的证据，且与顺序无关。
+ * 先用它钉住所有未改动行，剩下的残差再交给原有 LCS —— 既修了错位，
+ * 又保留了「纯新增行 / 行数不等」这些老场景的既有行为。
+ *
+ * 一个都锚不住时原样回退 buildReplacementMap，保证不改变历史语义。
+ */
+function buildContentAnchoredReplacementMap(
+  original: string[],
+  updated: string[],
+): Map<number, string> {
+  const usedUpdated = new Set<number>();
+  const anchoredOriginal = new Set<number>();
+  for (let i = 0; i < original.length; i++) {
+    const text = original[i];
+    if (!text) continue;
+    for (let j = 0; j < updated.length; j++) {
+      if (usedUpdated.has(j)) continue;
+      if (updated[j] === text) {
+        usedUpdated.add(j);
+        anchoredOriginal.add(i);
+        break;
+      }
+    }
+  }
+  /*
+    注意：这里**不需要**再写一条「anchoredOriginal 为空就回退 buildReplacementMap」。
+    零锚点时残差集合恒等于全集（residualIndexes 覆盖所有下标、residualUpdated 覆盖所有行），
+    下面这段的入参与直接调 buildReplacementMap 完全相同，回退分支是死代码。
+    2026-09-21 变异测试证实：删掉它测试不会变红 —— 属等价变异，而不是"没测到"。
+    留着反而会让人误以为存在一条独立的保护路径。
+  */
+  const residualIndexes = original.map((_, i) => i).filter(i => !anchoredOriginal.has(i));
+  const residualOriginal = residualIndexes.map(i => original[i]);
+  const residualUpdated = updated.filter((_, j) => !usedUpdated.has(j));
+  const residualMap = buildReplacementMap(residualOriginal, residualUpdated);
+
+  const map = new Map<number, string>();
+  residualMap.forEach((text, residualIdx) => {
+    const originalIdx = residualIndexes[residualIdx];
+    if (originalIdx !== undefined) map.set(originalIdx, text);
+  });
+  return map;
+}
+
+/**
  * 把「哪些区域被改成了什么」这一判定抽成公共口径。
  *
  * 背景：drawTextReplacement、createModifiedRegionsMask、eraseTextRegionsLocally
@@ -1607,7 +1675,8 @@ export function resolveRegionTargetTexts(
     .filter(line => line.length > 0);
   const sortedRegions = [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x);
   const originalLines = sortedRegions.map(r => (r.text || "").trim());
-  const replacementMap = buildReplacementMap(originalLines, lines);
+  // ⚠️ 必须走内容锚定：区域按 y 排序、文案按阅读层级排序，两者行序不对应。
+  const replacementMap = buildContentAnchoredReplacementMap(originalLines, lines);
 
   return sortedRegions.map((region, index) => {
     const originalText = (region.text || "").trim();
