@@ -685,3 +685,54 @@ describe("局部重绘：pending 占位必须携带链路身份，不能被守�
     ).toContain("避免把原图编辑误当成文生图");
   });
 });
+
+describe("悬浮面板左上角紫色标签：固定文案「已引用」，不回显节点标题", () => {
+  const headerBlock = sliceBetween(
+    "{/* Header: asset chip + close */}",
+    "{/* Prompt textarea */}"
+  );
+
+  it("切片锚点必须唯一，否则断言可能落在别的组件上", () => {
+    expect(countOf("{/* Header: asset chip + close */}")).toBe(1);
+    expect(countOf("{/* Prompt textarea */}")).toBe(1);
+  });
+
+  it("标签正文必须是固定文案「已引用」", () => {
+    expect(
+      headerBlock,
+      "用户点名要把左上角紫色标签改成「已引用」"
+    ).toContain("已引用");
+  });
+
+  it("标签正文不能再回显节点标题", () => {
+    /*
+     * ⚠️ 只能取 span 的**正文**（`>` 之后到 `</span>` 之前），
+     * 不能连属性一起切 —— 属性里的 title={asset.title} 是我们**刻意保留**的
+     * 悬停提示，把它算进正文会让这条断言恒红（第一次写就踩了）。
+     */
+    const spanStart = headerBlock.indexOf('className="type-caption truncate"');
+    expect(spanStart, "type-caption 这个 span 必须存在").toBeGreaterThan(-1);
+    const afterAttrs = headerBlock.indexOf(">", headerBlock.indexOf("\n", spanStart));
+    const rendered = headerBlock.slice(
+      afterAttrs + 1,
+      headerBlock.indexOf("</span>", afterAttrs)
+    );
+    expect(rendered, "正文必须是固定文案").toContain("已引用");
+    expect(
+      rendered.includes("{asset.title}"),
+      "标签正文一旦改回 {asset.title}，用户看到的又会是「粘贴图片 1」这类节点名"
+    ).toBe(false);
+  });
+
+  it("节点标题仍要通过 title 属性保留，不能整段丢掉", () => {
+    expect(
+      headerBlock,
+      "标题信息应降级为悬停提示而不是直接删掉"
+    ).toContain("title={asset.title}");
+  });
+
+  it("紫色配色与尺寸常量不能被顺手改掉", () => {
+    expect(headerBlock).toContain("COMPOSER_REF_TOKEN_SIZE.labelMaxWidth");
+    expect(headerBlock).toContain("oklch(0.80 0.18 290)");
+  });
+});

@@ -16837,8 +16837,20 @@ function AssetEditPromptBar({
           <span
             className="type-caption truncate"
             style={{ maxWidth: COMPOSER_REF_TOKEN_SIZE.labelMaxWidth }}
+            /*
+             * 固定文案「已引用」（2026-09-21 用户点名）。
+             *
+             * ⚠️ 这里**不能**回显 asset.title —— 标题是节点自己的名字
+             * （「粘贴图片 1」「生成结果-xxx」之类），对这个面板来说是噪声：
+             * 用户在这儿关心的是「这张图已经被当成参考图带进本次编辑」，
+             * 不是它叫什么。标题仍由缩略图 title 属性保留可查。
+             *
+             * 📌 只改这一个出口，asset.title 在节点标题 / 提示词框引用标签
+             *    等处的用法保持不变。
+             */
+            title={asset.title}
           >
-            {asset.title}
+            已引用
           </span>
         </div>
         <div className="flex-1" />
