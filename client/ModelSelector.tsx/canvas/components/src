@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -239,6 +247,10 @@ export function ModelSelector({
   const [open, setOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(
+    null
+  );
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);
   const selectedBg = surface?.hoverBackground
@@ -258,15 +270,62 @@ export function ModelSelector({
   const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
   const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
   const rowHeight = 40;
-  const panelHeight = Math.min(models.length * rowHeight, 320);
+  /**
+   * 展开栏高度上限（2026-09-21 用户点名 220）。
+   * 超出的模型行走下方滚动条（overflowY auto + model-selector-scroll）。
+   */
+  const panelHeight = Math.min(models.length * rowHeight, 220);
+  const popMinWidth = 160;
+  const POP_GAP = 4;
+  const VIEWPORT_MARGIN = 8;
 
+  /**
+   * ⚠️ 下拉面板用 portal 到 body + position:fixed 定位（2026-09-21）。
+   *
+   * 【为什么改】节点悬浮提示条（AssetEditPromptBar）容器带 overflow:hidden，
+   * absolute 定位的面板会被悬浮窗裁断；面板的 zIndex 又被关在悬浮窗自己的
+   * 层叠上下文里，调多大都压不住画布根层 —— 这是「层叠上下文归属」问题，
+   * z-index 无解，只能像 ImageCountSelector 一样 portal 到 body。
+   *
+   * 定位规则（与 ImageCountSelector 同一套）：
+   *   - up：面板底缘贴按钮上缘 - GAP，用 `bottom` 定位 → 面板高度随内容
+   *     收缩时仍然贴着按钮，不会悬空；
+   *   - down：面板顶缘贴按钮下缘 + GAP，用 `top` 定位；
+   *   - maxHeight = min(220 上限, 该侧视口可用空间) → 极端贴边时面板
+   *     压缩 + 滚动条兜底，永不越出视口；
+   *   - 默认侧放不下时翻到另一侧。
+   */
+  const updatePopoverPosition = useCallback(() => {
+    const trigger = modelRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const spaceUp = rect.top - POP_GAP - VIEWPORT_MARGIN;
+    const spaceDown = window.innerHeight - rect.bottom - POP_GAP - VIEWPORT_MARGIN;
+    let effUp = placement === "up";
+    if (effUp && spaceUp < panelHeight && spaceDown > spaceUp) effUp = false;
+    if (!effUp && spaceDown < panelHeight && spaceUp > spaceDown) effUp = true;
+    const maxHeight = Math.min(panelHeight, Math.max(rowHeight, effUp ? spaceUp : spaceDown));
+    setPopoverStyle({
+      position: "fixed",
+      left: Math.min(
+        Math.max(VIEWPORT_MARGIN, rect.left),
+        Math.max(VIEWPORT_MARGIN, window.innerWidth - popMinWidth - VIEWPORT_MARGIN)
+      ),
+      top: effUp ? undefined : rect.bottom + POP_GAP,
+      bottom: effUp ? window.innerHeight - rect.top + POP_GAP : undefined,
+      minWidth: popMinWidth,
+      maxHeight,
+    });
+  }, [placement, panelHeight]);
+
+  // 点外关闭：portal 后面板不在 modelRef 子树里，必须把 popoverRef 一并认作「内部」。
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (
-        modelRef.current &&
         event.target instanceof globalThis.Node &&
-        !modelRef.current.contains(event.target)
+        !modelRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
       ) {
         setOpen(false);
       }
@@ -275,6 +334,18 @@ export function ModelSelector({
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [open]);
+
+  // 打开时先算一帧位置（layoutEffect 防首帧闪 (0,0)），之后跟随 resize / 滚动重算。
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePopoverPosition();
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [open, updatePopoverPosition]);
 
   return (
     <div
@@ -320,29 +391,31 @@ export function ModelSelector({
         {!iconOnly && current.label}
         <ChevronDown size={10} style={{ opacity: 0.6 }} />
       </button>
-      {open && (
-        <div
-          className={`absolute ${placement === "down" ? "top-full mt-1" : "bottom-full mb-1"} left-0 rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl`}
-          style={{
-            background: popBg,
-            border: `1px solid ${border}`,
-            minWidth: 160,
-            zIndex: 1201,
-            maxHeight: panelHeight,
-          }}
-          onClick={e => e.stopPropagation()}
-        >
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            className="model-selector-scroll"
+            ref={popoverRef}
+            className="rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
             style={{
-              maxHeight: panelHeight,
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              scrollbarWidth: "thin",
-              scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+              ...(popoverStyle || {}),
+              background: popBg,
+              border: `1px solid ${border}`,
+              zIndex: 9999,
             }}
-            onWheel={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
           >
+            <div
+              className="model-selector-scroll"
+              style={{
+                maxHeight: (popoverStyle?.maxHeight as number | undefined) ?? panelHeight,
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+                scrollbarWidth: "thin",
+                scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+              }}
+              onWheel={e => e.stopPropagation()}
+            >
             {models.map(m => (
               <button
                 key={m.id}
@@ -390,8 +463,9 @@ export function ModelSelector({
               </button>
             ))}
           </div>
-        </div>
-      )}
+        </div>,
+          document.body
+        )}
     </div>
   );
 }
