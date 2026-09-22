@@ -25,8 +25,19 @@ export const DEFAULT_IMAGE_MODEL_ID = "vod-og25-sunburst-medium";
  * AI 叠字逐字命中率仅 3/7、4/7，且出现过错字（"秋季"→"秋香"），耗时 29~42s。
  * 该基线低于本地确定性绘制的 7/7，因此 AI 叠字一直不是默认通道，
  * 仅在显式 `textApplyMode: "ai"` 时启用。
+ *
+ * 2026-09-22：改为 **vod-og25-sunburst-high**。
+ * 依据是 12 个 VOD 模型在同一张篮球海报上的真实横评
+ * （`scripts/probe-vod-textedit-matrix.mts`，全部带蒙版调用）：
+ *   - jimeng：字形完整，但**配色全变**（两行都成橙色）、右上 SUPREME 被重绘成红块
+ *   - og25-sunburst-high：字形最稳、61s，原版破碎笔刷风格与白/橙配色均保留
+ * ⚠️ 横评同时证明：**12 个模型无一真正遵守蒙版**，全部整图重绘
+ *（保留区改动 9.2~71.3，应 ≈0）。因此「不许改别处」不能指望模型，
+ * 必须靠服务端 `finalizeImages` 的「蒙版外回贴原图」来兜住 —— 那条保护已在线。
+ * ⚠️ `image_edit` 是 per_request 固定 180 积分（`shared/ai-credit-policy.ts`），
+ * 换模型**不改变用户支付**，成本差额由平台承担（$0.13 → $0.316）。
  */
-export const SMART_TEXT_EDIT_AI_MODEL_ID = "vod-jimeng";
+export const SMART_TEXT_EDIT_AI_MODEL_ID = "vod-og25-sunburst-high";
 
 /**
  * 画布节点下方「悬浮提示词面板」做局部重绘时的默认模型 —— 字节即梦 4.0。

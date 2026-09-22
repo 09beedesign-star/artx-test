@@ -425,6 +425,65 @@ function resolveAspectRatio(ratio?: string): string {
   return DEFAULT_AUTO_RATIO;
 }
 
+/**
+ * 腾讯云 VOD 对整个请求体有 10MB 硬上限（错误码 RequestSizeLimitExceeded）。
+ * 原图 + 蒙版都以 base64 内联时，2K 图（2048x1152）实测请求体约 19.8MB，**必然失败**。
+ *
+ * ⚠️ 这里必须收口在 VOD 客户端层：上游调用方有多个出口（AI 叠字 / 擦字 / 普通图生图），
+ * 只在某一条链路上降采样，其余出口照样会挂，且报错在上游看不出是尺寸问题。
+ *
+ * ⚠️⚠️ 蒙版必须保持 PNG + alpha（OG 系列用 alpha<=127 判编辑区，转 JPEG 会整份失效），
+ * 且蒙版与原图必须**同一个缩放比例**，否则编辑区会整体错位——零报错。
+ */
+const VOD_REQUEST_MAX_BYTES = 10 * 1024 * 1024;
+/** 留出 Prompt / 签名 / JSON 结构的余量，实际压到 8.5MB 以内 */
+const VOD_PAYLOAD_TARGET_BYTES = 8.5 * 1024 * 1024;
+
+function measureBase64Bytes(list: FileInfo[]): number {
+  return list.reduce((sum, f) => sum + (f.Base64?.length ?? 0), 0);
+}
+
+async function shrinkFileInfosToLimit(list: FileInfo[]): Promise<FileInfo[]> {
+  let current = measureBase64Bytes(list);
+  if (current <= VOD_PAYLOAD_TARGET_BYTES) return list;
+
+  const sharp = (await import("sharp")).default;
+  let working = list;
+
+  // 最多 4 轮：每轮按实测超出比例等比缩小，直到达标
+  for (let attempt = 0; attempt < 4 && current > VOD_PAYLOAD_TARGET_BYTES; attempt++) {
+    const scale = Math.sqrt(VOD_PAYLOAD_TARGET_BYTES / current) * 0.92;
+    const next: FileInfo[] = [];
+    for (const file of working) {
+      if (!file.Base64) {
+        next.push(file);
+        continue;
+      }
+      const buffer = Buffer.from(file.Base64, "base64");
+      const meta = await sharp(buffer, { limitInputPixels: false }).metadata();
+      const w = Math.max(1, Math.round((meta.width || 1) * scale));
+      const h = Math.max(1, Math.round((meta.height || 1) * scale));
+      const isMask = file.ReferenceType === "mask";
+      const pipeline = sharp(buffer, { limitInputPixels: false }).resize(w, h, {
+        fit: "fill",
+        // 蒙版用最近邻，避免插值把 alpha 糊成中间值导致编辑区边界漂移
+        kernel: isMask ? "nearest" : "lanczos3",
+      });
+      const output = isMask
+        ? await pipeline.png({ compressionLevel: 9 }).toBuffer()
+        : await pipeline.jpeg({ quality: 88, mozjpeg: true }).toBuffer();
+      next.push({ ...file, Base64: output.toString("base64") });
+    }
+    working = next;
+    current = measureBase64Bytes(working);
+  }
+
+  console.log(
+    `[vod-aigc] 请求体降采样: ${(measureBase64Bytes(list) / 1048576).toFixed(1)}MB -> ${(current / 1048576).toFixed(1)}MB（上限 ${VOD_REQUEST_MAX_BYTES / 1048576}MB）`,
+  );
+  return working;
+}
+
 export async function createVodImageTask(input: VodImageGenerationInput): Promise<{ taskId: string }> {
   const config = getConfig();
   const { modelName, modelVersion } = resolveModelAndVersion(input.model, input.modelVersion);
@@ -460,12 +519,14 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
     return list;
   })();
 
+  const sizedFileInfos = fileInfos ? await shrinkFileInfosToLimit(fileInfos) : undefined;
+
   const payload: CreateImageTaskRequest = {
     SubAppId: config.subAppId,
     ModelName: modelName,
     ModelVersion: modelVersion,
     Prompt: input.prompt,
-    FileInfos: fileInfos,
+    FileInfos: sizedFileInfos,
     OutputConfig: {
       StorageMode: input.storageMode || "Temporary",
       Resolution: input.resolution || "1K",
