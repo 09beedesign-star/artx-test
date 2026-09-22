@@ -37,8 +37,29 @@
  * `ratio: "1:1"` 或 `ratio: someRatio || "1:1"`。
  */
 
-/** 归一化后允许的最小边长，避免原图过小导致结果糊。 */
+import { SUPPORTED_IMAGE_RATIOS } from "./image-ratios";
+
+/**
+ * 用户**主动指定**画幅时（提示词写了比例 / 选择器选了非 auto），
+ * 由于只有比例没有像素，需要一个长边基准把比例展开成具体尺寸。
+ *
+ * ⚠️⚠️⚠️ 【2026-09-22】这个常量**绝不能**作用在「锁原图」那条路上。
+ * 曾经三条路都过 scaleToMinLongSide，于是 900×1200 的原图重绘后变成
+ * 1152×1536 —— 比例守住了，尺寸被悄悄改了，用户反馈「内容是对的，
+ * 但图片尺寸没有与原图保持一致」说的就是它。
+ * 📌 判据：**锁比例 ≠ 锁尺寸**。用户说「保持一致」要的是像素级一致，
+ *    等比放大同样是「改变了尺寸」，而且全程零报错。
+ */
 export const MIN_EDIT_LOCK_LONG_SIDE = 1536;
+
+/**
+ * 保持原图尺寸时的长边上限。
+ *
+ * 超过这个值不再按原图 1:1 输出 —— 上游最大只出 1536，
+ * 把它插值放到 12000px 既没有新信息，又会让内存/存储失控。
+ * 这是唯一允许偏离「与原图一致」的情况，且只会变小不会变形。
+ */
+export const MAX_EDIT_LOCK_LONG_SIDE = 8192;
 
 /**
  * 用户在提示词里显式指定画幅比的解析正则。
@@ -101,13 +122,43 @@ export type EditAspectLock = {
   ratio: string;
   /** 本次比例的来源，便于排查与断言。 */
   source: "prompt" | "selector" | "source-image" | "fallback";
+  /**
+   * 本次是否是「原样沿用原图尺寸」。
+   *
+   * 调用方据此决定要不要把 width/height 当成硬性输出尺寸下发。
+   * true 时 width/height 就是原图真实像素，一个都不许改。
+   */
+  preserveSourcePixels: boolean;
 };
 
-/** 用最大公约数把宽高约成最简比。 */
+/**
+ * 把原图宽高换算成**白名单内**最接近的比例字符串。
+ *
+ * ⚠️⚠️⚠️ 这里曾经是「最大公约数约简」，数学上完全正确，但会造出
+ * 白名单外的值：一张 1237×1653 的照片算出 `1237:1653`，
+ * 而 resolveImageRatio() 对白名单外的值是**静默兜底成 9:16**，
+ * 于是「锁原图比例」当场变成「改成 9:16」，且全程零报错。
+ * 只有宽高恰好能约成 3:4 / 4:3 这类整数比的图才幸免，
+ * 所以这个 bug 只在部分图片上复现 —— 排查时极易被当成「偶发」。
+ *
+ * 📌 判据：凡是要交给白名单校验的字符串，必须在生成时就落在白名单内。
+ * ⚠️ 真实像素不受影响 —— 那由 width/height 承载，ratio 仅用于给上游
+ *    选最接近的出图档位，最终还会按真实像素做一次归一化。
+ */
 function toSimplifiedRatio(width: number, height: number): string {
-  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-  const divisor = Math.max(1, gcd(Math.round(width), Math.round(height)));
-  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+  const target = width / Math.max(1, height);
+  let best = SUPPORTED_IMAGE_RATIOS[0] as string;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const candidate of SUPPORTED_IMAGE_RATIOS) {
+    const dimensions = parseRatioToDimensions(candidate);
+    if (!dimensions) continue;
+    const delta = Math.abs(dimensions.width / dimensions.height - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 /** 把 "16:9" 解析成数值对；非法返回 undefined。 */
@@ -122,6 +173,30 @@ export function parseRatioToDimensions(
   if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined;
   if (width < 1 || height < 1) return undefined;
   return { width, height };
+}
+
+/**
+ * 原图尺寸原样沿用，只在超过上限时等比缩小。
+ *
+ * ⚠️ 刻意**不做**任何放大：用户要的是「原图多大，出图就多大」。
+ * 小图放大到 1536 在指标上更"清晰"，但那是另一个尺寸的图，不是他要的。
+ */
+export function clampToMaxLongSide(
+  width: number,
+  height: number,
+  maxLongSide: number = MAX_EDIT_LOCK_LONG_SIDE
+): { width: number; height: number } {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const longSide = Math.max(safeWidth, safeHeight);
+  if (longSide <= maxLongSide) {
+    return { width: Math.round(safeWidth), height: Math.round(safeHeight) };
+  }
+  const scale = maxLongSide / longSide;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
 }
 
 /**
@@ -154,10 +229,12 @@ export function scaleToMinLongSide(
  * 优先级（高 → 低），**顺序不能调**：
  *   1. 提示词里显式写的比例   —— 最强的即时意图
  *   2. UI 比例选择器的非 auto 值 —— 用户手动设过
- *   3. 引用图的真实宽高        —— 默认行为：原样锁住
+ *   3. 引用图的真实宽高        —— 默认行为：**原始像素原样沿用**
  *   4. 1:1                     —— 兜底，仅在完全拿不到尺寸时
  *
- * ⚠️ 第 3 条是本次修复的核心：以前这里直接写死 "1:1"。
+ * ⚠️ 第 3 条是核心：以前这里直接写死 "1:1"（比例被改），
+ *    后来改成锁比例但仍等比放大到 1536（尺寸被改）。
+ *    现在是原始像素原样返回，只在超过 8192 上限时才等比缩小。
  */
 export function resolveEditAspectLock(
   input: EditAspectLockInput
@@ -167,7 +244,12 @@ export function resolveEditAspectLock(
     const dimensions = parseRatioToDimensions(explicitRatio);
     if (dimensions) {
       const scaled = scaleToMinLongSide(dimensions.width, dimensions.height);
-      return { ...scaled, ratio: explicitRatio, source: "prompt" };
+      return {
+        ...scaled,
+        ratio: explicitRatio,
+        source: "prompt",
+        preserveSourcePixels: false,
+      };
     }
   }
 
@@ -176,7 +258,12 @@ export function resolveEditAspectLock(
     const dimensions = parseRatioToDimensions(selected);
     if (dimensions) {
       const scaled = scaleToMinLongSide(dimensions.width, dimensions.height);
-      return { ...scaled, ratio: selected, source: "selector" };
+      return {
+        ...scaled,
+        ratio: selected,
+        source: "selector",
+        preserveSourcePixels: false,
+      };
     }
   }
 
@@ -189,14 +276,25 @@ export function resolveEditAspectLock(
     sourceHeight > 0;
 
   if (hasUsableSource) {
-    const scaled = scaleToMinLongSide(sourceWidth, sourceHeight);
+    /**
+     * ⚠️⚠️⚠️ 这里用 clampToMaxLongSide 而**不是** scaleToMinLongSide。
+     * 用户的要求是「原图是什么尺寸分辨率，生成的就是什么尺寸分辨率」，
+     * 放大到 1536 同样属于「改变了尺寸」。只有超过 8192 才等比缩小。
+     */
+    const clamped = clampToMaxLongSide(sourceWidth, sourceHeight);
     return {
-      ...scaled,
+      ...clamped,
       ratio: toSimplifiedRatio(sourceWidth, sourceHeight),
       source: "source-image",
+      preserveSourcePixels: true,
     };
   }
 
   const fallback = scaleToMinLongSide(1, 1);
-  return { ...fallback, ratio: "1:1", source: "fallback" };
+  return {
+    ...fallback,
+    ratio: "1:1",
+    source: "fallback",
+    preserveSourcePixels: false,
+  };
 }

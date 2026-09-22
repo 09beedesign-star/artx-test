@@ -952,6 +952,7 @@ export async function editImageWithPrompt({
   maskSrc,
   operation,
   preserveSource,
+  preserveSourceSize,
   targetWidth,
   targetHeight,
   referencedAssets = [],
@@ -968,6 +969,11 @@ export async function editImageWithPrompt({
   maskSrc?: string;
   operation?: string;
   preserveSource?: boolean;
+  /**
+   * 输出尺寸与原图像素一致（auto 分辨率下的全站默认）。
+   * 用户在提示词里写了尺寸、或选择器选了非 auto 时为 false。
+   */
+  preserveSourceSize?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
@@ -999,6 +1005,7 @@ export async function editImageWithPrompt({
       intent: "image_edit",
       operation: operation || "edit",
       preserveSource,
+      preserveSourceSize,
       imageSrc,
       maskSrc,
       model,
@@ -1018,6 +1025,7 @@ export async function editImageWithPrompt({
     intent: "image_edit",
     operation: operation || "edit",
     preserveSource,
+    preserveSourceSize,
     imageSrc,
     maskSrc,
     model,

@@ -13,12 +13,15 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  MAX_EDIT_LOCK_LONG_SIDE,
   MIN_EDIT_LOCK_LONG_SIDE,
+  clampToMaxLongSide,
   parseExplicitRatioFromPrompt,
   parseRatioToDimensions,
   resolveEditAspectLock,
   scaleToMinLongSide,
 } from "../shared/edit-aspect-lock";
+import { SUPPORTED_IMAGE_RATIOS } from "../shared/image-ratios";
 
 const CANVAS_PATH = path.resolve(
   __dirname,
@@ -40,8 +43,9 @@ describe("局部重绘默认锁定原图比例", () => {
     });
     expect(lock.source).toBe("source-image");
     expect(lock.ratio).toBe("3:4");
-    // 等比放大，比例必须严格守恒
-    expect(lock.width / lock.height).toBeCloseTo(1200 / 1600, 10);
+    // 原样沿用：不是「比例对就行」，是逐像素相等
+    expect(lock.width).toBe(1200);
+    expect(lock.height).toBe(1600);
   });
 
   it("⚠️ 竖图绝不会被悄悄变成方图（本次 bug 的直接症状）", () => {
@@ -124,6 +128,109 @@ describe("局部重绘默认锁定原图比例", () => {
       expect(lock.source).toBe("fallback");
       expect(lock.ratio).toBe("1:1");
     }
+  });
+});
+
+describe("⚠️⚠️⚠️ auto + 引用图时逐像素沿用原图尺寸（锁比例 ≠ 锁尺寸）", () => {
+  it("小图不被放大到 1536（本轮 bug 的直接症状）", () => {
+    const lock = resolveEditAspectLock({
+      sourceWidth: 900,
+      sourceHeight: 1200,
+    });
+    // 旧实现会返回 1152×1536：内容对、比例对、尺寸被悄悄改了
+    expect(lock.width).toBe(900);
+    expect(lock.height).toBe(1200);
+    expect(lock.preserveSourcePixels).toBe(true);
+  });
+
+  it("各种奇怪尺寸都逐像素沿用", () => {
+    for (const [w, h] of [
+      [1237, 1653],
+      [640, 480],
+      [1920, 1080],
+      [333, 333],
+      [2048, 1024],
+    ]) {
+      const lock = resolveEditAspectLock({ sourceWidth: w, sourceHeight: h });
+      expect(lock.width).toBe(w);
+      expect(lock.height).toBe(h);
+      expect(lock.preserveSourcePixels).toBe(true);
+    }
+  });
+
+  it("⚠️ 超过上限才等比缩小，且只缩不变形", () => {
+    const lock = resolveEditAspectLock({
+      sourceWidth: 12000,
+      sourceHeight: 9000,
+    });
+    expect(Math.max(lock.width, lock.height)).toBe(MAX_EDIT_LOCK_LONG_SIDE);
+    expect(lock.width / lock.height).toBeCloseTo(12000 / 9000, 6);
+    // 仍算「保持原图」——只是被安全上限截断，没有被换成别的画幅
+    expect(lock.preserveSourcePixels).toBe(true);
+  });
+
+  it("clampToMaxLongSide 只缩不放", () => {
+    expect(clampToMaxLongSide(600, 800)).toEqual({ width: 600, height: 800 });
+    expect(clampToMaxLongSide(1, 1)).toEqual({ width: 1, height: 1 });
+    const shrunk = clampToMaxLongSide(16384, 8192);
+    expect(shrunk.width).toBe(MAX_EDIT_LOCK_LONG_SIDE);
+    expect(shrunk.height).toBe(MAX_EDIT_LOCK_LONG_SIDE / 2);
+  });
+
+  it("⚠️ 用户主动指定画幅时不保持原图尺寸，仍走 1536 基准", () => {
+    const byPrompt = resolveEditAspectLock({
+      sourceWidth: 900,
+      sourceHeight: 1200,
+      prompt: "输出 16:9",
+    });
+    expect(byPrompt.preserveSourcePixels).toBe(false);
+    expect(Math.max(byPrompt.width, byPrompt.height)).toBe(
+      MIN_EDIT_LOCK_LONG_SIDE
+    );
+
+    const bySelector = resolveEditAspectLock({
+      sourceWidth: 900,
+      sourceHeight: 1200,
+      selectedRatio: "4:5",
+    });
+    expect(bySelector.preserveSourcePixels).toBe(false);
+    expect(Math.max(bySelector.width, bySelector.height)).toBe(
+      MIN_EDIT_LOCK_LONG_SIDE
+    );
+
+    const fallback = resolveEditAspectLock({});
+    expect(fallback.preserveSourcePixels).toBe(false);
+  });
+
+  it("⚠️⚠️ 锁原图时产出的 ratio 必须落在白名单内（否则被静默兜底成 9:16）", () => {
+    // 曾经用最大公约数约简，1237×1653 会算出白名单外的 "1237:1653"，
+    // resolveImageRatio 对白名单外的值静默回落 —— 锁原图当场变成改画幅。
+    const whitelist = new Set<string>(SUPPORTED_IMAGE_RATIOS);
+    for (const [w, h] of [
+      [1237, 1653],
+      [1001, 997],
+      [3000, 1000],
+      [777, 1000],
+      [1080, 1920],
+    ]) {
+      const lock = resolveEditAspectLock({ sourceWidth: w, sourceHeight: h });
+      expect(whitelist.has(lock.ratio)).toBe(true);
+    }
+  });
+
+  it("吸附到的是**最接近**的白名单比例，不是随便挑一个", () => {
+    expect(
+      resolveEditAspectLock({ sourceWidth: 1080, sourceHeight: 1920 }).ratio
+    ).toBe("9:16");
+    expect(
+      resolveEditAspectLock({ sourceWidth: 1920, sourceHeight: 1080 }).ratio
+    ).toBe("16:9");
+    expect(
+      resolveEditAspectLock({ sourceWidth: 1000, sourceHeight: 1000 }).ratio
+    ).toBe("1:1");
+    expect(
+      resolveEditAspectLock({ sourceWidth: 1237, sourceHeight: 1653 }).ratio
+    ).toBe("3:4");
   });
 });
 
@@ -218,5 +325,27 @@ describe("⚠️⚠️ 画幅锁真的被接到了每个重绘出口（测纯函
   it("底图尺寸来自真实像素而非节点尺寸", () => {
     expect(source).toContain("getImageNaturalSize");
     expect(source).toContain("naturalWidth");
+  });
+
+  it("⚠️⚠️ 每个出口都下发了 preserveSourceSize（漏一个 = 那条路仍会改尺寸）", () => {
+    const assignments = source.match(/preserveSourceSize:\s*[\s\S]{0,80}?,/g) || [];
+    const fromLock = assignments.filter(chunk =>
+      /AspectLock\.preserveSourcePixels/.test(chunk)
+    );
+    /*
+     * 与上面的 targetWidth 基数严格同数：6 = 3 条重绘路径 × 2 个出口。
+     * ⚠️ 用计数而非 toContain —— 同一模式多次出现时 toContain 会让变异漏网。
+     */
+    expect(fromLock.length).toBe(6);
+  });
+
+  it("⚠️ 反向断言：不存在只传尺寸却漏传保持标记的重绘出口", () => {
+    const widthCount = (source.match(/targetWidth:\s*\w*AspectLock\.width/g) || [])
+      .length;
+    const preserveCount = (
+      source.match(/preserveSourceSize:\s*[\s\S]{0,80}?AspectLock\.preserveSourcePixels/g) ||
+      []
+    ).length;
+    expect(preserveCount).toBe(widthCount);
   });
 });

@@ -15342,6 +15342,9 @@ function BottomPromptBar({
                     // 锁画幅：底图真实像素，不用被钳制过的画布显示尺寸。
                     targetWidth: bottomSkillAspectLock.width,
                     targetHeight: bottomSkillAspectLock.height,
+                    // auto + 引用图 → 逐像素保持原图尺寸，禁止后端再放大到 1536。
+                    preserveSourceSize:
+                      bottomSkillAspectLock.preserveSourcePixels,
                   }
                 : undefined,
           };
@@ -15362,6 +15365,8 @@ function BottomPromptBar({
                     // 与上面的 backgroundTaskInput 必须同源，否则前台/后台两套尺寸。
                     targetWidth: bottomSkillAspectLock.width,
                     targetHeight: bottomSkillAspectLock.height,
+                    preserveSourceSize:
+                      bottomSkillAspectLock.preserveSourcePixels,
                     generationId,
                   })
                 : await generateAiImages(payload);
@@ -23425,6 +23430,8 @@ function CanvasAssistantPanel({
                   // 锁画幅：底图真实像素推导，不用画布显示尺寸。
                   targetWidth: skillEditAspectLock.width,
                   targetHeight: skillEditAspectLock.height,
+                  // auto + 引用图 → 逐像素保持原图尺寸。
+                  preserveSourceSize: skillEditAspectLock.preserveSourcePixels,
                 }
               : undefined,
         };
@@ -23444,6 +23451,7 @@ function CanvasAssistantPanel({
                 // 后台任务走另一套，结果按哪条路跑就不确定了。
                 targetWidth: skillEditAspectLock.width,
                 targetHeight: skillEditAspectLock.height,
+                preserveSourceSize: skillEditAspectLock.preserveSourcePixels,
                 generationId,
               })
             : // ⚠️ signal 只能从这里传，不能塞进 payload —— payload 会被
@@ -23762,6 +23770,9 @@ function CanvasAssistantPanel({
                   // 锁画幅：用底图真实像素推导出的目标尺寸，不用画布显示尺寸。
                   targetWidth: referenceEditAspectLock.width,
                   targetHeight: referenceEditAspectLock.height,
+                  // auto + 引用图 → 逐像素保持原图尺寸。
+                  preserveSourceSize:
+                    referenceEditAspectLock.preserveSourcePixels,
                 }
               : undefined,
         };
@@ -23779,6 +23790,8 @@ function CanvasAssistantPanel({
                 // 同上：锁底图真实比例，避免结果被上游吸附到错误档位后拉伸。
                 targetWidth: referenceEditAspectLock.width,
                 targetHeight: referenceEditAspectLock.height,
+                preserveSourceSize:
+                  referenceEditAspectLock.preserveSourcePixels,
                 generationId,
               })
             : await generateAiImages({ ...payload, signal: submissionSignal });

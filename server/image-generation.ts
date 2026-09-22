@@ -22,10 +22,13 @@ import { buildInpaintMask, measureMaskSurroundingFlatness } from "./inpaint-mask
 import { eraseTextWithEngine, isTextEngineConfigured } from "./text-engine-client";
 import {
   drawTextReplacement,
+  eraseTextInkLocally,
   createModifiedRegionsMask,
+  createInkLevelEditMask,
   dilateMaskTransparent,
   verifyDrawnTextQuality,
   eraseTextRegionsLocally,
+  measureRegionEdgeEnergy,
   calibrateTextRegions,
   resolveRegionTargetTexts,
 } from "./text-replace-precise";
@@ -141,6 +144,14 @@ type EditImageInput = {
   prompt: string;
   operation?: string;
   preserveSource?: boolean;
+  /**
+   * 「输出尺寸必须等于原图像素」的显式信号（2026-09-22）。
+   *
+   * ⚠️⚠️ 刻意**不**复用 preserveSource：那个字段还兼管「蒙版外回贴」，
+   * 搭车会让普通重绘意外获得像素级回贴行为（重绘内容被原图盖回去）。
+   * 📌 判据：一个布尔同时控两种语义时，新需求必须另开字段。
+   */
+  preserveSourceSize?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   images?: Array<{ src: string; title?: string }>;
@@ -2264,6 +2275,120 @@ async function runPicWishImageExpansion(
   return withProviderTaskIds(result, [taskId]);
 }
 
+/**
+ * 上游擦除相对本地结果的「残留能量」容忍倍数。
+ *
+ * 取 1.15 而非 1.0：上游保留真实纹理时能量本就略高于本地的平滑雾化，
+ * 严格小于会把「保住了背景细节」误判成「脑补」。而脑补砖墙这类事故
+ * 实测是数倍差距，1.15 足以分开两者。
+ */
+const UPSTREAM_ERASE_ENERGY_TOLERANCE = 1.15;
+
+/** 佐糖凭据是否可用（缺失时整条上游擦除通道直接让位，行为与接入前一致）。 */
+function isPicWishConfigured(): boolean {
+  return Boolean(process.env.PICWISH_API_KEY || process.env.AOS_API_KEY);
+}
+
+/**
+ * 复杂纹理背景下优先走上游 inpaint，拿不到就返回 null 由调用方回落本地。
+ *
+ * ⚠️⚠️⚠️ 三条保护缺一不可（都来自已发生过的事故）：
+ * 1. **必须做蒙版外回贴**。上游返回的是整图，可能顺手改了别处（背景改色、主体变形），
+ *    只校验「蒙版内有变化」的话，一张被整体重画的图也能通过。
+ * 2. **必须校验蒙版内真的变了**。上游偶尔原样返回（额度耗尽/任务失败但 HTTP 200），
+ *    不校验就会把「没擦」当成「擦好了」，残影零报错存活。
+ * 3. **任何异常都回落本地，绝不抛出**。擦除是增强步骤，不能让它阻断整条改字链路。
+ */
+async function erasePreferUpstream(args: {
+  originalBuffer: Buffer;
+  originalMimeType: string;
+  maskBuffer: Buffer;
+  localFallback: Buffer;
+  textRegions: Array<{ x: number; y: number; width: number; height: number }>;
+  width: number;
+  height: number;
+}): Promise<Buffer | null> {
+  try {
+    const inpaintMask = await buildInpaintMask(args.maskBuffer, args.width, args.height);
+    const result = await eraseWithPicWish({
+      imageBuffer: args.originalBuffer,
+      imageMimeType: args.originalMimeType,
+      maskBuffer: inpaintMask,
+      maskMimeType: "image/jpeg",
+      sync: true,
+    });
+    const src = result.images[0]?.src;
+    if (!src) {
+      console.log("[text_edit] 佐糖 inpaint 未返回图像，回落本地扩散填充");
+      return null;
+    }
+    const edited = await imageSrcToBuffer(src);
+    // 保护 1：蒙版外一律用原图，把上游的自由发挥关回蒙版内
+    const composited = await __testCompositeSourcePreservingImageEdit(
+      args.originalBuffer,
+      edited.buffer,
+      args.maskBuffer,
+      args.width,
+      args.height,
+    );
+    // 保护 2：蒙版内必须真的发生了变化，否则视为没擦
+    const changed = await hasVisibleLocalEdit(
+      args.originalBuffer,
+      composited,
+      args.maskBuffer,
+      args.width,
+      args.height,
+    );
+    if (!changed) {
+      console.log("[text_edit] 佐糖 inpaint 结果与原图无差异，回落本地扩散填充");
+      return null;
+    }
+
+    /**
+     * 保护 4：必须与本地结果比「残留能量」再决定采纳。
+     *
+     * ⚠️⚠️⚠️ 这条是本轮实测补上的，缺了它上游就是**无条件采纳**：
+     * 篮球海报上佐糖把整行文字擦掉后，**脑补出了一整片不存在的砖块/岩石纹理**
+     * ——原字确实没了（保护 2 判定「变了」通过），但画面比本地雾化更离谱。
+     *
+     * 📌⭐⭐⭐ **「上游调用成功」「蒙版内确实变了」都不等于「结果更好」。**
+     *    换上游必须带可量化的择优，否则只是把一种失败换成另一种失败。
+     *
+     * 判据用现成的区域梯度能量：擦干净 ⇒ 平滑 ⇒ 低；脑补出纹理 ⇒ 边缘多 ⇒ 高。
+     */
+    const eraseRegions = args.textRegions.map(r => ({
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+    }));
+    const [upstreamEnergy, localEnergy] = await Promise.all([
+      measureRegionEdgeEnergy(composited, eraseRegions, args.width, args.height),
+      measureRegionEdgeEnergy(args.localFallback, eraseRegions, args.width, args.height),
+    ]);
+    if (upstreamEnergy > localEnergy * UPSTREAM_ERASE_ENERGY_TOLERANCE) {
+      console.log(
+        `[text_edit] 佐糖 inpaint 脑补痕迹过重（能量 ${upstreamEnergy.toFixed(1)} > ` +
+          `本地 ${localEnergy.toFixed(1)} ×${UPSTREAM_ERASE_ENERGY_TOLERANCE}），回落本地扩散填充`,
+      );
+      return null;
+    }
+    console.log(
+      `[text_edit] 佐糖 inpaint 擦除采纳（能量 ${upstreamEnergy.toFixed(1)} <= ` +
+        `本地 ${localEnergy.toFixed(1)} ×${UPSTREAM_ERASE_ENERGY_TOLERANCE}）`,
+    );
+    return composited;
+  } catch (error) {
+    // 保护 3：绝不阻断主流程
+    console.log(
+      `[text_edit] 佐糖 inpaint 失败，回落本地扩散填充: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+}
+
 async function eraseWithPicWish(
   input: {
     imageBuffer?: Buffer;
@@ -2749,13 +2874,241 @@ export async function __testCompositeSourcePreservingImageEdit(
   }).png().toBuffer();
 }
 
+/**
+ * text_edit 专用：以「擦净图」为基底，只把模型输出相对基底的真实改动
+ * （新文字及其描边/光效）按差异强度混回来，其余像素一律保持基底。
+ *
+ * ⚠️⚠️⚠️ 2026-09-21 背景错位的治本合成（与样本条重排同批上线）。
+ *
+ * 旧合成（__testCompositeSourcePreservingImageEdit）把蒙版内**整块**换成
+ * 模型输出。而叠字模型（即梦 4.0 / VOD）会无视蒙版整图重绘、构图轻微漂移，
+ * 于是蒙版内的背景是"模型脑补的版本"，与蒙版外还原出的原图在接缝处
+ * 不连续 —— 用户看到的就是「文字旁边的背景错位/重影」。
+ *
+ * 这里改成 diff 混合：基底永远是喂给模型的擦净图（与蒙版外原图内容一致），
+ * 只有 |模型输出 − 擦净图| 超过软阈值的像素（文字笔画、描边、发光、投影）
+ * 才被混入。模型若只是整体平移/调色，平滑区差异小被挡掉；
+ * 文字处差异大则完整保留。最坏情况（全局大改）退化为旧合成，不会更糟。
+ *
+ * 阈值取 (14, 48) 软过渡：低于 14 视为噪声/压缩色偏（取基底），
+ * 高于 48 视为确定改动（取模型），中间线性过渡保留光效的半透明边缘。
+ */
+export async function __testCompositeTextPixelsOverCleanBase(
+  cleanBuffer: Buffer,
+  editedBuffer: Buffer,
+  width: number,
+  height: number,
+  /**
+   * 可选：文字块的目标中心（像素坐标，通常 = 被改原字区的中心）。
+   *
+   * ⚠️ 2026-09-21 文字层对齐平移：diff 混合把「文字及其光效」从模型输出里
+   * 剥离出来后，文字在输出里的位置完全由模型自由发挥 —— 实测（欢乐中国年
+   * 命题）模型会把字块整体下沉贴到洞底，底部被画面边缘截断。既然文字已经
+   * 是独立图层，就可以做确定性校正：测出文字像素 bbox，整层平移到目标中心。
+   * 平移只移动文字像素，背景基底不动，不会引入新的接缝。
+   *
+   * ⚠️⚠️ bbox 扫描必须限定在蒙版内（maskBuffer 的 alpha<=127 区）：
+   * 叠字模型是整图重绘，全局色调/纹理差异会远超阈值，若不限定蒙版，
+   * bbox 恒为全图、中心恒为画幅中心，平移量会被撑到限幅上限直接毁图
+   * （实测平移 193,147px）。蒙版内强差异占比过半时同样视为"不可分离"，
+   * 跳过平移退化为纯 diff 混合。
+   */
+  targetCenter?: { x: number; y: number },
+  maskBuffer?: Buffer,
+): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const [cleanPixels, editedPixels, maskPixels] = await Promise.all([
+    sharp(cleanBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(editedBuffer, { limitInputPixels: false })
+      .rotate()
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    maskBuffer
+      ? sharp(maskBuffer, { limitInputPixels: false })
+          .rotate()
+          .resize(width, height, { fit: "fill", kernel: "nearest" })
+          .ensureAlpha()
+          .raw()
+          .toBuffer()
+      : Promise.resolve(null),
+  ]);
+  const LOW = 14;
+  const HIGH = 48;
+  /**
+   * 先扫一遍 diff，取「确定改动」像素（>=HIGH）的 bbox，
+   * 用它与 targetCenter 求整层平移量。像素太少/没传目标中心就不平移。
+   */
+  let offsetX = 0;
+  let offsetY = 0;
+  if (targetCenter) {
+    let minX = width, minY = height, maxX = -1, maxY = -1, strongCount = 0;
+    let editableCount = 0;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = (y * width + x) * 4;
+        const editable = !maskPixels || maskPixels[index + 3] <= 127;
+        if (!editable) continue;
+        editableCount += 1;
+        const channelDiff = Math.max(
+          Math.abs(cleanPixels[index] - editedPixels[index]),
+          Math.abs(cleanPixels[index + 1] - editedPixels[index + 1]),
+          Math.abs(cleanPixels[index + 2] - editedPixels[index + 2]),
+        );
+        if (channelDiff < HIGH) continue;
+        strongCount += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const strongRatio = editableCount ? strongCount / editableCount : 0;
+    if (strongCount >= 200 && strongRatio <= 0.5 && maxX >= 0 && maxY >= 0) {
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const rawOffsetX = Math.round(targetCenter.x - centerX);
+      const rawOffsetY = Math.round(targetCenter.y - centerY);
+      const clampOffset = (value: number, limit: number) =>
+        Math.max(-limit, Math.min(limit, value));
+      // 平移量限幅：文字层只能做「对齐校正」，不能被错配拉去半个画面。
+      offsetX = clampOffset(rawOffsetX, Math.round(width * 0.15));
+      offsetY = clampOffset(rawOffsetY, Math.round(height * 0.15));
+      // 微量偏移（<=3px）不校正，避免逐次请求间的抖动。
+      if (Math.abs(offsetX) <= 3) offsetX = 0;
+      if (Math.abs(offsetY) <= 3) offsetY = 0;
+      console.log(
+        `[text_edit] 文字层对齐: bbox=(${minX},${minY})-(${maxX},${maxY}) ` +
+          `中心=(${Math.round(centerX)},${Math.round(centerY)}) ` +
+          `目标=(${Math.round(targetCenter.x)},${Math.round(targetCenter.y)}) ` +
+          `强差异占比=${(strongRatio * 100).toFixed(1)}% ` +
+          `平移=(${offsetX},${offsetY})`,
+      );
+    } else {
+      console.log(
+        `[text_edit] 文字层对齐: 确定改动像素不足（${strongCount}），跳过平移`,
+      );
+    }
+  }
+  const output = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    // 文字层平移：输出 (x,y) 处取模型输出 (x-offsetX, y-offsetY)，
+    // 越界处取基底（平移后的空隙露出干净背景）。
+    const sampleY = y - offsetY;
+    const rowInBounds = sampleY >= 0 && sampleY < height;
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const sampleX = x - offsetX;
+      let alpha = 0;
+      if (rowInBounds && sampleX >= 0 && sampleX < width) {
+        const editedIndex = (sampleY * width + sampleX) * 4;
+        alpha = Math.max(
+          Math.abs(cleanPixels[index] - editedPixels[editedIndex]),
+          Math.abs(cleanPixels[index + 1] - editedPixels[editedIndex + 1]),
+          Math.abs(cleanPixels[index + 2] - editedPixels[editedIndex + 2]),
+        );
+        alpha =
+          alpha <= LOW ? 0 : alpha >= HIGH ? 1 : (alpha - LOW) / (HIGH - LOW);
+        if (alpha > 0) {
+          output[index] = Math.round(
+            cleanPixels[index] * (1 - alpha) + editedPixels[editedIndex] * alpha,
+          );
+          output[index + 1] = Math.round(
+            cleanPixels[index + 1] * (1 - alpha) +
+              editedPixels[editedIndex + 1] * alpha,
+          );
+          output[index + 2] = Math.round(
+            cleanPixels[index + 2] * (1 - alpha) +
+              editedPixels[editedIndex + 2] * alpha,
+          );
+        }
+      }
+      if (alpha <= 0) {
+        output[index] = cleanPixels[index];
+        output[index + 1] = cleanPixels[index + 1];
+        output[index + 2] = cleanPixels[index + 2];
+      }
+      output[index + 3] = cleanPixels[index + 3];
+    }
+  }
+  return sharp(output, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+}
+
+/**
+ * 从蒙版中减去「邻行保护区」：把未参与本次改动的其他文字区（外扩 pad 像素）
+ * 的蒙版置为不可编辑（不透明）。
+ *
+ * ⚠️⚠️⚠️ 2026-09-21「GAME FOR PEACE 重影」修复。
+ *
+ * 膨胀蒙版（padY 留白 + radius 膨胀 + shiftY 上移）在「上邻文字紧贴」的排版里
+ * 洞顶会切进上一行文字的下缘（实测「大吉大利和平年」与 GAME FOR PEACE 行
+ * 间隙仅 6px，洞顶却上探 20px+）。叠字模型看到白区里有邻行残段，就把它
+ * 重绘一份轻微错位的副本，与洞外的原件拼成上下两份 —— 用户看到「背景错位/重影」。
+ *
+ * 判据：与前端蒙版透明区有实质重叠（>5% 面积）的 region 视为「被改行」，
+ * 不保护 —— 多行同改时每一行都能正常擦写；其余全部保护。
+ * 保护 pad 取约 2px：洞顶最多贴到邻行下缘 + 2px，原字顶部的描边余量
+ * 虽然变紧，但「2px 描边残留」远比「邻行重影」可控。
+ */
+async function subtractProtectedRegionsFromMask(
+  maskBuffer: Buffer,
+  regions: Array<{ x: number; y: number; width: number; height: number }>,
+  width: number,
+  height: number,
+  padPixels = 2,
+): Promise<Buffer> {
+  if (!regions.length) return maskBuffer;
+  const sharp = (await import("sharp")).default;
+  const pixels = await sharp(maskBuffer, { limitInputPixels: false })
+    .rotate()
+    .resize(width, height, { fit: "fill", kernel: "nearest" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  const editableAt = (x: number, y: number) =>
+    pixels[(y * width + x) * 4 + 3] <= 127;
+  for (const region of regions) {
+    const x0 = Math.max(0, Math.floor(region.x * width) - padPixels);
+    const y0 = Math.max(0, Math.floor(region.y * height) - padPixels);
+    const x1 = Math.min(width - 1, Math.ceil((region.x + region.width) * width) + padPixels);
+    const y1 = Math.min(height - 1, Math.ceil((region.y + region.height) * height) + padPixels);
+    let editableCount = 0;
+    let total = 0;
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        total += 1;
+        if (editableAt(x, y)) editableCount += 1;
+      }
+    }
+    // 与前端蒙版透明区无实质重叠 → 邻行，整块置为不可编辑。
+    if (total > 0 && editableCount / total > 0.05) continue;
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        pixels[(y * width + x) * 4 + 3] = 255;
+      }
+    }
+  }
+  return sharp(pixels, {
+    raw: { width, height, channels: 4 },
+    limitInputPixels: false,
+  }).png().toBuffer();
+}
+
 async function createLocalEditGuideImage(
   sourceBuffer: Buffer,
   maskBuffer: Buffer,
   width: number,
   height: number,
-): Promise<Buffer> {
-  const sharp = (await import("sharp")).default;
+): Promise<Buffer> {  const sharp = (await import("sharp")).default;
   const [sourcePixels, maskPixels] = await Promise.all([
     sharp(sourceBuffer, { limitInputPixels: false })
       .rotate()
@@ -2810,9 +3163,31 @@ async function createLocalEditGuideImage(
  */
 async function createOriginalTypographyReferenceImage(
   originalBuffer: Buffer,
-  textRegions: Array<{ x: number; y: number; width: number; height: number }>,
+  textRegions: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text?: string;
+  }>,
   width: number,
   height: number,
+  /**
+   * 可选：每个区域的目标文案（与 textRegions 同序，函数内部会先做与
+   * resolveRegionTargetTexts 相同的 y/x 排序再按下标配对）。
+   *
+   * ⚠️⚠️⚠️ 2026-09-21 按目标字数重排样本条 —— 字号截断的唯一治本通道。
+   *
+   * 旧版把「7 字满宽」的原字样本条原样喂给模型，提示词说
+   * "the same glyph size relative to the text block"——模型忠实执行，
+   * 把 5 个新字按原字号撑满 7 字的宽度，每个字放大约 1.4 倍，
+   * 表现就是文字放大冲破蒙版、上下左右被画面边缘截断。
+   * 已实证：提示词硬约束、负面词、蒙版收窄三个弱通道对字号的约束力都≈0
+   * （蒙版收窄甚至引发 GAME FOR PEACE 重影），模型字号的唯一强驱动
+   * 就是这张样本参考图。所以治本 = 让样本条本身展示「M 个原字号
+   * 的字应占多宽」：切成 N 个单字块、取前 M 块重拼，总宽 = 原宽 × M/N。
+   */
+  targetTexts?: Array<string | undefined>,
 ): Promise<Buffer | null> {
   if (!textRegions.length) return null;
   const sharp = (await import("sharp")).default;
@@ -2824,9 +3199,41 @@ async function createOriginalTypographyReferenceImage(
 
   const clamp = (value: number, min: number, max: number) =>
     Math.max(min, Math.min(value, max));
+  /** 去掉空白后的字符数（中文按字、英文按字母粗略计，够用于宽度比例）。 */
+  const countChars = (value: string | undefined) =>
+    (value ?? "").replace(/\s+/g, "").length;
+  /**
+   * 把一条样本横条切成 count 个等宽单字块。
+   * 边界用累积取整避免逐段取整造成的缝隙/重叠。
+   */
+  const sliceGlyphCells = async (
+    cropBuffer: Buffer,
+    cropWidth: number,
+    cropHeight: number,
+    count: number,
+  ): Promise<Array<{ buffer: Buffer; width: number }>> => {
+    const cells: Array<{ buffer: Buffer; width: number }> = [];
+    for (let i = 0; i < count; i += 1) {
+      const left = Math.round((i * cropWidth) / count);
+      const right = Math.round(((i + 1) * cropWidth) / count);
+      const cellWidth = right - left;
+      if (cellWidth < 4) continue;
+      cells.push({
+        buffer: await sharp(cropBuffer, { limitInputPixels: false })
+          .extract({ left, top: 0, width: cellWidth, height: cropHeight })
+          .png()
+          .toBuffer(),
+        width: cellWidth,
+      });
+    }
+    return cells;
+  };
   const crops: Array<{ buffer: Buffer; width: number; height: number }> = [];
   // 按阅读顺序排，保证样本条里的字形顺序与原图一致，便于模型逐行对应。
-  for (const region of [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x)) {
+  // （与 resolveRegionTargetTexts 内部相同的排序键，targetTexts 按此序配对。）
+  const sortedRegions = [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let regionIndex = 0; regionIndex < sortedRegions.length; regionIndex += 1) {
+    const region = sortedRegions[regionIndex];
     // 留白：横向少留（避免把邻近画面元素裹进来），纵向多留
     // （描边 / 投影 / 发光往往溢出 bbox，裁掉就等于把"设计感"裁掉了）。
     const padX = region.width * width * 0.06;
@@ -2843,11 +3250,51 @@ async function createOriginalTypographyReferenceImage(
     const cropHeight = bottom - top;
     // 太小的裁块喂给模型只有噪声价值，直接丢弃。
     if (cropWidth < 8 || cropHeight < 8) continue;
+    const cropBuffer = await sharp(baseBuffer, { limitInputPixels: false })
+      .extract({ left, top, width: cropWidth, height: cropHeight })
+      .png()
+      .toBuffer();
+
+    /**
+     * 按目标字数重排：原字 N 字、目标 M 字且 M < N 时，
+     * 把整条样本切成 N 个单字块、取前 M 块无缝重拼 ——
+     * 每个字保持原字形原字号，整条宽度自然收窄到 M/N。
+     * 模型照"样本条=text block"复刻时，写出的就是 M 个原字号、
+     * 只占 M/N 宽的字，而不是把 M 个字撑满整条。
+     */
+    const originalCount = countChars(region.text);
+    const targetCount = countChars(targetTexts?.[regionIndex]);
+    if (originalCount >= 2 && targetCount >= 1 && targetCount < originalCount) {
+      const cells = await sliceGlyphCells(cropBuffer, cropWidth, cropHeight, originalCount);
+      if (cells.length === targetCount || cells.length > targetCount) {
+        const picked = cells.slice(0, targetCount);
+        const stripWidth = picked.reduce((sum, cell) => sum + cell.width, 0);
+        let offsetX = 0;
+        const strip = await sharp({
+          create: {
+            width: stripWidth,
+            height: cropHeight,
+            channels: 4,
+            background: { r: 128, g: 128, b: 128, alpha: 1 },
+          },
+          limitInputPixels: false,
+        })
+          .composite(
+            picked.map(cell => {
+              const item = { input: cell.buffer, left: offsetX, top: 0 };
+              offsetX += cell.width;
+              return item;
+            }),
+          )
+          .png()
+          .toBuffer();
+        crops.push({ buffer: strip, width: stripWidth, height: cropHeight });
+        continue;
+      }
+      // 切块数量不足（段太窄被丢弃）时降级为整条样本，不阻塞链路。
+    }
     crops.push({
-      buffer: await sharp(baseBuffer, { limitInputPixels: false })
-        .extract({ left, top, width: cropWidth, height: cropHeight })
-        .png()
-        .toBuffer(),
+      buffer: cropBuffer,
       width: cropWidth,
       height: cropHeight,
     });
@@ -2878,6 +3325,85 @@ async function createOriginalTypographyReferenceImage(
     .composite(composites)
     .png()
     .toBuffer();
+}
+
+// VOD 参考图生成中支持 mask 蒙版编辑的模型（白=编辑区）。
+
+/**
+ * text_edit 叠字结果的「位置验收」：用 OCR 找目标文案在输出图里的实际位置，
+ * 与被改原字区对比中心偏差 / 触边情况。
+ *
+ * ⚠️⚠️⚠️ 2026-09-21。字号已由样本条重排钉住，但**位置**仍是模型的自由变量：
+ * 同一命题三连跑，字块分别「居中偏下」「贴底被裁」「偏右裁边」——
+ * 每次都是零报错的可用图，用户看到的却是「又被截断了」。
+ * diff 像素分离不可靠（蒙版内 68% 像素强差异，文字信号被模型重绘的
+ * 背景淹没），OCR 是唯一能直接回答「字写在哪」的通道。
+ *
+ * 验收不过不报错：记为候选，换下一个模型再试；全部不过时返回得分最高的
+ * 一张 —— 绝不比旧行为差，只是多了一次挑出「位置最好那张」的机会。
+ */
+async function scoreTextEditPlacement(
+  imageBuffer: Buffer,
+  targetText: string,
+  targetRegion: { x: number; y: number; width: number; height: number },
+): Promise<{ accepted: boolean; score: number; reason: string }> {
+  const dataUrl = `data:image/png;base64,${imageBuffer.toString("base64")}`;
+  const { regions } = await extractImageText({ imageSrc: dataUrl });
+  return scorePlacementAgainstRegions(regions, targetText, targetRegion);
+}
+
+/**
+ * 纯匹配/评分部分（不做 OCR）：多区验收对同一张输出图只 OCR 一次，
+ * 再逐个区域复用这里的匹配逻辑，避免 N 个区域打 N 次 vision 调用。
+ */
+function scorePlacementAgainstRegions(
+  regions: Array<{ text: string; x: number; y: number; width: number; height: number }>,
+  targetText: string,
+  targetRegion: { x: number; y: number; width: number; height: number },
+): { accepted: boolean; score: number; reason: string } {
+  const normalize = (value: string) => (value || "").replace(/\s+/g, "");
+  const want = normalize(targetText);
+  if (!want) return { accepted: true, score: 1, reason: "无目标文案，跳过验收" };
+  let found: (typeof regions)[number] | null = null;
+  let bestArea = -1;
+  for (const region of regions) {
+    const got = normalize(region.text);
+    if (!got) continue;
+    // 双向包含：模型可能把文案拆行或带上少量装饰字符。
+    if (got.includes(want) || want.includes(got)) {
+      const area = region.width * region.height;
+      if (area > bestArea) {
+        bestArea = area;
+        found = region;
+      }
+    }
+  }
+  if (!found) {
+    return {
+      accepted: false,
+      score: 0,
+      reason: `输出中未找到目标文案「${targetText}」`,
+    };
+  }
+  const centerX = found.x + found.width / 2;
+  const centerY = found.y + found.height / 2;
+  const targetX = targetRegion.x + targetRegion.width / 2;
+  const targetY = targetRegion.y + targetRegion.height / 2;
+  const dx = Math.abs(centerX - targetX);
+  const dy = Math.abs(centerY - targetY);
+  // 贴画面边 ≈ 文字被裁（正是用户反复报告的形态）。
+  const edgeTouch =
+    found.x <= 0.002 ||
+    found.y <= 0.002 ||
+    found.x + found.width >= 0.998 ||
+    found.y + found.height >= 0.998;
+  const score = 1 - Math.min(1, dx * 2 + dy * 2) - (edgeTouch ? 0.5 : 0);
+  const accepted = dx <= 0.05 && dy <= 0.05 && !edgeTouch;
+  return {
+    accepted,
+    score,
+    reason: `中心偏移 dx=${dx.toFixed(3)} dy=${dy.toFixed(3)}${edgeTouch ? " 且触画面边缘" : ""}`,
+  };
 }
 
 // VOD 参考图生成中支持 mask 蒙版编辑的模型（白=编辑区）。
@@ -5008,7 +5534,23 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   const isCameraViewOperation = input.operation === "camera_view";
   const requiresVisibleLocalChange = isTextEditOperation;
   const isSourcePreservingEdit = isTextEditOperation || input.preserveSource === true;
-  const targetSize = isSourcePreservingEdit
+  /**
+   * ⚠️⚠️⚠️ 【2026-09-22】全站默认：原图多大，出图就多大。
+   *
+   * 用户原话：「原图是什么尺寸分辨率，生成的就是什么分辨率尺寸。
+   * 除非用户主动在提示词或者分辨率选项中进行主动改变。」
+   *
+   * 原先这里只要不是 text_edit，就走 __testResolveHighDefinitionTargetSize，
+   * 而那个函数内部有一道无条件的「长边不足 1536 就放大」：
+   * 900×1200 的原图重绘后变成 1152×1536。比例是对的、内容是对的，
+   * 只有尺寸被改了 —— 这就是用户反复反馈的那个现象，且零报错。
+   *
+   * 📌 判据：**锁比例 ≠ 锁尺寸**。等比放大不会变形，但它仍然是
+   *    「改变了分辨率」，不符合「与原图保持一致」。
+   */
+  const shouldPreserveSourceSize =
+    isSourcePreservingEdit || input.preserveSourceSize === true;
+  const targetSize = shouldPreserveSourceSize
     ? sourceImageDimensions
     : __testResolveHighDefinitionTargetSize(
         input.targetWidth,
@@ -5076,18 +5618,15 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   // 降低 AI 在文字重绘时误改画面其他内容的风险。
   const textEditNegativeInstruction = isTextEditOperation
     /**
-     * ⚠️ 2026-09-20 补充「底板 / 文本框 / 默认字体」三类负面词。
+     * ⚠️⚠️ 2026-09-21 按用户指令「清除所有配置、重新配置即梦 4.0」清空自定义负面词。
      *
-     * 即梦在文字区留白较大时，倾向于自作主张加一个白底文本框再写字
-     * （用户实测截图即此现象）。正向指令已经禁止了一次，这里再从负面
-     * 约束堵一次 —— 两条出口（VOD 链与 OpenAI 链）共用本变量，改一处全覆盖。
+     * 即梦 4.0 局部重绘无独立 negative_prompt 字段，负面约束已合并进
+     * prompt_global（shared/text-edit-global-prompt.ts 的 positive 原文）。
+     * 这里不再叠加历史伤疤类负面词，只保留「蒙版外像素不变」这一条保真底线：
+     * 它不是配置，而是 text_edit 保真编辑的机制铁律，删掉会让上游
+     * 整图重绘的破坏 1:1 交付给用户且零报错。
      */
-    ? "Avoid in the final result: 画面变形、背景改动、图案偏移、多余元素、画面裁切、文字错位、修改蒙版外内容、模糊、噪点、水印、扭曲、" +
-      "文字底板、白色色块、文本框、标签贴纸、圆角矩形背景、气泡框、默认黑体/宋体等无设计感的系统字体。" +
-      // 全局通用负面词（事实源 shared/text-edit-global-prompt.ts）。
-      // 与上面这串刻意互补：上面是本项目实测踩过的具体事故形态，这里是跨场景质量底线。
-      (textEditGlobalPrompt.negative ? `${textEditGlobalPrompt.negative}。` : "") +
-      "No solid plate, box, banner or sticker behind the replacement text. " +
+    ? (textEditGlobalPrompt.negative ? `${textEditGlobalPrompt.negative}。` : "") +
       "Keep every pixel outside the marked text areas unchanged."
     : "";
 
@@ -5112,10 +5651,13 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
    */
   let textEditRenderTargetText = "";
 
-  // ── 阶段 A：擦字（text_edit 专用）────────────────────────────
+  // ── 阶段 A：擦字（text_edit + AI 叠字模式专用）────────────────────
   // 先把文字区域擦成干净背景，再让主模型只负责"叠字"，
   // 避免主模型在 mask 内重新生成背景导致"重绘文字区域背景不正常"。
-  if (isTextEditOperation && maskImageData) {
+  // ⚠️ 2026-09-21 换路线：local（确定性绘制）模式不再进入本阶段 ——
+  // 上游擦字每次脑补的背景颜色随机（白灰/蓝色底板事故）、复杂纹理擦不净，
+  // local 改走阶段 B 里的 eraseTextInkLocally 笔画级本地擦除（零上游、零脑补）。
+  if (isTextEditOperation && maskImageData && input.textApplyMode === "ai") {
     try {
       // 膨胀 mask 透明区域，让上游把文字边缘也擦进去，减少原文字残留。
       //
@@ -5147,8 +5689,31 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         maskParams.extraX,
         maskParams.shrinkY,
       );
+      /**
+       * 邻行保护（2026-09-21「GAME FOR PEACE 重影」修复，函数注释有全文）：
+       * 膨胀洞上缘不再越过未改动邻行文字的下缘。失败时降级用未保护的
+       * 膨胀蒙版 —— 保护是增强步骤，不能阻断擦字。
+       */
+      let finalMaskBuffer = dilatedMaskBuffer;
+      try {
+        if (input.textRegions?.length) {
+          finalMaskBuffer = await subtractProtectedRegionsFromMask(
+            dilatedMaskBuffer,
+            input.textRegions,
+            targetWidth,
+            targetHeight,
+            Math.max(2, Math.round(shortEdge * 0.002)),
+          );
+        }
+      } catch (protectError) {
+        console.log(
+          `[text_edit] 邻行保护失败，降级为未保护膨胀蒙版: ${
+            protectError instanceof Error ? protectError.message : String(protectError)
+          }`,
+        );
+      }
       // 交给 AI 叠字链路复用（见 textEditDilatedMaskBuffer 的声明注释）
-      textEditDilatedMaskBuffer = { buffer: dilatedMaskBuffer, mimeType: "image/png" };
+      textEditDilatedMaskBuffer = { buffer: finalMaskBuffer, mimeType: "image/png" };
       /**
        * 是否存在「删除整行」（targetText 被显式置空）。
        *
@@ -5492,6 +6057,46 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       }
 
       if (cleanedBuffer) {
+        /**
+         * ⚠️⚠️⚠️ 擦字结果只贴回「小蒙版」范围（2026-09-21 背景错位缝修复）。
+         *
+         * 旧做法把擦字通道返回的**整图**直接设为 sourceImageData。而即梦
+         * 背景修复是生成式整图重绘：洞越大，脑补范围越大 —— 实测它把
+         * 「屋檐下的暗部」整片补成了「亮色街道」，与洞外原图在洞边界形成
+         * 一条贯穿画面的水平错位缝（用户报告的「背景错位」主来源）。
+         *
+         * 改为：以原图为底，只用「前端紧框 + 小半径膨胀」的蒙版把擦净
+         * 像素贴回来。洞缩到文字笔画周围后，生成式填充变成"延续周边纹理"，
+         * 语义性脑补（整片换场景）失去空间。发给上游的擦字蒙版仍是大膨胀
+         * （保证擦干净），只有**贴回**范围收小 —— 两张蒙版从此分工。
+         * 贴回失败降级为旧的整图替换，绝不阻断擦字。
+         */
+        try {
+          const pasteBackRadius = clampMaskPx(shortEdge * 0.006, 3, 10);
+          const pasteBackMask = await dilateMaskTransparent(
+            maskImageData.buffer,
+            targetWidth,
+            targetHeight,
+            pasteBackRadius,
+            0,
+            Math.max(2, pasteBackRadius),
+            0,
+          );
+          const pastedBuffer = await __testCompositeSourcePreservingImageEdit(
+            originalSourceImageData.buffer,
+            cleanedBuffer,
+            pasteBackMask,
+            targetWidth,
+            targetHeight,
+          );
+          cleanedBuffer = pastedBuffer;
+        } catch (pasteError) {
+          console.log(
+            `[text_edit] 擦字小蒙版贴回失败，降级为整图替换: ${
+              pasteError instanceof Error ? pasteError.message : String(pasteError)
+            }`,
+          );
+        }
         const cleanedData = { buffer: cleanedBuffer, mimeType: "image/png" };
         sourceImageData = cleanedData;
         sourceImage = bufferToImageFile(cleanedData.buffer, cleanedData.mimeType);
@@ -5519,39 +6124,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
           "identical color, identical flatness, no visible patch boundary. " +
           "If the surrounding background is a flat solid color, keep it perfectly flat: " +
           "do not introduce texture, gradient, vignette or noise into it. " +
-          "Only then paint the replacement text, and only inside the mask. " +
-          /**
-           * ⚠️⚠️⚠️ 2026-09-20 重写。此前这里写的是：
-           *   "Typography must read as typeset, not painted: thin-to-regular stroke weight,
-           *    generous letter-spacing ... do not enlarge the glyphs to fill the available area."
-           *
-           * 那版是为了压制「即梦把标题画得过粗」而写的，但它把任务定义成了
-           * **排版**（typeset）。即梦忠实照做的结果就是：在海报上摆一个
-           * 白底黑字的细体文本框 —— 用户实测截图里那种「文字像直接贴上去」
-           * 的廉价感，正是这条指令的产物，**不是模型能力不行**。
-           *
-           * 📌 判据：出图看起来「像贴上去的」时，先看提示词是不是把任务
-           *    描述成了「排版 / 写字」。模型是照着指令画的，指令说 typeset
-           *    它就给你 typeset，永远不会自己想到要还原艺术字。
-           *
-           * 改为「复刻原图那套字的设计」：字形风格、描边、投影、渐变、
-           * 透视、做旧质感全部对齐原图，且显式禁止出现底板 / 色块 / 文本框。
-           * 「不要过粗」的原始诉求保留，但降级为「与原图同等字重」这种
-           * **相对**约束，而不是「细字重」这种会脱离原设计的绝对约束。
-           */
-          "\nThe replacement text must look like it was part of the original poster design all along. " +
-          "Study the typography of the text that was removed (and any remaining text in the image) and " +
-          "reproduce the SAME lettering design: same typeface character, same stroke weight relative to " +
-          "the original, same slant/italic, same perspective and skew, same color or gradient, same outline/" +
-          "stroke, same drop shadow, glow, bevel, grunge or distressed texture, same baseline and alignment. " +
-          "Match the original letter-spacing and glyph size relative to the text block — do not shrink the " +
-          "text into a small caption, and do not bolden it beyond the original weight. " +
-          "\nAbsolutely do not draw any solid background panel, white box, colored plate, banner, label, " +
-          "sticker, caption bar, speech bubble or rounded rectangle behind the text. " +
-          "The replacement glyphs must sit directly on the repaired background exactly like the original " +
-          "text did, with no container behind them. " +
-          "Do not render the text in a plain default system font; it must carry the same artistic treatment " +
-          "as the original poster lettering.";
+          "Only then paint the replacement text, and only inside the mask.";
         /**
          * 擦字成功后，源图里已经没有原文字了。
          * 但上面 textEditInstruction 基线还写着「移除原有可读文字」——
@@ -5644,20 +6217,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   }
 
   /**
-   * 擦字失败保护（2026-09-13）。
+   * 擦字失败保护（2026-09-13，2026-09-21 换路线后仅 AI 模式需要）。
    *
-   * 阶段 B（确定性绘制）的进入条件里有一项是 `sourceImageData !== originalSourceImageData`，
-   * 即「擦字必须成功」。擦字一旦失败，这条 `if` 直接为假、阶段 B 被整段跳过，
-   * 请求会静默落到 `editViaReferenceGeneration` 的 AI 叠字链路 —— 而即梦 4.0 即使
-   * 收到膨胀 mask 也不会严格遵守，会把整张图重绘：背景被改、人物变形，
-   * 或在未擦净的原字上再叠一层新字（用户实测的「双层字 / 乱套」由此而来）。
-   *
-   * 因此，只要用户要的是确定性文字编辑（默认 local、且有实际修改区域），
-   * 而擦字没拿到干净底图，就必须在此显式报错保护原图，绝不静默交给 AI。
+   * AI 叠字模式的进入条件是「擦字必须成功」：擦字一旦失败，
+   * 即梦 4.0 即使收到膨胀 mask 也不会严格遵守，会把整张图重绘：
+   * 背景被改、人物变形，或在未擦净的原字上再叠一层新字
+   * （用户实测的「双层字 / 乱套」由此而来）。
+   * local（确定性绘制）模式不再依赖上游擦字（eraseTextInkLocally
+   * 在阶段 B 内本地完成），因此不在此列。
    */
   if (
     isTextEditOperation &&
-    input.textApplyMode !== "ai" &&
+    input.textApplyMode === "ai" &&
     maskImageData &&
     input.textRegions?.length &&
     input.editedText?.trim() &&
@@ -5670,27 +6241,93 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
     }
   }
 
-  // ── 阶段 B：确定性文字绘制（text_edit + 携带 OCR 区域 + 擦字成功）──────
-  // 擦字成功（sourceImageData 已被替换为擦字图）时，直接按 OCR 区域把新文字
-  // 绘制到擦字图上，跳过 AI 叠字，彻底避免模型在 mask 内重造背景导致"背景不正常"。
+  // ── 阶段 B：确定性文字绘制（text_edit + 携带 OCR 区域）──────────────
+  // 2026-09-21 换路线：不再要求「上游擦字成功」——进入本阶段先用
+  // eraseTextInkLocally 在本地完成笔画级擦除（零上游调用、零脑补背景），
+  // 再按 OCR 区域把新文字绘制上去，跳过 AI 叠字，彻底避免模型随机性
+  //（漏字/重影/底板/伪影）。
   if (
     isTextEditOperation &&
     // 默认走本地确定性绘制（逐字 100% 准确）。只有显式要求 "ai" 时才跳过这里，
-    // 把叠字交给 image2.5 —— 风格还原更好，但实测会漏字/错字，需人工核字。
+    // 把叠字交给 AI 叠字链路 —— 风格还原更好，但实测会漏字/错字，需人工核字。
     // 注意：选了 "ai" 之后失败不会回落到这里（阶段 B 已被跳过），
     // 而是沿 editViaReferenceGeneration 的 fallback 链换下一个模型重试。
     input.textApplyMode !== "ai" &&
     maskImageData &&
     input.textRegions?.length &&
-    input.editedText?.trim() &&
-    sourceImageData !== originalSourceImageData
+    input.editedText?.trim()
   ) {
     try {
+      // 笔画级本地擦除：只替换原字笔画像素为插值背景，其余像素原样保留
+      let localCleaned = await eraseTextInkLocally(
+        originalSourceImageData.buffer,
+        input.textRegions,
+        input.editedText,
+        targetWidth,
+        targetHeight,
+      );
+
+      /**
+       * ⭐⭐⭐ 复杂纹理背景：先试上游 inpaint（2026-09-22）。
+       *
+       * 本地扩散填充在**高频纹理**（篮球、人物、街景）上有物理天花板：
+       * 它只能解拉普拉斯方程做平滑外插，补不出纹理，结果必然是一片雾。
+       * 实测篮球海报上反复在「擦不净 ↔ 糊太多」之间振荡，属方法极限而非调参问题。
+       *
+       * 但**不能无条件切上游**：用户已踩过「上游脑补随机底色（白灰/蓝色底板事故）」
+       * 的坑，平涂/柔和渐变背景上本地擦除等价于精确常量填充，远优于生成式脑补。
+       * 所以复用站点既有的 classifyBackgroundComplexity 分流：
+       *   flat / smooth → 保持纯本地（零上游、零脑补、零额外费用）
+       *   textured      → 先试佐糖 inpaint，失败/未配置则原样回落本地
+       *
+       * 📌 判据：**换路线要按场景分流，不是全局替换** —— 新路线在老场景上
+       *    很可能是负收益，而那正是当初选老路线的原因。
+       */
+      if (maskImageData && isPicWishConfigured()) {
+        try {
+          const flatness = await measureMaskSurroundingFlatness(
+            originalSourceImageData.buffer,
+            maskImageData.buffer,
+            targetWidth,
+            targetHeight,
+            Math.max(6, Math.round(Math.min(targetWidth, targetHeight) * 0.02)),
+          );
+          const complexity = classifyBackgroundComplexity(
+            flatness.robustSpread,
+            flatness.sampleCount,
+          );
+          console.log(
+            `[text_edit] local 擦除分流: 复杂度=${complexity} 极差=${flatness.robustSpread.toFixed(1)} ` +
+              `样本=${flatness.sampleCount} → ${
+                complexity === "textured" ? "先试佐糖 inpaint" : "纯本地扩散填充"
+              }`,
+          );
+          if (complexity === "textured") {
+            const upstream = await erasePreferUpstream({
+              originalBuffer: originalSourceImageData.buffer,
+              originalMimeType: originalSourceImageData.mimeType,
+              maskBuffer: maskImageData.buffer,
+              localFallback: localCleaned,
+              textRegions: input.textRegions,
+              width: targetWidth,
+              height: targetHeight,
+            });
+            if (upstream) localCleaned = upstream;
+          }
+        } catch (error) {
+          // 分流判定失败绝不阻断主流程：保持已算好的本地结果。
+          console.log(
+            `[text_edit] local 擦除分流判定失败，沿用本地扩散填充: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
       console.log(
         `[text_edit debug] editedText="${input.editedText}", regions=${JSON.stringify(input.textRegions)}, target=${targetWidth}x${targetHeight}`,
       );
       const drawn = await drawTextReplacement({
-        imageBuffer: sourceImageData.buffer,
+        imageBuffer: localCleaned,
         originalBuffer: originalSourceImageData.buffer,
         textRegions: input.textRegions,
         editedText: input.editedText,
@@ -5701,7 +6338,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       // 步骤 5：质量自检。绘制没画上或画成色块时主动放弃方案 B，
       // 交给后面的 AI 叠字兜底，避免把明显有问题的结果直接返回给用户。
       const quality = await verifyDrawnTextQuality(
-        sourceImageData.buffer,
+        localCleaned,
         drawn,
         input.textRegions,
         input.editedText,
@@ -5715,12 +6352,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       // 用"仅覆盖被修改文字区域"的精确 mask 做合成：
       // 被修改 region 内使用擦字图+新文字；其余区域（含未修改文字、多余背景）全部用原图恢复，
       // 彻底解决"只改一行却擦了两行"导致的背景色块问题。
-      const modifiedMask = await createModifiedRegionsMask(
-        input.textRegions!,
-        input.editedText!,
-        targetWidth,
-        targetHeight,
-      );
+      const modifiedMask = await createInkLevelEditMask({
+        originalBuffer: originalSourceImageData.buffer,
+        // ⚠️ 2026-09-22 修：local 模式下 sourceImageData 就是原图（阶段 A 已跳过），
+        // 传它等于告诉蒙版「擦净图 == 原图」→ 原字笔画区被判为「无改动」而保留原图，
+        // 残影零报错存活。必须传本地笔画级擦除的真实产物。
+        cleanedBuffer: localCleaned,
+        drawnBuffer: drawn,
+        textRegions: input.textRegions!,
+        editedText: input.editedText!,
+        width: targetWidth,
+        height: targetHeight,
+      });
       const composited = await __testCompositeSourcePreservingImageEdit(
         originalSourceImageData.buffer,
         drawn,
@@ -5729,7 +6372,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
         targetHeight,
       );
       await writeTextEditDebugArtifacts({
-        cleaned: sourceImageData.buffer,
+        cleaned: localCleaned,
         drawn,
         mask: modifiedMask,
         composited,
@@ -5789,9 +6432,45 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
     const compositeMask = textEditDilatedMaskBuffer || maskImageData;
     return Promise.all(normalizedImages.map(async image => {
       const editedImageData = await imageSrcToBuffer(image.src);
+      /**
+       * ⚠️⚠️⚠️ text_edit 专用的第二层合成（2026-09-21，与样本条重排同批）。
+       *
+       * 蒙版内不再整块取模型输出：先以擦净图为基底做 diff 混合，
+       * 只把「模型相对擦净图的真实改动（新文字及其光效）」留在图层里，
+       * 模型整图重绘的构图漂移/背景脑补被软阈值挡在基底之外。
+       * 之后再走下方蒙版合成：蒙版外 = 原图，蒙版内 = 基底 + 文字像素。
+       * 非 text_edit 路径（换色/换材质等）保持旧行为不变。
+       *
+       * 对齐目标：只有唯一被改区域时才传（多区时文字块与区域的对应
+       * 关系不唯一，贸然平移可能张冠李戴，保守跳过）。
+       */
+      const textEditAlignCenter = isTextEditOperation
+        ? (() => {
+            const changed = input.textRegions?.length && input.editedText?.trim()
+              ? resolveRegionTargetTexts(input.textRegions, input.editedText)
+                  .filter(item => item.changed)
+              : [];
+            if (changed.length !== 1) return undefined;
+            const region = changed[0].region;
+            return {
+              x: (region.x + region.width / 2) * targetWidth,
+              y: (region.y + region.height / 2) * targetHeight,
+            };
+          })()
+        : undefined;
+      const editLayerBuffer = isTextEditOperation
+        ? await __testCompositeTextPixelsOverCleanBase(
+            sourceImageData.buffer,
+            editedImageData.buffer,
+            targetWidth,
+            targetHeight,
+            textEditAlignCenter,
+            compositeMask.buffer,
+          )
+        : editedImageData.buffer;
       const composited = await __testCompositeSourcePreservingImageEdit(
         originalSourceImageData.buffer,
-        editedImageData.buffer,
+        editLayerBuffer,
         compositeMask.buffer,
         targetWidth,
         targetHeight,
@@ -5845,11 +6524,18 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       sourceImageData !== originalSourceImageData
         ? await (async () => {
             try {
+              // 每个区域的目标文案（与区域同序）——样本条按它决定重排出几个字。
+              // 与 :5586 处的 changedTexts 同一公共口径，避免第二出口漂移。
+              const typographyTargetTexts = input.editedText?.trim()
+                ? resolveRegionTargetTexts(input.textRegions!, input.editedText)
+                    .map(item => item.targetText)
+                : undefined;
               const buffer = await createOriginalTypographyReferenceImage(
                 originalSourceImageData.buffer,
                 input.textRegions!,
                 targetWidth,
                 targetHeight,
+                typographyTargetTexts,
               );
               return buffer ? `data:image/png;base64,${buffer.toString("base64")}` : "";
             } catch (error) {
@@ -5911,6 +6597,32 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       }));
     }
     let lastError: unknown;
+    /**
+     * 位置验收（2026-09-21）：只有唯一被改区域时才启用（多区时文案与区域的
+     * 对应关系不唯一，无法用单一中心判定）。重试上限 1 次 —— 验收不过最多
+     * 多花一次模型调用，绝不连环重试烧积分；全部不过返回得分最高的候选。
+     */
+    /**
+     * 位置验收（2026-09-21 初版只支持单区；同日补多区逐行验收）：
+     * 每个被改区域都要用「它自己的 targetText」验收 —— 输出图 OCR 中
+     * 必须能找到该行文案、且位置对准该区域中心。多区场景曾因
+     * 「文案与区域对应关系不唯一」被整体跳过验收，结果第二行整行
+     * 没写上、原字残影还在，也无人拦截（零报错的假成功）。
+     * 重试上限 1 次 —— 验收不过最多多花一次模型调用，绝不连环重试
+     * 烧积分；全部不过返回得分最高的候选。
+     */
+    const placementChecks = (() => {
+      if (!isTextEditOperation || !input.textRegions?.length || !input.editedText?.trim()) return [];
+      return resolveRegionTargetTexts(input.textRegions, input.editedText)
+        .filter(item => item.changed)
+        .map(item => ({
+          region: item.region,
+          text: (item.targetText || "").trim(),
+        }))
+        .filter(item => item.text.length > 0);
+    })();
+    let placementRetries = 0;
+    let bestTextEditResult: { images: Awaited<ReturnType<typeof finalizeImages>>; score: number } | null = null;
 
     for (const referenceModel of referenceModels) {
       try {
@@ -6029,6 +6741,55 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             throw new Error("图片模型没有在指定区域做出可见修改");
           }
         }
+        /**
+         * 位置验收闸门：OCR 找目标文案实际位置，合格直接返回；
+         * 不合格记为候选、限重试 1 次；OCR 自身失败视为合格放行
+         * （验收是增强步骤，绝不能因它废掉一张好图）。
+         */
+        if (placementChecks.length && images[0]) {
+          /**
+           * 多区逐行验收：同一张输出图只 OCR 一次，逐个被改区域
+           * 用它自己的 targetText 匹配 + 位置比对。全部合格才放行。
+           */
+          let allAccepted = true;
+          let scoreSum = 0;
+          const failedReasons: string[] = [];
+          try {
+            const imageDataUrl = `data:image/png;base64,${(
+              await imageSrcToBuffer(images[0].src).then(data => data.buffer)
+            ).toString("base64")}`;
+            const { regions: outputRegions } = await extractImageText({ imageSrc: imageDataUrl });
+            for (const check of placementChecks) {
+              const placement = scorePlacementAgainstRegions(
+                outputRegions,
+                check.text,
+                check.region,
+              );
+              scoreSum += placement.score;
+              if (!placement.accepted) {
+                allAccepted = false;
+                failedReasons.push(`「${check.text}」${placement.reason}`);
+              }
+            }
+          } catch (ocrError) {
+            console.log(
+              `[text_edit] 位置验收 OCR 失败，放行当前结果: ${
+                ocrError instanceof Error ? ocrError.message : String(ocrError)
+              }`,
+            );
+            allAccepted = true;
+          }
+          if (allAccepted) return { images };
+          const avgScore = scoreSum / Math.max(1, placementChecks.length);
+          console.log(`[text_edit] 位置验收未过（${failedReasons.join("；")}）`);
+          if (!bestTextEditResult || avgScore > bestTextEditResult.score) {
+            bestTextEditResult = { images, score: avgScore };
+          }
+          lastError = new Error(`text_edit 位置验收未过: ${failedReasons.join("；")}`);
+          if (placementRetries >= 1) break;
+          placementRetries += 1;
+          continue;
+        }
         return { images };
       } catch (error) {
         lastError = error;
@@ -6036,6 +6797,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       }
     }
 
+    if (bestTextEditResult) {
+      console.log(
+        `[text_edit] 所有尝试位置验收均未过，返回最优候选（score=${bestTextEditResult.score.toFixed(2)}）`,
+      );
+      return { images: bestTextEditResult.images };
+    }
     throw lastError || new Error("图片模型未返回可用局部编辑结果");
   };
 

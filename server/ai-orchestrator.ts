@@ -22,6 +22,11 @@ export type OrchestrateRequest = {
   mask_url?: string;
   mask_base64?: string;
   preserveSource?: boolean;
+  /**
+   * 输出尺寸必须等于原图像素（auto 分辨率下的全站默认行为）。
+   * ⚠️ 透传 ≠ 被消费：下方 editImageWithPrompt 调用处必须真的把它传下去。
+   */
+  preserveSourceSize?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   top?: number;
@@ -238,6 +243,7 @@ export class AIOrchestrator {
         targetHeight: input.targetHeight,
         images: resolveImageEditReferences(input, images),
         preserveSource: input.preserveSource,
+        preserveSourceSize: input.preserveSourceSize,
         textRegions: input.textRegions,
         editedText: input.editedText,
         textApplyMode: input.textApplyMode,
