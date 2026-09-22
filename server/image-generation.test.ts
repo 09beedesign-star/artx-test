@@ -1722,44 +1722,14 @@ describe("text_edit AI 叠字：提示词必须要求复刻原图字体设计", 
       .replace(/^\s*\/\/.*$/gm, "");
   };
 
-  it("不得把任务描述成排版（typeset），也不得要求细字重", async () => {
-    const instructions = await readTextEditInstructionSource();
-    // 剥注释后仍要能看到修复后的指令，否则说明剥离器把代码也吃掉了，
-    // 下面三条反向断言会恒绿（这是「没量到」伪装成「没问题」的典型）。
-    expect(instructions).toContain("reproduce the SAME lettering design");
-    // 这三句是事故版指令的原文特征，任何一句回归都会让即梦退化成排版框。
-    expect(instructions).not.toContain("Typography must read as typeset, not painted");
-    expect(instructions).not.toContain("thin-to-regular stroke weight");
-    expect(instructions).not.toContain("do not enlarge the glyphs to fill the available area");
-  });
-
-  it("必须显式要求复刻原字体的描边/投影/透视等设计特征", async () => {
-    const source = await readTextEditSource();
-    expect(source).toContain("part of the original poster design");
-    expect(source).toContain("reproduce the SAME lettering design");
-    // 描边、投影、做旧质感是艺术字的核心特征，漏掉任一条都会退化成普通字。
-    expect(source).toContain("drop shadow");
-    expect(source).toContain("grunge or distressed texture");
-    expect(source).toContain("same perspective and skew");
-  });
-
-  it("必须从正反两侧禁止文字底板 / 白色色块 / 文本框", async () => {
-    const source = await readTextEditSource();
-    // 正向指令侧
-    expect(source).toContain("do not draw any solid background panel");
-    expect(source).toContain("no container behind them");
-    // 负面约束侧（两条出口共用 textEditNegativeInstruction，改一处全覆盖）
-    expect(source).toContain("文字底板、白色色块、文本框");
-    expect(source).toContain("No solid plate, box, banner or sticker behind the replacement text");
-  });
-
   /**
-   * ⚠️ 上面三条都是源码断言，只能证明「代码里写了」。
-   *    这一条走真实调用，证明这些约束**确实被下发到了即梦**。
+   * ⚠️ 2026-09-21 用户拍板「清除所有配置、重新配置即梦 4.0 官方关键词」，
+   * 上面三条锁死「复刻原图字体设计」英文段的源码断言随配置一起删除。
+   * 下面这条改走真实调用，验证「即梦官方 prompt_global 真的下发到了上游」。
    *    📌 「代码里有」和「下发到了」是两件事：中途任何一次提前 return、
    *       或走到另一条出口，都会让前者成立而后者不成立。
    */
-  it("叠字调用的 prompt 里真的带上了这些约束", async () => {
+  it("叠字下发的 prompt 即梦官方配置已生效，且目标文案逐字下发", async () => {
     const width = 160;
     const height = 120;
     let seed = 20260920;
@@ -1811,14 +1781,16 @@ describe("text_edit AI 叠字：提示词必须要求复刻原图字体设计", 
     // 第 1 次是擦字，第 2 次才是叠字
     expect(vodCalls.length).toBeGreaterThanOrEqual(2);
     const overlayPrompt = vodCalls[vodCalls.length - 1].prompt;
-    expect(overlayPrompt).toContain("reproduce the SAME lettering design");
-    expect(overlayPrompt).toContain("do not draw any solid background panel");
-    expect(overlayPrompt).toContain("No solid plate, box, banner or sticker");
+    // 即梦 4.0 官方 prompt_global 的锚点必须真实下发（保真三要素 + 官方负面串）。
+    expect(overlayPrompt).toContain("保持原图构图");
+    expect(overlayPrompt).toContain("文字大小匹配原图");
+    expect(overlayPrompt).toContain("禁止文字错乱");
+    expect(overlayPrompt).toContain("文字溢出蒙版区域");
     // 待写入的新文案必须逐字下发
     expect(overlayPrompt).toContain("NEW ARRIVAL");
-    // 事故版的排版指令绝不能再出现在真实下发的 prompt 里
-    expect(overlayPrompt).not.toContain("must read as typeset");
-    expect(overlayPrompt).not.toContain("thin-to-regular stroke weight");
+    // 已清除的自定义负面词不得再出现（配置已按用户指令清空）
+    expect(overlayPrompt).not.toContain("文字底板");
+    expect(overlayPrompt).not.toContain("No solid plate, box, banner or sticker");
   });
 
   /**

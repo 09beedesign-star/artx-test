@@ -462,6 +462,47 @@ describe("calibrateTextRegions OCR 坐标像素校正", () => {
     expect(y1).toBeLessThan(255);
   });
 
+  it("全幅高频背景上仍能吸附（主路径放弃时走主色兜底）", async () => {
+    // 复刻线上失效场景：全幅摄影海报。
+    // 主路径判据是「偏离该行背景中位数」，在这种每行都有高对比内容的图上恒为真，
+    // 整张图被判成一条带 → 带数 < 区域数 → 放弃校正（实测可分性仅 1.21）。
+    // 此时必须由主色吸附兜底接管，否则 bbox 偏移无人修正，
+    // 表象就是「擦对了框但擦错了字，原字永远留在画面上」。
+    const width = 400;
+    const height = 320;
+    // 用随机噪声块模拟摄影内容：每一行都有强烈明暗变化
+    const blocks: string[] = [];
+    let seed = 42;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let y = 0; y < height; y += 8) {
+      for (let x = 0; x < width; x += 8) {
+        const v = Math.round(rand() * 255);
+        blocks.push(`<rect x="${x}" y="${y}" width="8" height="8" fill="rgb(${v},${Math.round(v * 0.7)},${Math.round(v * 0.5)})"/>`);
+      }
+    }
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      blocks.join("") +
+      `<text x="40" y="150" font-family="sans-serif" font-size="40" font-weight="bold" fill="#ffffff">AAAAAA</text>` +
+      `</svg>`;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+
+    // 偏移量对齐**线上实测量级**：线上粗框 y433-557(高124)、真值 y534-636，
+    // 偏移 101px ≈ 0.81 个框高。这里框高 42px，故偏移约 34px → 框在 y≈84。
+    // ⚠️ 不要把偏移造得比线上更极端：夹具一度偏移 1.86 个框高，
+    // 文字完全落在搜索窗外（白字在窗内占比 0.00%），代码不可能吸附到采不到的像素，
+    // 测试红了却根因在夹具 —— **夹具比被测代码更容易错，红了先查夹具**。
+    const regions = [{ x: 0.1, y: 84 / 320, width: 0.5, height: 0.13, text: "AAAAAA" }];
+    const calibrated = await calibrateTextRegions(image, regions);
+    const y0 = calibrated[0].y * height;
+    // 必须向下移动到真实文字带附近，而不是停在原处
+    expect(y0).toBeGreaterThan(95);
+    expect(y0).toBeLessThan(140);
+  });
+
   it("空区域列表原样返回", async () => {
     const image = await buildImage(200, 200);
     const result = await calibrateTextRegions(image, []);

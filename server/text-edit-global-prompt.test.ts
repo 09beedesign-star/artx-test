@@ -27,11 +27,13 @@ function readSourceWithoutComments() {
 }
 
 describe("text_edit 全局通用提示词", () => {
-  it("启用时同时给出正向指令与负面词", () => {
+  it("启用时给出正向指令；负面词为空（即梦负面已并入 prompt_global）", () => {
     const result = buildTextEditGlobalPrompt(true);
     expect(result.positive).toBe(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT);
     expect(result.positive.length).toBeGreaterThan(0);
-    expect(result.negative).toContain(TEXT_EDIT_GLOBAL_NEGATIVE_TERMS[0]);
+    // 即梦 4.0 无独立 negative_prompt 字段，负面约束已合并进 positive，
+    // 故 negative 恒为空串（空数组 join 后为空），不得有残留负面词。
+    expect(result.negative).toBe("");
   });
 
   it("关闭时两段都必须是空串，而不是 undefined 或占位文字", () => {
@@ -55,29 +57,14 @@ describe("text_edit 全局通用提示词", () => {
     );
   });
 
-  it("负面词不与既有事故负面词重复堆叠", () => {
+  it("负面词为空数组：即梦 4.0 无独立 negative_prompt 字段", () => {
     /**
-     * image-generation.ts 里已有一串实测踩坑得来的负面词（底板/白色色块/文本框…）。
-     * 全局层若重复同义词，不会让模型更听话，只会稀释其他指令的权重。
+     * 2026-09-21 用户拍板「清除所有配置、重新配置即梦 4.0 官方关键词」。
+     * 官方 tips 明确：即梦局部重绘无独立 negative_prompt 字段，
+     * 负面约束直接合并进 prompt_global。因此负面词必须为空数组，
+     * 任何残留负面词都是「清除不干净」的实锤。
      */
-    const existing = [
-      "文字底板",
-      "白色色块",
-      "文本框",
-      "标签贴纸",
-      "圆角矩形背景",
-      "气泡框",
-      "画面变形",
-      "背景改动",
-      "模糊",
-      "噪点",
-      "水印",
-      "扭曲",
-    ];
-    const overlap = TEXT_EDIT_GLOBAL_NEGATIVE_TERMS.filter(term =>
-      existing.includes(term),
-    );
-    expect(overlap).toEqual([]);
+    expect(TEXT_EDIT_GLOBAL_NEGATIVE_TERMS).toEqual([]);
   });
 
   it("提示词长度受控，避免稀释本次具体指令", () => {
@@ -89,17 +76,16 @@ describe("text_edit 全局通用提示词", () => {
     expect(TEXT_EDIT_GLOBAL_NEGATIVE_TERMS.length).toBeLessThanOrEqual(20);
   });
 
-  it("完整外形优先级规则存在，且明确「字号不照样本放大」", () => {
+  it("正向提示词为即梦 4.0 官方 prompt_global 原文", () => {
     /**
-     * 2026-09-21 上轮实测证伪：照样本复刻字号 = 截断根因
-     * （样本条 7 字满宽，模型写 5 字也撑满）。这条规则把
-     * 「完整不截断」压到「照样本」之上，同时显式禁止字号照样本放大。
-     * ⚠️ 用「不得被截断」+「字号不照样本放大」两个锚点做正向断言，
-     * 不是 not.toContain（避免被自己的中文注释命中而恒红）。
+     * 2026-09-21 用户拍板的即梦官方配置。用官方原文的锚点做正向断言
+     * （不是 not.toContain，避免被自己的中文注释命中而恒红）：
+     * 保真三要素（构图/光影/质感不变）+ 官方负面串（禁止…文字溢出蒙版区域）。
      */
-    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("替换文字必须完整显示");
-    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("不得被截断");
-    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("字号不照样本放大");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("保持原图构图");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("文字大小匹配原图");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("禁止文字错乱");
+    expect(TEXT_EDIT_GLOBAL_POSITIVE_PROMPT).toContain("文字溢出蒙版区域");
   });
 });
 

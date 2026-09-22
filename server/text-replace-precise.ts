@@ -533,7 +533,15 @@ export async function calibrateTextRegions<T extends DrawTextRegion>(
   if (debug) console.log(`[calibrate] 检出带=${JSON.stringify(bands)}`);
   if (bands.length < regions.length) {
     if (debug) console.log(`[calibrate] 放弃：带数 ${bands.length} < 区域数 ${regions.length}`);
-    return regions;
+    // 全局带检测在**全幅摄影海报**上会整张图判成一条带（每行都有人物/光影这类
+    // 高对比内容，「偏离行背景中位数」恒为真，实测可分性仅 1.21，实用需 3+）。
+    // 此时改用逐区域的主色吸附兜底 —— 它不依赖全局投影，只在各自粗框附近找
+    // 「与本区域主色接近 + 水平成段」的行，对摄影背景鲁棒得多。
+    return calibrateBySnappingInkColor(
+      { data, width, height, channels },
+      regions,
+      debug,
+    );
   }
 
   // ---- 步骤 2：保序一一分配（动态规划） ----
@@ -578,7 +586,10 @@ export async function calibrateTextRegions<T extends DrawTextRegion>(
   if (debug) console.log(`[calibrate] 平均代价=${(dp[n][m] / n).toFixed(3)}`);
   if (dp[n][m] / n > 0.5) {
     if (debug) console.log(`[calibrate] 放弃：平均代价过高`);
-    return regions;
+    // ⚠️ 主路径有**两个**放弃出口（带数不足 / 平均代价过高），兜底必须两个都接。
+    // 只接第一个时，全幅摄影图会走到这里直接返回原框，表象是「兜底没生效」，
+    // 而日志里主路径的放弃信息看起来完全正常 —— 零报错的静默失效。
+    return calibrateBySnappingInkColor({ data, width, height, channels }, regions, debug);
   }
 
   const assign = new Array<number>(n).fill(-1);
@@ -588,7 +599,10 @@ export async function calibrateTextRegions<T extends DrawTextRegion>(
     if (from[i][j] >= 0) { assign[i - 1] = from[i][j]; i--; j--; }
     else j--;
   }
-  if (assign.some(v => v < 0)) return regions;
+  if (assign.some(v => v < 0)) {
+    if (debug) console.log(`[calibrate] 放弃：存在未匹配区域`);
+    return calibrateBySnappingInkColor({ data, width, height, channels }, regions, debug);
+  }
 
   const result = regions.slice();
   for (let k = 0; k < n; k++) {
@@ -630,6 +644,221 @@ export async function calibrateTextRegions<T extends DrawTextRegion>(
       calibrated.width = (newX1 - newX0) / width;
     }
     result[index] = calibrated;
+  }
+  return result;
+}
+
+/**
+ * 兜底校正：按「区域主色 + 水平游程」逐区域吸附，不依赖全局行投影。
+ *
+ * 【为什么需要它】
+ * 主路径（全局带检测）的判据是「像素偏离该行背景中位数」。这在文字压于
+ * 相对干净背景时很好用，但在**全幅摄影海报**上每一行都有人物、篮球、光影
+ * 这类高对比内容，判据恒为真 → 整张图被判成一条带 → 带数 1 < 区域数 → 放弃。
+ * 实测该判据在这类图上的可分性仅 1.21（文字行 vs 非文字行的响应比），
+ * 而实用至少要 3。**这是方法的天花板，不是阈值没调好**，放宽阈值只会把框
+ * 挪到更错的位置。
+ *
+ * 【本函数的两条判据】
+ * ① 主色自适应：从粗框内做粗量化直方图，取「离框外背景最远 × 体量足够」
+ *    的那一簇作为文字色。不写死颜色，白字/金字/橙字通吃。
+ * ② 水平游程约束：只统计连续 >= MIN_RUN 像素的命中段。文字笔画是成段的，
+ *    摄影背景的同色像素是零散的 —— 这一条把背景噪声压下去。
+ *
+ * 【占用排除（关键）】
+ * ⚠️ 粗框整体偏移一行高度时，第 2 行的框内**主要覆盖的是第 1 行的字**，
+ * 主色会被推断成第 1 行的颜色，于是两行吸附到同一处。表象是「第 2 行校正
+ * 失败」，根因是「第 1 行把信号借给了第 2 行」。所以按 y 序依次吸附，
+ * 已吸附的带在后续区域的主色推断与行投影中都必须屏蔽。
+ *
+ * 实测（1284x857 篮球海报，粗框整体偏上约 100px）：
+ *   平均误差 97.8px → 14.3px（白字 90→6，橙字 105.5→22.5）。
+ */
+function calibrateBySnappingInkColor<T extends DrawTextRegion>(
+  image: { data: Buffer; width: number; height: number; channels: number },
+  regions: T[],
+  debug: boolean,
+): T[] {
+  const { data, width, height, channels } = image;
+  // A/B 开关：设 ARTX_SNAP_CALIBRATE=off 可退回「主路径放弃就原样返回」的旧行为。
+  // 用途是做效果对照实测（同一张图、同一套参数，只切这一个变量），
+  // 避免「改了一堆东西后凭印象说变好了」。
+  if (process.env.ARTX_SNAP_CALIBRATE === "off") {
+    if (debug) console.log("[calibrate/snap] 已由 ARTX_SNAP_CALIBRATE=off 禁用");
+    return regions;
+  }
+  const MIN_RUN = Math.max(3, Math.round(width * 0.005));
+  const COLOR_TOL = 70; // RGB 欧氏距离容差
+  const claimed: Array<{ y0: number; y1: number }> = [];
+
+  const px = (x: number, y: number): [number, number, number] => {
+    const i = (y * width + x) * channels;
+    return [data[i], data[i + 1], data[i + 2]];
+  };
+
+  const order = regions
+    .map((region, index) => ({ region, index }))
+    .sort((a, b) => a.region.y - b.region.y);
+
+  const result = regions.slice();
+  let movedCount = 0;
+
+  for (const { region, index } of order) {
+    const x0 = Math.max(0, Math.round(region.x * width));
+    const x1 = Math.min(width, Math.round((region.x + region.width) * width));
+    const oy0 = Math.max(0, Math.round(region.y * height));
+    const oy1 = Math.min(height, Math.round((region.y + region.height) * height));
+    if (x1 - x0 < 4 || oy1 - oy0 < 4) continue;
+
+    const isClaimed = (y: number) => claimed.some(b => y >= b.y0 && y <= b.y1);
+
+    // 搜索窗：粗框上下各扩 80%。
+    // ⚠️ 主色采样必须用**搜索窗**而不是粗框本身：偏移量若超过一个框高，
+    // 文字会完全落在粗框之外，此时在粗框内采样只能采到背景噪声，
+    // 主色被推断成背景色，吸附随即抓向错误位置（实测抓到 rgb(17,12,9) 暗噪声块）。
+    // 采样范围必须覆盖「文字可能出现的地方」，而不是「模型声称它在的地方」。
+    const boxH = oy1 - oy0;
+    const sy0 = Math.max(0, oy0 - Math.round(boxH * 0.8));
+    const sy1 = Math.min(height, oy1 + Math.round(boxH * 0.8));
+
+    // --- ① 推断本区域的文字主色 ---
+    const QUANT = 5; // 量化到 32 级
+    const hist = new Map<number, { n: number; r: number; g: number; b: number }>();
+    let sampled = 0;
+    for (let y = sy0; y < sy1; y++) {
+      if (isClaimed(y)) continue;
+      for (let x = x0; x < x1; x++) {
+        const [r, g, b] = px(x, y);
+        sampled++;
+        const key = ((r >> QUANT) << 10) | ((g >> QUANT) << 5) | (b >> QUANT);
+        const e = hist.get(key);
+        if (e) { e.n++; e.r += r; e.g += g; e.b += b; }
+        else hist.set(key, { n: 1, r, g, b });
+      }
+    }
+    if (sampled === 0) continue;
+
+    // 背景参考取**搜索窗之外**的两条带。
+    // 取窗内会把文字本身采成「背景」，主色与背景距离被算成 0，吸附直接放弃。
+    const bgSamples: Array<[number, number, number]> = [];
+    for (const yy of [Math.max(0, sy0 - 6), Math.min(height - 1, sy1 + 6)]) {
+      for (let x = x0; x < x1; x += 3) bgSamples.push(px(x, yy));
+    }
+    if (bgSamples.length === 0) continue;
+    const bg = bgSamples.reduce(
+      (a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]] as [number, number, number],
+      [0, 0, 0] as [number, number, number],
+    ).map(v => v / bgSamples.length) as [number, number, number];
+
+    let best: { col: [number, number, number]; score: number; dist: number } | null = null;
+    // 注：此处不用 for...of 遍历 Map.values()，因为项目 tsconfig 的 target 较低，
+    // 直接迭代迭代器会触发 TS2802（需 downlevelIteration）。
+    const buckets: Array<{ n: number; r: number; g: number; b: number }> = [];
+    hist.forEach(e => buckets.push(e));
+    for (const e of buckets) {
+      const ratio = e.n / sampled;
+      if (ratio < 0.03) continue;
+      const col: [number, number, number] = [e.r / e.n, e.g / e.n, e.b / e.n];
+      const dist = Math.hypot(col[0] - bg[0], col[1] - bg[1], col[2] - bg[2]);
+      // 评分 = 离背景距离 × 占比^0.25。
+      // ⚠️ 指数很关键：原本用 √ratio，实测在噪声背景上白字(距283/占5%)与
+      // 暗噪声块(距148/占18%)得分 63.2 vs 62.8 —— 几乎打平，一点扰动就选错。
+      // 文字天然是「颜色极端但面积小」，占比权重必须压低，否则大面积背景色永远赢。
+      const score = dist * Math.pow(ratio, 0.25);
+      if (!best || score > best.score) best = { col, score, dist };
+    }
+    // ⚠️ 主色与框外背景几乎同色 ⇒ 区域内根本没有可分辨的前景（纯色图 / 空白区）。
+    // 此时若继续吸附，颜色判据会命中**所有**像素，行投影恒为满值，
+    // 带会一路扩张到整个搜索窗 —— 表象是「校正把框挪了」，实则是在纯噪声上乱抓。
+    // 检不出就不动，是这个函数唯一正确的行为。
+    if (!best || best.dist < 24) {
+      if (debug) {
+        console.log(
+          `[calibrate/snap] 区域 ${index} 主色与背景距离 ${(best?.dist ?? 0).toFixed(1)} 过小，保持原框`,
+        );
+      }
+      continue;
+    }
+    const [ir, ig, ib] = best.col;
+
+    // --- ② 在搜索窗内做游程行投影 ---
+    const rows = new Float64Array(sy1 - sy0);
+    for (let y = sy0; y < sy1; y++) {
+      if (isClaimed(y)) continue;
+      let count = 0;
+      let run = 0;
+      for (let x = x0; x < x1; x++) {
+        const [r, g, b] = px(x, y);
+        if (Math.hypot(r - ir, g - ig, b - ib) < COLOR_TOL) run++;
+        else { if (run >= MIN_RUN) count += run; run = 0; }
+      }
+      if (run >= MIN_RUN) count += run;
+      rows[y - sy0] = count / (x1 - x0);
+    }
+
+    let peak = 0;
+    let peakIdx = -1;
+    let rowSum = 0;
+    for (let i = 0; i < rows.length; i++) {
+      rowSum += rows[i];
+      if (rows[i] > peak) { peak = rows[i]; peakIdx = i; }
+    }
+    // 峰值过弱说明窗口内根本没有成段的同色笔画，宁可不动
+    if (peakIdx < 0 || peak < 0.02) {
+      if (debug) console.log(`[calibrate/snap] 区域 ${index} 峰值过弱(${peak.toFixed(3)})，保持原框`);
+      continue;
+    }
+    // 结构性判据：文字在行投影上是**集中**的（少数几行很强、其余接近 0），
+    // 而弥散噪声是**均匀**的（每行差不多）。用峰均比区分，
+    // 这条比单纯看颜色更可靠 —— 它描述的是「文字行长什么样」，与具体颜色无关。
+    const meanRow = rowSum / rows.length;
+    const peakRatio = meanRow > 0 ? peak / meanRow : Infinity;
+    if (peakRatio < 1.8) {
+      if (debug) {
+        console.log(
+          `[calibrate/snap] 区域 ${index} 峰均比 ${peakRatio.toFixed(2)} 过低（信号弥散，非文字），保持原框`,
+        );
+      }
+      continue;
+    }
+    const thr = peak * 0.4;
+    let a = peakIdx;
+    while (a > 0 && rows[a - 1] >= thr) a--;
+    let b2 = peakIdx;
+    while (b2 < rows.length - 1 && rows[b2 + 1] >= thr) b2++;
+    const newTop = sy0 + a;
+    const newBottom = sy0 + b2;
+    const newHeight = newBottom - newTop + 1;
+    // 吸附结果高度与原框相差过于悬殊（>2.5x 或 <0.35x）说明抓错了目标
+    const ratioH = newHeight / boxH;
+    if (newHeight < 6 || ratioH > 2.5 || ratioH < 0.35) {
+      if (debug) {
+        console.log(
+          `[calibrate/snap] 区域 ${index} 高度比 ${ratioH.toFixed(2)} 异常，保持原框`,
+        );
+      }
+      continue;
+    }
+
+    claimed.push({ y0: newTop, y1: newBottom });
+    const padY = Math.max(1, Math.round(newHeight * 0.08));
+    const finalTop = Math.max(0, newTop - padY);
+    const finalBottom = Math.min(height, newBottom + 1 + padY);
+    const calibrated = { ...region } as T;
+    calibrated.y = finalTop / height;
+    calibrated.height = (finalBottom - finalTop) / height;
+    result[index] = calibrated;
+    if (Math.abs(finalTop - oy0) > 2) movedCount++;
+    if (debug) {
+      console.log(
+        `[calibrate/snap] 区域 ${index} 主色 rgb(${ir.toFixed(0)},${ig.toFixed(0)},${ib.toFixed(0)}) ` +
+          `y${oy0}-${oy1} → y${finalTop}-${finalBottom}`,
+      );
+    }
+  }
+
+  if (movedCount > 0) {
+    console.log(`[ocr] bbox 主色吸附校正: ${movedCount}/${regions.length} 个区域被修正`);
   }
   return result;
 }
@@ -763,6 +992,79 @@ async function estimateAlignment(
   const tolerance = width * 0.08;
   if (Math.abs(leftGap - rightGap) <= tolerance) return "center";
   return leftGap < rightGap ? "left" : "right";
+}
+
+/**
+ * 自动估计原图文字行的倾斜角（度，顺时针为正，与 SVG rotate 同号）。
+ *
+ * 背景（2026-09-21 换路线）：篮球海报等斜排艺术字，OCR 只给轴对齐 bbox
+ * （rotate 恒 0），确定性绘制若一律水平排版，新字会丢掉原图的动势方向。
+ *
+ * 算法：把墨迹点投影到「垂直于行方向」的分量 v 上。设行方向与 x 轴成 φ
+ * （顺时针），则对任意候选角 θ：v = s·sin(φ−θ) + t·cos(φ−θ)（s=行内位置、
+ * t=行内高度）。θ=φ 时 v 退化为纯行高散布，方差最小。在 [-30°, 30°] 扫描
+ * 取方差最小者。
+ *
+ * 两道防线防误估（bbox 内常有同色背景噪声，如橙色字旁的橙色篮球）：
+ * ① 墨迹点 < 80 直接放弃；② 最优角的方差相对 θ=0 基准改善不足 20% 视为
+ * 无明显倾斜，返回 0 —— 短文本/噪声主导时宁可水平也不要转错方向。
+ */
+async function estimateTextRotation(
+  originalBuffer: Buffer,
+  region: DrawTextRegion,
+  scaleX: number,
+  scaleY: number,
+  textColor: Rgb,
+): Promise<number> {
+  const mask = await readRegionInkMask(originalBuffer, region, scaleX, scaleY, textColor);
+  if (!mask) return 0;
+  const { ink, width, height } = mask;
+  // 下采样控制计算量：目标 ~2 万点以内，角度扫描 61 次 × O(n) 依然很快
+  const step = Math.max(1, Math.floor(Math.sqrt((width * height) / 20000)));
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (ink[y * width + x]) {
+        xs.push(x);
+        ys.push(y);
+      }
+    }
+  }
+  const n = xs.length;
+  if (n < 80) return 0;
+  const cx = xs.reduce((sum, value) => sum + value, 0) / n;
+  const cy = ys.reduce((sum, value) => sum + value, 0) / n;
+  const varianceAt = (deg: number): number => {
+    const rad = (deg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    let sum = 0;
+    let sumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const dx = xs[i] - cx;
+      const dy = ys[i] - cy;
+      const v = -sin * dx + cos * dy;
+      sum += v;
+      sumSq += v * v;
+    }
+    const mean = sum / n;
+    return sumSq / n - mean * mean;
+  };
+  const baselineVariance = varianceAt(0);
+  if (baselineVariance <= 0) return 0;
+  let bestAngle = 0;
+  let bestVariance = baselineVariance;
+  for (let deg = -30; deg <= 30; deg += 1) {
+    const variance = varianceAt(deg);
+    if (variance < bestVariance) {
+      bestVariance = variance;
+      bestAngle = deg;
+    }
+  }
+  // 改善不足 20%：无明显倾斜（或噪声主导），宁可水平不要转错方向
+  if (bestVariance > baselineVariance * 0.8) return 0;
+  return Math.abs(bestAngle) < 2 ? 0 : bestAngle;
 }
 
 /** 粗略估算（仅用于测量失败时的兜底，正常路径走 Pango 实测） */
@@ -1033,7 +1335,19 @@ export async function drawTextReplacement(
     const color =
       parseHexColor(region.fontColor || "") ||
       (await extractTextColor(originalBuffer, region, scaleX, scaleY));
-    const rotate = region.rotate ?? 0;
+    /**
+     * 倾斜贴合（2026-09-21 换路线）：前端/OCR 显式给的 rotate 优先；
+     * 未给（=0）时从原图墨迹自动估计行方向 —— 斜排艺术字若一律水平
+     * 排版，新字会丢掉原图的动势，且与残影位置的错位感更刺眼。
+     */
+    const explicitRotate = region.rotate ?? 0;
+    const rotate =
+      Math.abs(explicitRotate) >= 1
+        ? explicitRotate
+        : await estimateTextRotation(originalBuffer, region, scaleX, scaleY, color);
+    if (rotate !== 0) {
+      console.log(`[text_edit] 倾斜贴合: "${originalText}" -> "${newText}" rotate=${rotate}°`);
+    }
     const fontFamily = await resolveFontFamily(region.fontFamily);
 
     // 从原图区域测量字重（笔画密度）与水平对齐方式，替代固定假设
@@ -1104,6 +1418,42 @@ export async function drawTextReplacement(
           lines = wrapped;
           fontSize = multi;
         }
+      }
+    }
+
+    /**
+     * ⭐⭐⭐ 旋转包围盒回缩（2026-09-22 事故修复）。
+     *
+     * `fitFontSize` / `widthLimited` 都是按**轴对齐** drawWidth×drawHeight 量的，
+     * 但文字最终是带 `transform="rotate(θ)"` 画上去的。一个 w×h 的文本框旋转 θ 后
+     * 实际占据 `w·cosθ + h·sinθ` 宽、`w·sinθ + h·cosθ` 高 —— 恒大于 w×h。
+     * 于是「按 bbox 算出来刚好放得下」的字号，旋转后必然溢出：
+     * 实测篮球海报 rotate≈-8°，「欢乐中国年」右侧被裁出画面，
+     * 且上下两行各自越界后互相侵入、糊成一团。**零报错**，只是图难看。
+     *
+     * 📌 判据：**任何"先按未旋转尺寸排版、再旋转"的链路，都必须把旋转后的
+     *    包围盒重新算一遍并回缩**，否则角度越大溢出越狠。
+     */
+    if (rotate !== 0) {
+      const rad = (Math.abs(rotate) * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      let maxLineWidth = 0;
+      for (const line of lines) {
+        const m = await measureText(line, fontFamily, fontSize, fontWeight);
+        maxLineWidth = Math.max(maxLineWidth, m.width);
+      }
+      const blockHeight = lines.length * fontSize * 1.15;
+      const rotatedW = maxLineWidth * cos + blockHeight * sin;
+      const rotatedH = maxLineWidth * sin + blockHeight * cos;
+      const shrink = Math.min(1, drawWidth / rotatedW, drawHeight / rotatedH);
+      if (shrink < 1) {
+        const before = fontSize;
+        fontSize = Math.max(8, Math.floor(fontSize * shrink));
+        console.log(
+          `[text_edit] 旋转回缩: "${newText}" rotate=${rotate}° 字号 ${before} -> ${fontSize}` +
+            `（旋转后 ${Math.round(rotatedW)}x${Math.round(rotatedH)} 超出 ${Math.round(drawWidth)}x${Math.round(drawHeight)}）`,
+        );
       }
     }
 
@@ -1280,6 +1630,38 @@ export async function dilateMaskTransparent(
 }
 
 /**
+ * 二值腐蚀 = 对补集做膨胀再取反（复用 separableDilate，保持 O(n) 复杂度）。
+ */
+function separableErode(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  xRadius: number,
+  yRadius: number,
+): Uint8Array {
+  const inverted = new Uint8Array(width * height);
+  for (let i = 0; i < inverted.length; i++) inverted[i] = source[i] ? 0 : 1;
+  const grown = separableDilate(inverted, width, height, xRadius, yRadius);
+  const out = new Uint8Array(width * height);
+  for (let i = 0; i < out.length; i++) out[i] = grown[i] ? 0 : 1;
+  return out;
+}
+
+/**
+ * 形态学闭运算：先膨胀再腐蚀。用于把「空心轮廓」型 mask 填成实心，
+ * 且整体尺寸基本不变（膨胀撑大多少，腐蚀收回多少）。
+ */
+function morphClose(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+): Uint8Array {
+  const grown = separableDilate(source, width, height, radius, radius);
+  return separableErode(grown, width, height, radius, radius);
+}
+
+/**
  * 可分离二值膨胀：水平 pass + 垂直 pass，各自用单调队列求滑动窗口最大值。
  * 结果等价于矩形结构元膨胀，复杂度 O(width*height)，与半径无关。
  */
@@ -1376,64 +1758,200 @@ export async function eraseTextRegionsLocally(
   const ch = info.channels;
   const out = Buffer.from(data);
 
+  /**
+   * ⭐⭐⭐ 2026-09-22 换算法：逐行 x 向线性插值 → 二维扩散填充。
+   *
+   * 旧实现每行独立取左右外侧中位数再沿 x 插值，**行与行之间零约束**，
+   * 于是填充区变成一叠颜色各异的纯色横条 —— 用户看到的「横向拉丝色带」。
+   * 现在把所有待擦区域统一收进一张 mask，一次性解拉普拉斯方程，
+   * 填充结果在 2D 上连续，且自动继承上下左右真实背景的色彩与梯度。
+   */
+  const mask = new Uint8Array(width * height);
+  let maskCount = 0;
   for (const region of targets) {
-    // 略微外扩，覆盖抗锯齿边缘，避免残留原文字轮廓
-    const padX = Math.round(region.width * width * 0.04);
-    const padY = Math.round(region.height * height * 0.08);
+    /**
+     * 外扩量改为「按比例算、但用绝对像素封顶」（2026-09-22）。
+     *
+     * 旧写法 `region.width * width * 0.04` 在**超宽 bbox**（整行标题占 64% 画宽）
+     * 上会外扩到 30+ px，上下 8% 同理 —— 擦除区比文字本身大一大圈，
+     * 把篮球下沿、人物手臂等无关背景一起抹成雾。外扩的唯一目的是盖住抗锯齿
+     * 边缘（几个像素而已），与 bbox 多大无关。
+     * 📌 判据：**「覆盖边缘」类的 padding 是绝对量，不该随区域尺寸线性放大。**
+     */
+    const padX = Math.min(6, Math.round(region.width * width * 0.01));
+    const padY = Math.min(8, Math.round(region.height * height * 0.04));
     const x0 = Math.max(0, Math.round(region.x * width) - padX);
     const y0 = Math.max(0, Math.round(region.y * height) - padY);
     const x1 = Math.min(width, Math.round((region.x + region.width) * width) + padX);
     const y1 = Math.min(height, Math.round((region.y + region.height) * height) + padY);
     if (x1 <= x0 || y1 <= y0) continue;
-
-    // 区域外左右各取一条竖带作为背景参考（文字一般不延伸到这里）
-    const sampleWidth = Math.max(2, Math.round((x1 - x0) * 0.06));
-    const leftStart = Math.max(0, x0 - sampleWidth);
-    const rightEnd = Math.min(width, x1 + sampleWidth);
-
     for (let y = y0; y < y1; y++) {
-      const leftSamples: Array<[number, number, number]> = [];
-      for (let x = leftStart; x < x0; x++) {
-        const i = (y * width + x) * ch;
-        leftSamples.push([data[i], data[i + 1], data[i + 2]]);
-      }
-      const rightSamples: Array<[number, number, number]> = [];
-      for (let x = x1; x < rightEnd; x++) {
-        const i = (y * width + x) * ch;
-        rightSamples.push([data[i], data[i + 1], data[i + 2]]);
-      }
-
-      let left: [number, number, number];
-      let right: [number, number, number];
-      if (leftSamples.length === 0 && rightSamples.length === 0) {
-        // 区域贴边、无外侧样本：退化为用区域内该行的中位数颜色
-        const inner: Array<[number, number, number]> = [];
-        const step = Math.max(1, Math.floor((x1 - x0) / 64));
-        for (let x = x0; x < x1; x += step) {
-          const i = (y * width + x) * ch;
-          inner.push([data[i], data[i + 1], data[i + 2]]);
-        }
-        const median = medianColor(inner);
-        left = median;
-        right = median;
-      } else {
-        left = medianColor(leftSamples.length > 0 ? leftSamples : rightSamples);
-        right = medianColor(rightSamples.length > 0 ? rightSamples : leftSamples);
-      }
-
-      // 沿 x 方向线性插值，兼顾水平渐变背景
-      const span = Math.max(1, x1 - x0 - 1);
       for (let x = x0; x < x1; x++) {
-        const t = (x - x0) / span;
-        const i = (y * width + x) * ch;
-        out[i] = Math.round(left[0] * (1 - t) + right[0] * t);
-        out[i + 1] = Math.round(left[1] * (1 - t) + right[1] * t);
-        out[i + 2] = Math.round(left[2] * (1 - t) + right[2] * t);
+        const p = y * width + x;
+        if (!mask[p]) {
+          mask[p] = 1;
+          maskCount++;
+        }
       }
     }
   }
+  if (maskCount === 0) return imageBuffer;
+
+  diffusionInpaint(out, data, width, height, ch, mask);
 
   return sharp(out, { raw: { width, height, channels: ch } }).png().toBuffer();
+}
+
+/**
+ * 多尺度扩散填充（Laplace inpainting）。
+ *
+ * ⭐⭐⭐ 存在意义（2026-09-22 事故修复）：旧实现是「**逐行**取左右外侧中位数、
+ * 沿 x 方向线性插值」。每一行都独立计算 ⇒ 行与行之间没有任何约束 ⇒ 相邻行颜色
+ * 跳变，填充区呈现**横向拉丝色带**，在篮球/人物这类高频背景上尤其刺眼。
+ *
+ * 📌 判据：**一维逐行插值天然产生条纹，因为它在另一个维度上完全没有连续性约束。**
+ *    要平滑就必须解二维问题。
+ *
+ * 这里解拉普拉斯方程 ∇²I = 0（边界条件 = 区域四周的真实像素），数值上就是
+ * 「未知像素反复取四邻域平均」。直接在原分辨率迭代收敛极慢（信息每次只传播 1px），
+ * 因此用**图像金字塔**：粗尺度上少量迭代就能把全局色彩传播到位，再逐级上采样细化。
+ */
+type InpaintPlane = {
+  w: number;
+  h: number;
+  c: [Float32Array, Float32Array, Float32Array];
+  m: Uint8Array; // 1 = 未知（待填充）
+};
+
+function downsamplePlane(p: InpaintPlane): InpaintPlane {
+  const w = Math.max(1, p.w >> 1);
+  const h = Math.max(1, p.h >> 1);
+  const c: [Float32Array, Float32Array, Float32Array] = [
+    new Float32Array(w * h),
+    new Float32Array(w * h),
+    new Float32Array(w * h),
+  ];
+  const m = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum0 = 0;
+      let sum1 = 0;
+      let sum2 = 0;
+      let known = 0;
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          const sy = Math.min(p.h - 1, y * 2 + dy);
+          const sx = Math.min(p.w - 1, x * 2 + dx);
+          const si = sy * p.w + sx;
+          if (!p.m[si]) {
+            sum0 += p.c[0][si];
+            sum1 += p.c[1][si];
+            sum2 += p.c[2][si];
+            known++;
+          }
+        }
+      }
+      const di = y * w + x;
+      // 2x2 块里只要有一个已知像素，粗级就算已知（保住边界条件不被稀释掉）
+      if (known > 0) {
+        c[0][di] = sum0 / known;
+        c[1][di] = sum1 / known;
+        c[2][di] = sum2 / known;
+      } else {
+        m[di] = 1;
+      }
+    }
+  }
+  return { w, h, c, m };
+}
+
+/** 把粗级结果双线性放大，作为细级未知像素的初值（已知像素不动） */
+function upsampleInto(coarse: InpaintPlane, fine: InpaintPlane): void {
+  for (let y = 0; y < fine.h; y++) {
+    const gy = Math.min(coarse.h - 1, y >> 1);
+    for (let x = 0; x < fine.w; x++) {
+      const fi = y * fine.w + x;
+      if (!fine.m[fi]) continue;
+      const gx = Math.min(coarse.w - 1, x >> 1);
+      const gi = gy * coarse.w + gx;
+      fine.c[0][fi] = coarse.c[0][gi];
+      fine.c[1][fi] = coarse.c[1][gi];
+      fine.c[2][fi] = coarse.c[2][gi];
+    }
+  }
+}
+
+/** Jacobi 迭代：未知像素取四邻域平均，已知像素固定不变 */
+function jacobiRelax(p: InpaintPlane, iterations: number): void {
+  const { w, h, m } = p;
+  for (let k = 0; k < 3; k++) {
+    const cur = p.c[k];
+    let next = new Float32Array(cur);
+    for (let it = 0; it < iterations; it++) {
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (!m[i]) continue;
+          const up = y > 0 ? cur[i - w] : cur[i];
+          const down = y < h - 1 ? cur[i + w] : cur[i];
+          const left = x > 0 ? cur[i - 1] : cur[i];
+          const right = x < w - 1 ? cur[i + 1] : cur[i];
+          next[i] = (up + down + left + right) * 0.25;
+        }
+      }
+      cur.set(next);
+    }
+    p.c[k] = cur;
+  }
+}
+
+function solveInpaint(p: InpaintPlane, iterations: number): void {
+  if (p.w <= 8 || p.h <= 8) {
+    jacobiRelax(p, 80);
+    return;
+  }
+  const coarse = downsamplePlane(p);
+  solveInpaint(coarse, iterations);
+  upsampleInto(coarse, p);
+  jacobiRelax(p, iterations);
+}
+
+/**
+ * 对 raw 像素缓冲区按 mask 做扩散填充，就地写回 out。
+ * @param mask 长度 width*height，1 表示该像素需要被重建
+ */
+function diffusionInpaint(
+  out: Buffer,
+  source: Buffer | Uint8Array,
+  width: number,
+  height: number,
+  ch: number,
+  mask: Uint8Array,
+): void {
+  const plane: InpaintPlane = {
+    w: width,
+    h: height,
+    c: [
+      new Float32Array(width * height),
+      new Float32Array(width * height),
+      new Float32Array(width * height),
+    ],
+    m: mask,
+  };
+  for (let p = 0; p < width * height; p++) {
+    const i = p * ch;
+    plane.c[0][p] = source[i];
+    plane.c[1][p] = source[i + 1];
+    plane.c[2][p] = source[i + 2];
+  }
+  solveInpaint(plane, 24);
+  for (let p = 0; p < width * height; p++) {
+    if (!mask[p]) continue;
+    const i = p * ch;
+    out[i] = Math.max(0, Math.min(255, Math.round(plane.c[0][p])));
+    out[i + 1] = Math.max(0, Math.min(255, Math.round(plane.c[1][p])));
+    out[i + 2] = Math.max(0, Math.min(255, Math.round(plane.c[2][p])));
+  }
 }
 
 function medianColor(pixels: Array<[number, number, number]>): [number, number, number] {
@@ -1443,6 +1961,367 @@ function medianColor(pixels: Array<[number, number, number]>): [number, number, 
     return values[Math.floor(values.length / 2)];
   };
   return [pick(0), pick(1), pick(2)];
+}
+
+/**
+ * 笔画级本地擦除（2026-09-21 换路线配套，全确定性 local 链路的第一步）。
+ *
+ * 背景：local 模式此前依赖上游（即梦背景修复）出「干净底图」，但实测
+ * ①每次脑补的背景颜色随机（白灰/蓝色底板事故）、②复杂纹理擦不净（残影）。
+ * 本函数彻底摆脱上游：只把**原字笔画像素**（前景色提取+膨胀+羽化）替换为
+ * 「沿 x 线性插值背景」（eraseTextRegionsLocally 的整块插值结果只取笔画处），
+ * 笔画之外的一切背景像素原样保留 —— 插值补丁只出现在笔画形状内，
+ * 颜色来自原图本身，不再有任何上游脑补。
+ *
+ * 兜底：某 region 墨迹提取不到（<bbox 0.5%）时，该 region 回退整块 bbox
+ * 插值（eraseTextRegionsLocally 旧行为），保证擦除不比现状差。
+ */
+export async function eraseTextInkLocally(
+  imageBuffer: Buffer,
+  textRegions: DrawTextRegion[],
+  editedText: string,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  // 参考背景：整块 bbox 沿 x 插值的结果（只取笔画处像素）
+  const interpolated = await eraseTextRegionsLocally(
+    imageBuffer,
+    textRegions,
+    editedText,
+    width,
+    height,
+  );
+  const [origRaw, interpRaw] = await Promise.all([
+    sharp(imageBuffer, { limitInputPixels: false })
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+    sharp(interpolated, { limitInputPixels: false })
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+  ]);
+  const ch = origRaw.info.channels;
+
+  /**
+   * 笔画判定（2026-09-21 换路线改版）：与插值背景的色距，而非前景色聚类。
+   *
+   * 旧版用 extractTextColor(K-means) 取主色再按色距提取墨迹 —— 在多色
+   * 艺术字（橙字+白描边+灰蓝背景）上 K-means 经常取到背景簇，墨迹 mask
+   * 抓反（背景被判成笔画、笔画留在原地），实测表现就是「地表最强集结」
+   * 整行残影零报错存活。改为「偏离即将填入的插值背景 ⇒ 是笔画」：
+   * 与颜色数量/描边/渐变无关，口径自洽（填的就是插值色）。
+   */
+  const INK_DIFF_THRESHOLD = 150;
+  const alpha = Buffer.alloc(width * height, 0);
+  const lines = editedText
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+  const sortedRegions = [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x);
+  const originalLines = sortedRegions.map(r => (r.text || "").trim());
+  const replacementMap = buildReplacementMap(originalLines, lines);
+  // 实际被修改的区域（择优阶段只在这些区域上量残留）
+  const changedRegions: DrawTextRegion[] = [];
+
+  for (let i = 0; i < sortedRegions.length; i++) {
+    const region = sortedRegions[i];
+    const originalText = (region.text || "").trim();
+    const newText =
+      typeof region.targetText === "string"
+        ? region.targetText.trim()
+        : replacementMap.get(i);
+    if (newText === undefined || newText === originalText) continue;
+    changedRegions.push(region);
+
+    const x0 = Math.max(0, Math.round(region.x * width));
+    const y0 = Math.max(0, Math.round(region.y * height));
+    const w = Math.max(1, Math.round(region.width * width));
+    const h = Math.max(1, Math.round(region.height * height));
+    const x1 = Math.min(width, x0 + w);
+    const y1 = Math.min(height, y0 + h);
+    if (x1 <= x0 || y1 <= y0) continue;
+
+    // bbox 内逐像素比对原图与插值背景（略微外扩覆盖抗锯齿边缘）
+    // 同 eraseTextRegionsLocally：外扩是为盖住抗锯齿边缘，属绝对量，需封顶
+    const padX = Math.min(6, Math.round(w * 0.03));
+    const padY = Math.min(8, Math.round(h * 0.06));
+    const ex0 = Math.max(0, x0 - padX);
+    const ey0 = Math.max(0, y0 - padY);
+    const ex1 = Math.min(width, x1 + padX);
+    const ey1 = Math.min(height, y1 + padY);
+    const bw = ex1 - ex0;
+    const bh = ey1 - ey0;
+    const ink = new Uint8Array(bw * bh);
+    let inkCount = 0;
+    /**
+     * 笔画判定基准 = **局部窗口中位数**，不是整行 x 向插值。
+     *
+     * 整块 bbox 沿 x 插值在「复杂纹理背景 + 斜体大字」上会让背景自身
+     * 相对插值结果就差很多（实测 diff>90 的像素占 63~75%），把大片背景
+     * 误判成笔画 —— 擦除退化成整块矩形抹平，正是用户看到的「大色块」。
+     * 局部中位数只反映「这一小片背景大致什么颜色」，笔画因为面积小
+     * 不会污染中位数，于是「偏离局部中位数」才是真正的笔画信号。
+     */
+    const WIN = Math.max(4, Math.min(12, Math.round(Math.min(bw, bh) * 0.06)));
+    const localMedian = (cx: number, cy: number): [number, number, number] => {
+      const samples: Array<[number, number, number]> = [];
+      const sx0 = Math.max(ex0, cx - WIN);
+      const sx1 = Math.min(ex1, cx + WIN);
+      const sy0 = Math.max(ey0, cy - WIN);
+      const sy1 = Math.min(ey1, cy + WIN);
+      const stepX = Math.max(1, Math.floor((sx1 - sx0) / 12));
+      const stepY = Math.max(1, Math.floor((sy1 - sy0) / 12));
+      for (let y = sy0; y < sy1; y += stepY) {
+        for (let x = sx0; x < sx1; x += stepX) {
+          const i = (y * width + x) * ch;
+          samples.push([origRaw.data[i], origRaw.data[i + 1], origRaw.data[i + 2]]);
+        }
+      }
+      return medianColor(samples);
+    };
+    // 中位数按网格预计算再双线性取用，避免逐像素重算导致 O(n²) 卡死
+    const GRID = Math.max(8, Math.round(WIN / 2));
+    const gw = Math.ceil(bw / GRID) + 1;
+    const gh = Math.ceil(bh / GRID) + 1;
+    const gridMed: Array<[number, number, number]> = new Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        gridMed[gy * gw + gx] = localMedian(
+          Math.min(ex1 - 1, ex0 + gx * GRID),
+          Math.min(ey1 - 1, ey0 + gy * GRID),
+        );
+      }
+    }
+    /**
+     * ⭐⭐⭐ 双基准取并集（2026-09-22）。
+     *
+     * 单看「偏离局部中位数」抓不全描边艺术字：橙字+白描边+深色投影三层颜色，
+     * 总有一层碰巧接近局部中位数而被判成背景 —— mask 空心，扩散填充时
+     * 空洞处的原字像素反被当成边界条件保护下来，表象是擦完留一圈白色幽灵轮廓。
+     *
+     * 加第二个基准：**整块扩散填充的结果**（interpRaw）。它是解拉普拉斯方程得到的
+     * 真实背景估计，天然平滑且继承四周真实色彩；原字无论哪一层，相对它都有明显色差。
+     * 两个基准取并集，互补覆盖。
+     * 📌 判据：**多色/描边目标不存在单一"背景色"，单基准判据必然漏层。**
+     */
+    for (let y = ey0; y < ey1; y++) {
+      const gy = Math.min(gh - 1, Math.round((y - ey0) / GRID));
+      for (let x = ex0; x < ex1; x++) {
+        const gx = Math.min(gw - 1, Math.round((x - ex0) / GRID));
+        const base = gridMed[gy * gw + gx];
+        const p = (y * width + x) * ch;
+        const diffMed =
+          Math.abs(origRaw.data[p] - base[0]) +
+          Math.abs(origRaw.data[p + 1] - base[1]) +
+          Math.abs(origRaw.data[p + 2] - base[2]);
+        const diffInterp =
+          Math.abs(origRaw.data[p] - interpRaw.data[p]) +
+          Math.abs(origRaw.data[p + 1] - interpRaw.data[p + 1]) +
+          Math.abs(origRaw.data[p + 2] - interpRaw.data[p + 2]);
+        if (diffMed > INK_DIFF_THRESHOLD || diffInterp > INK_DIFF_THRESHOLD) {
+          ink[(y - ey0) * bw + (x - ex0)] = 1;
+          inkCount++;
+        }
+      }
+    }
+
+    const ratio = inkCount / (bw * bh);
+    /**
+     * 两侧兜底都退回「整块 bbox 抹平」：
+     * - 过少(<2%)：判据没抓到笔画（空白区 / 拟合异常）；
+     * - 过多(>45%)：笔画与背景不可分离（大字占满 + 高纹理），
+     *   此时按笔画擦只会擦出一堆碎斑，整块插值反而更干净。
+     * 📌 「没量到」和「量爆了」都必须显式定义行为，不能只处理一侧。
+     */
+    // 2026-09-22：笔画级改用扩散填充（边界条件是紧邻真实背景）后不再产生碎斑，
+    // 上限从 0.45 放宽到 0.6；真正「不可分离」的极端情形仍由后面的择优兜住。
+    if (ratio < 0.02 || ratio > 0.6) {
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) alpha[y * width + x] = 255;
+      }
+      continue;
+    }
+    /**
+     * ⭐⭐ 闭运算填洞（2026-09-22）：diff 判据只抓「与背景色差大」的像素，
+     * 于是**粗笔画内部**（颜色均匀、与局部中位数接近）和**描边夹层**会被判成背景，
+     * mask 变成一圈空心轮廓。直接拿去扩散填充，空洞处的原字像素被当成边界条件
+     * 反而被"保护"下来 —— 实测表象就是擦完留下一圈白色幽灵轮廓、橙字仍可辨。
+     * 📌 判据：**空心的 mask 比没有 mask 更糟，因为它把要擦的东西当成了参照物。**
+     * 闭运算（先大膨胀连通、再腐蚀回原尺寸）能把轮廓围出的内部一并纳入。
+     */
+    // 半径需封顶：太大会把相邻笔画之间的背景连片吞掉，糊成一块雾区。
+    // 经验值 = 笔画粗细量级（约区域高的 3%），绝对上限 10px。
+    const CLOSE_R = Math.max(3, Math.min(10, Math.round(bh * 0.03)));
+    const closed = morphClose(ink, bw, bh, CLOSE_R);
+    // 再外扩 3px 覆盖抗锯齿边缘
+    const dilated = separableDilate(closed, bw, bh, 3, 3);
+    for (let y = 0; y < bh; y++) {
+      const fy = ey0 + y;
+      for (let x = 0; x < bw; x++) {
+        if (dilated[y * bw + x]) alpha[fy * width + ex0 + x] = 255;
+      }
+    }
+  }
+
+  /**
+   * 羽化笔画边缘，混合时软过渡。
+   *
+   * ⚠️⚠️⚠️ 2026-09-22 事故修复：**sharp 回读 raw 单通道时不保证仍是单通道**。
+   * 实测（probe-erase-ink3）喂 `channels: 1` 的 raw、blur 后 `.raw().toBuffer()`
+   * 返回长度是 width*height*3（被当灰度图展开成 3 通道），而旧代码按
+   * `softAlpha[p]`（像素索引）去读**字节数组**，等价于只取了前 1/3 画面且索引错位
+   * —— alpha 几乎恒为 0，擦除改动率实测 0.00%，**零报错、零异常**，
+   * 表象就是「原字整行残影存活」。
+   *
+   * 📌 判据：raw 像素缓冲区必须用「返回的实际 channels」换算下标，
+   *    绝不能假设自己传进去的 channels 就是回读的 channels。
+   */
+  const softRaw = await sharp(alpha, { raw: { width, height, channels: 1 } })
+    .blur(1.5)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const softAlpha = softRaw.data;
+  const softCh = softRaw.info.channels;
+
+  /**
+   * ⭐⭐⭐ 2026-09-22 换法：笔画像素**单独做一次扩散填充**，而不是混合到整块插值图。
+   *
+   * 旧写法 `mix(原图, 整块插值图, alpha)` 的致命缺陷：整块插值图在笔画位置的取值
+   * 来自「整行被抹平」的结果，所以哪怕 alpha 只圈住了笔画，填进去的颜色依然带着
+   * **整块抹平的雾**，笔画级擦除因此永远继承整块的画质上限。
+   *
+   * 改成：以「膨胀后的笔画」为 mask 直接解拉普拉斯方程 —— 边界条件是**紧贴笔画的
+   * 真实背景像素**（篮球纹理、人物边缘都还在），于是填充结果能自然接上周边细节，
+   * 背景不会被抹平。
+   * 📌 判据：**填充的质量取决于边界条件离得多近；先抹一大片再回取，等于自毁边界。**
+   */
+  const inkMask = new Uint8Array(width * height);
+  let inkMaskCount = 0;
+  for (let p = 0; p < width * height; p++) {
+    // 羽化后 >8 即视为需要重建（保留一点边缘外扩，盖住抗锯齿）
+    if (softAlpha[p * softCh] > 8) {
+      inkMask[p] = 1;
+      inkMaskCount++;
+    }
+  }
+  const out = Buffer.from(origRaw.data);
+  if (inkMaskCount > 0) {
+    diffusionInpaint(out, origRaw.data, width, height, ch, inkMask);
+  }
+  const inkErased = await sharp(out, { raw: { width, height, channels: ch } })
+    .png()
+    .toBuffer();
+
+  /**
+   * ⭐⭐⭐ 自适应择优（2026-09-22）：笔画级擦除**不总是更好**。
+   *
+   * 实测（probe-erase-compare）在「复杂纹理背景 + 粗斜体艺术字」上，
+   * 笔画级擦完残留边缘能量 16.4/17.5，而整块插值只有 8.1/4.4 ——
+   * 笔画级擦出一堆碎斑、原字仍可读，反而更脏。
+   *
+   * 📌 判据：**「更精细的算法」不等于「结果更好」**，必须用可量化指标
+   *    在运行时实测择优，而不是假设精细版恒优然后一路裸奔。
+   * 这里用区域内平均梯度（原字还在 ⇒ 边缘多 ⇒ 能量高）做裁决。
+   */
+  if (changedRegions.length === 0) return inkErased;
+  // 调试开关：强制返回某一路，便于隔离验收（生产不设此变量）
+  const forced = process.env.ARTX_ERASE_FORCE;
+  if (forced === "ink") return inkErased;
+  if (forced === "interp") return interpolated;
+  const [inkEnergy, interpEnergy] = await Promise.all([
+    measureRegionEdgeEnergy(inkErased, changedRegions, width, height),
+    measureRegionEdgeEnergy(interpolated, changedRegions, width, height),
+  ]);
+
+  /**
+   * ⭐⭐⭐ 择优不能只看「擦得净不净」（2026-09-22 二次修正）。
+   *
+   * 边缘能量只衡量「原字还剩多少」，**完全衡量不了「背景保住了多少」** ——
+   * 而后者恰恰是笔画级存在的理由。极端反例：把整个区域涂成纯色，
+   * 边缘能量 = 0（"最干净"），但那显然是最差的结果。
+   * 实测两路能量都已降到 1.0~3.1（残影都清干净了），此时真正的差别在于：
+   * 整块插值把篮球纹理/人物手臂一起抹成雾，笔画级把它们留了下来。
+   *
+   * 📌 判据：**单指标择优必须检查"作弊解"是否会得满分**。会，就说明指标不完备，
+   *    要补一个方向相反的指标。这里补「改动面积」：擦净度接近时，动得少的更优。
+   */
+  const inkChanged = countChangedPixels(origRaw.data, out, width, height, ch);
+  const CLEAN_ENOUGH = 6; // 经验阈值：能量低于此即视为残影已清除
+  if (inkEnergy <= CLEAN_ENOUGH && interpEnergy <= CLEAN_ENOUGH) {
+    console.log(
+      `[text_edit] 擦除择优: 两路均已擦净（笔画级 ${inkEnergy.toFixed(1)} / 整块 ${interpEnergy.toFixed(1)}）` +
+        `，改动面积 ${(inkChanged * 100).toFixed(1)}% 取笔画级以保留背景细节`,
+    );
+    return inkErased;
+  }
+  if (interpEnergy < inkEnergy) {
+    console.log(
+      `[text_edit] 擦除择优: 整块插值更干净（能量 ${interpEnergy.toFixed(1)} < 笔画级 ${inkEnergy.toFixed(1)}）`,
+    );
+    return interpolated;
+  }
+  console.log(
+    `[text_edit] 擦除择优: 笔画级更干净（能量 ${inkEnergy.toFixed(1)} <= 整块插值 ${interpEnergy.toFixed(1)}）`,
+  );
+  return inkErased;
+}
+
+/** 改动像素占比：衡量「背景被动了多少」，与边缘能量互为反向指标。 */
+function countChangedPixels(
+  a: Buffer | Uint8Array,
+  b: Buffer | Uint8Array,
+  width: number,
+  height: number,
+  ch: number,
+): number {
+  let changed = 0;
+  for (let p = 0; p < width * height; p++) {
+    const i = p * ch;
+    const d =
+      Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+    if (d > 30) changed++;
+  }
+  return changed / (width * height);
+}
+
+/**
+ * 区域内平均梯度能量：衡量「原文字是否还残留」的客观指标。
+ * 擦干净 ⇒ 区域变平滑 ⇒ 能量低；原字/碎斑还在 ⇒ 边缘多 ⇒ 能量高。
+ */
+export async function measureRegionEdgeEnergy(
+  buffer: Buffer,
+  regions: DrawTextRegion[],
+  width: number,
+  height: number,
+): Promise<number> {
+  if (regions.length === 0) return 0;
+  const { data, info } = await sharp(buffer, { limitInputPixels: false })
+    .resize(width, height, { fit: "fill" })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const ch = info.channels;
+  let sum = 0;
+  let count = 0;
+  for (const region of regions) {
+    const x0 = Math.max(1, Math.round(region.x * width));
+    const y0 = Math.max(1, Math.round(region.y * height));
+    const x1 = Math.min(width - 1, x0 + Math.round(region.width * width));
+    const y1 = Math.min(height - 1, y0 + Math.round(region.height * height));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const i = (y * width + x) * ch;
+        sum +=
+          Math.abs(data[i + ch] - data[i - ch]) +
+          Math.abs(data[i + width * ch] - data[i - width * ch]);
+        count++;
+      }
+    }
+  }
+  return count ? sum / count : 0;
 }
 
 /**
@@ -1532,6 +2411,163 @@ export async function verifyDrawnTextQuality(
     }
   }
   return { ok: true };
+}
+
+/**
+ * ink 级贴回蒙版（2026-09-21 换路线配套）。
+ *
+ * 背景：createModifiedRegionsMask 把「被改 region 的整个 bbox 矩形」都交给
+ * edited 图，而擦字图在 bbox 内的背景是即梦**脑补**的（复杂纹理背景常被
+ * 补成错误色调，用户看到的就是「字周围一圈白灰底板」）。
+ *
+ * 本函数把合成粒度从 bbox 矩形细化到**笔画**：
+ * - 新字墨迹 = drawn 相对擦字图的强差异像素（diff 检测，天然涵盖旋转/描边/投影）
+ * - 原字墨迹 = 与该 region 前景色接近的像素（readRegionInkMask）
+ * 两者膨胀后取并集才交给 edited 图，其余像素（=绝大多数背景）一律保原图 ——
+ * 擦字脑补的背景根本没机会上屏。
+ *
+ * 兜底：某 region 两类墨迹都检测不到时，该 region 回退 bbox 矩形（旧行为），
+ * 绝不比现状差。
+ */
+export async function createInkLevelEditMask(input: {
+  originalBuffer: Buffer;
+  cleanedBuffer: Buffer;
+  drawnBuffer: Buffer;
+  textRegions: DrawTextRegion[];
+  editedText: string;
+  width: number;
+  height: number;
+}): Promise<Buffer> {
+  const { originalBuffer, cleanedBuffer, drawnBuffer, textRegions, editedText, width, height } = input;
+  const lines = editedText
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+  if (lines.length === 0) {
+    return sharp({
+      create: { width, height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 255 } },
+    })
+      .png()
+      .toBuffer();
+  }
+
+  const sortedRegions = [...textRegions].sort((a, b) => a.y - b.y || a.x - b.x);
+  const originalLines = sortedRegions.map(r => (r.text || "").trim());
+  const replacementMap = buildReplacementMap(originalLines, lines);
+
+  const [origRaw, cleanedRaw, drawnRaw] = await Promise.all([
+    sharp(originalBuffer)
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+    sharp(cleanedBuffer)
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+    sharp(drawnBuffer)
+      .resize(width, height, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }),
+  ]);
+  const ch = cleanedRaw.info.channels;
+
+  // alpha=255（用原图）；命中墨迹的位置写 0（用 edited）
+  const data = Buffer.alloc(width * height * 4, 255);
+
+  for (let i = 0; i < sortedRegions.length; i++) {
+    const region = sortedRegions[i];
+    const originalText = (region.text || "").trim();
+    const newText =
+      typeof region.targetText === "string"
+        ? region.targetText.trim()
+        : replacementMap.get(i);
+    if (newText === undefined || newText === originalText) continue;
+
+    const x0 = Math.max(0, Math.round(region.x * width));
+    const y0 = Math.max(0, Math.round(region.y * height));
+    const w = Math.max(1, Math.round(region.width * width));
+    const h = Math.max(1, Math.round(region.height * height));
+    const x1 = Math.min(width, x0 + w);
+    const y1 = Math.min(height, y0 + h);
+    // bbox 外扩 6px：新字旋转后端点/描边/投影可能略越出 OCR bbox
+    const ex0 = Math.max(0, x0 - 6);
+    const ey0 = Math.max(0, y0 - 6);
+    const ex1 = Math.min(width, x1 + 6);
+    const ey1 = Math.min(height, y1 + 6);
+    const bw = ex1 - ex0;
+    const bh = ey1 - ey0;
+
+    // 1) 新字墨迹：drawn 相对 cleaned 的强差异像素
+    const newInk = new Uint8Array(bw * bh);
+    let newCount = 0;
+    for (let y = ey0; y < ey1; y++) {
+      for (let x = ex0; x < ex1; x++) {
+        const si = (y * width + x) * ch;
+        const diff =
+          Math.abs(drawnRaw.data[si] - cleanedRaw.data[si]) +
+          Math.abs(drawnRaw.data[si + 1] - cleanedRaw.data[si + 1]) +
+          Math.abs(drawnRaw.data[si + 2] - cleanedRaw.data[si + 2]);
+        if (diff > 60) {
+          newInk[(y - ey0) * bw + (x - ex0)] = 1;
+          newCount++;
+        }
+      }
+    }
+
+    // 2) 原字墨迹：原图相对擦净图（本地擦除后）的差异像素 —— 与实际被擦除
+    //    的范围自洽（eraseTextInkLocally 填了哪，这里就取哪）。不再用前景色
+    //    聚类提取：多色艺术字上 K-means 取到背景簇时墨迹会抓反（残影事故）。
+    let origInk: Uint8Array | null = null;
+    let origCount = 0;
+    {
+      const ink = new Uint8Array(bw * bh);
+      for (let y = ey0; y < ey1; y++) {
+        for (let x = ex0; x < ex1; x++) {
+          const si = (y * width + x) * ch;
+          const diff =
+            Math.abs(origRaw.data[si] - cleanedRaw.data[si]) +
+            Math.abs(origRaw.data[si + 1] - cleanedRaw.data[si + 1]) +
+            Math.abs(origRaw.data[si + 2] - cleanedRaw.data[si + 2]);
+          if (diff > 60) {
+            ink[(y - ey0) * bw + (x - ex0)] = 1;
+            origCount++;
+          }
+        }
+      }
+      origInk = ink;
+    }
+
+    // 3) 两类墨迹都为空：该 region 回退 bbox 矩形（旧行为），保证不比现状差
+    if (newCount === 0 && (origCount === 0 || !origInk)) {
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          data[(y * width + x) * 4 + 3] = 0;
+        }
+      }
+      continue;
+    }
+
+    // 4) 分别膨胀后取并集：新字 +5px（描边/投影光效溢出），原字 +3px（擦除余量）
+    const dilatedNew = newCount > 0 ? separableDilate(newInk, bw, bh, 5, 5) : newInk;
+    const dilatedOrig = origInk && origCount > 0 ? separableDilate(origInk, bw, bh, 3, 3) : null;
+    for (let y = ey0; y < ey1; y++) {
+      for (let x = ex0; x < ex1; x++) {
+        const p = (y - ey0) * bw + (x - ex0);
+        if (dilatedNew[p] || (dilatedOrig && dilatedOrig[p])) {
+          data[(y * width + x) * 4 + 3] = 0;
+        }
+      }
+    }
+  }
+
+  // 轻微羽化：墨迹边界软过渡，避免笔画级硬边锯齿
+  return sharp(data, { raw: { width, height, channels: 4 } })
+    .blur(1.2)
+    .png()
+    .toBuffer();
 }
 
 export async function createModifiedRegionsMask(
