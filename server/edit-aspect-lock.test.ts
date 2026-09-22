@@ -28,6 +28,8 @@ const CANVAS_PATH = path.resolve(
   "../client/src/components/canvas/InfiniteCanvas.tsx"
 );
 
+const IMAGE_GENERATION_PATH = path.resolve(__dirname, "./image-generation.ts");
+
 /** 只剥「整行都是块注释」的行，避免贪婪正则吃掉真实代码。 */
 function stripLineComments(source: string) {
   return source
@@ -337,6 +339,24 @@ describe("⚠️⚠️ 画幅锁真的被接到了每个重绘出口（测纯函
      * ⚠️ 用计数而非 toContain —— 同一模式多次出现时 toContain 会让变异漏网。
      */
     expect(fromLock.length).toBe(6);
+  });
+
+  it("⚠️⚠️⚠️ 后端编辑入口的**默认值是保持**，不是放大", () => {
+    /*
+     * 线上产物实探发现：编辑类入口远不止三条重绘路径，还有 camera_view
+     * （视角变换）、annotation_edit（智能注释）、矢量化/高清、asset-erase（擦除）。
+     * 它们都不传 preserveSourceSize，若默认值是「放大」就会悄悄改尺寸。
+     * ⚠️ 必须是 `!== false`（默认保持），而不是 `=== true`（默认放大）。
+     */
+    const backend = stripLineComments(
+      readFileSync(IMAGE_GENERATION_PATH, "utf8")
+    );
+    expect(backend).toMatch(
+      /shouldPreserveSourceSize\s*=\s*[\s\S]{0,60}input\.preserveSourceSize\s*!==\s*false/
+    );
+    expect(backend).not.toMatch(
+      /shouldPreserveSourceSize\s*=\s*[\s\S]{0,60}input\.preserveSourceSize\s*===\s*true/
+    );
   });
 
   it("⚠️ 反向断言：不存在只传尺寸却漏传保持标记的重绘出口", () => {

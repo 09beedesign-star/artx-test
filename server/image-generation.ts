@@ -5548,8 +5548,24 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
    * 📌 判据：**锁比例 ≠ 锁尺寸**。等比放大不会变形，但它仍然是
    *    「改变了分辨率」，不符合「与原图保持一致」。
    */
+  /**
+   * ⚠️⚠️⚠️ 【2026-09-22 第二轮】默认值**必须是「保持」**，不能是「放大」。
+   *
+   * 第一轮只给三条重绘路径接上了 preserveSourceSize，线上产物一探才发现
+   * 编辑类入口远不止三条：camera_view（视角变换）、annotation_edit（智能注释）、
+   * 矢量化/高清、asset-erase（擦除）…… 它们全都没传这个字段，于是照样被
+   * __testResolveHighDefinitionTargetSize 里那道无条件的「长边补到 1536」放大。
+   *
+   * 📌⭐⭐⭐ 判据：**当「正确行为」需要每个调用方主动传一个字段才能获得时，
+   *    它迟早会漏 —— 而且漏的那条路零报错。把默认值翻过来才是收口。**
+   *    用户的要求是「全站所有 AI 编辑和重绘能力场景」，逐个补出口天然做不到"全"。
+   *
+   * 现在的语义：**编辑入口一律保持原图尺寸**，除非调用方显式传
+   * preserveSourceSize: false（明确表示"我就是要换个尺寸"）。
+   * 用户在提示词/选择器里主动指定画幅时，前端会算出目标尺寸并传 false。
+   */
   const shouldPreserveSourceSize =
-    isSourcePreservingEdit || input.preserveSourceSize === true;
+    isSourcePreservingEdit || input.preserveSourceSize !== false;
   const targetSize = shouldPreserveSourceSize
     ? sourceImageDimensions
     : __testResolveHighDefinitionTargetSize(

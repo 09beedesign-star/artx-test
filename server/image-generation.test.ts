@@ -813,8 +813,15 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(result.images[0].width).toBe(1536);
-    expect(result.images[0].height).toBe(1024);
+    /*
+     * 【2026-09-22 更新】原先断言 1536x1024 —— 那是「长边不足 1536 就放大」
+     * 的旧行为。用户明确要求：原图是什么尺寸，生成的就是什么尺寸，
+     * 除非他在提示词或分辨率选择器里主动改。所以 96x64 的源图
+     * 现在必须原样输出 96x64，不再被拉到 1536。
+     * ⚠️ 这条不是回归，是这条断言本身在守护已被推翻的行为。
+     */
+    expect(result.images[0].width).toBe(96);
+    expect(result.images[0].height).toBe(64);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
   });
