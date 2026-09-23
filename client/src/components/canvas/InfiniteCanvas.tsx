@@ -7464,6 +7464,29 @@ function AssetNodeComponent({
   const shadow = selected
     ? "none"
     : "0 4px 16px rgba(0,0,0,0.22)";
+  /*
+   * ── 图片节点的圆角唯一事实源（2026-09-23 用户点名）────────────────────────
+   *
+   * 需求：所有图片节点一律 4px 圆角，且圆角要「看得见」。
+   *
+   * ⚠️⚠️⚠️ 为什么不能只在外层容器写 borderRadius: 4：
+   *   外层容器是 `overflow:hidden` + `border: Npx`。CSS 规范下，
+   *   **内容被裁剪的半径 = borderRadius − borderWidth**。
+   *   原来 border 是 2px、radius 是 4px → 图片实际只被裁出 2px 圆角，
+   *   而 <img> 自己的 border-radius 是 0px。
+   *   源码里写着 4、用户看到的是 2，**零报错、零警告**。
+   *
+   * ✅ 收口做法两条，缺一条圆角都会「看不出来」：
+   *   1. 描边收窄到 ASSET_NODE_BORDER_WIDTH = 1px（用户原话「改为一项数」），
+   *      这样裁剪半径 = 4 − 1 = 3px，已接近目标；
+   *   2. **圆角直接打在 <img> 本身**（ASSET_NODE_IMAGE_RADIUS），
+   *      让图片自带 4px 圆角，不再依赖父层裁剪 ——
+   *      这才是用户说的「圆角的四像素是向内部的四像素」。
+   *
+   * 📌 改这两个常量即可全量生效，别再往各分支里散写数字。
+   */
+  const ASSET_NODE_BORDER_WIDTH = 1;
+  const ASSET_NODE_IMAGE_RADIUS = 4;
   // 四角拖拽缩放：以对角锚点固定，拖动锚点作为伸缩方向
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, direction: "nw" | "ne" | "se" | "sw" = "se") => {
@@ -8463,7 +8486,7 @@ function AssetNodeComponent({
 	          ...frameClipStyle,
 	          width: dispW,
 	          height: dispH,
-	          borderRadius: 4,
+	          borderRadius: ASSET_NODE_IMAGE_RADIUS,
 	          overflow: "visible",
 	          cursor: isResizing
             ? "nwse-resize"
@@ -8486,8 +8509,8 @@ function AssetNodeComponent({
           style={{
             width: "100%",
             height: "100%",
-            border: `2px solid ${borderColor}`,
-            borderRadius: 4,
+            border: `${ASSET_NODE_BORDER_WIDTH}px solid ${borderColor}`,
+            borderRadius: ASSET_NODE_IMAGE_RADIUS,
             boxShadow: shadow,
             overflow:
               isCropping || isExpanding || isErasing || isCameraViewAdjusting
@@ -8533,6 +8556,8 @@ function AssetNodeComponent({
                 className="absolute inset-0 h-full w-full"
                 style={{
                   ...frameClipStyle,
+                  // 与主图同半径：生成中这层模糊底图也是用户看得见的「图片」
+                  borderRadius: ASSET_NODE_IMAGE_RADIUS,
                   objectFit: "cover",
                   filter: isInPlaceRepainting
                     ? "blur(26px) saturate(1.12) brightness(0.86)"
@@ -8557,6 +8582,7 @@ function AssetNodeComponent({
               }
               style={{
                 ...frameClipStyle,
+                borderRadius: ASSET_NODE_IMAGE_RADIUS,
                 /*
                  * ⚠️ 就地重绘这一段必须排在 isGeneratingImage 之前，且**不能是不透明色**：
                  *    下面 zIndex:0 那层高斯模糊的当前图片就是靠这里透出去给用户看的，
@@ -8667,6 +8693,7 @@ function AssetNodeComponent({
               className="absolute inset-0 flex flex-col items-center justify-center gap-3"
               style={{
                 ...frameClipStyle,
+                borderRadius: ASSET_NODE_IMAGE_RADIUS,
                 background: isDark
                   ? "linear-gradient(135deg, #303038, #1d1d23)"
                   : "linear-gradient(135deg, #d6d6da, #eeeeef)",
@@ -8734,6 +8761,8 @@ function AssetNodeComponent({
                 ...frameClipStyle,
                 ...imgCropStyle,
                 display: "block",
+                // 圆角打在图片本身，不依赖父层裁剪（见 ASSET_NODE_IMAGE_RADIUS 注释）
+                borderRadius: ASSET_NODE_IMAGE_RADIUS,
                 objectFit: "contain",
                 pointerEvents: "none",
                 transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
@@ -8748,6 +8777,7 @@ function AssetNodeComponent({
               className="absolute inset-0 flex items-center justify-center px-4 text-center type-caption"
               style={{
                 ...frameClipStyle,
+                borderRadius: ASSET_NODE_IMAGE_RADIUS,
                 color: isDark
                   ? "oklch(0.70 0.01 270)"
                   : "oklch(0.42 0.012 255)",
