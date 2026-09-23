@@ -22,6 +22,22 @@ import { join } from "node:path";
 const SOURCE_PATH = join(__dirname, "InfiniteCanvas.tsx");
 const source = readFileSync(SOURCE_PATH, "utf8");
 
+/** 生成中描边的样式在全局 CSS 里，不在组件内。 */
+const CSS_PATH = join(__dirname, "..", "..", "index.css");
+const css = readFileSync(CSS_PATH, "utf8");
+
+/** 切出 .artx-ai-generation-loading::after 规则体。 */
+function sliceGenerationBorderRule(): string {
+  const marker = ".artx-ai-generation-loading::after";
+  const start = css.indexOf(marker);
+  if (start === -1) {
+    throw new Error("定位锚点失效，找不到 .artx-ai-generation-loading::after");
+  }
+  const open = css.indexOf("{", start);
+  const close = css.indexOf("\n  }", open);
+  return css.slice(open, close === -1 ? css.length : close);
+}
+
 /** 切出 AssetNodeComponent 到下一个顶层声明为止。 */
 function sliceAssetNode(): string {
   const marker = "function AssetNodeComponent(";
@@ -84,13 +100,51 @@ describe("图片节点圆角：每个可见状态层都必须消费同一半径"
    *   只改一个 → 正常图有圆角、加载中是直角，零报错。
    *   （这是记忆里「同一份数据的多个出口」事故模式的第 N 次复现。）
    */
-  it("borderRadius 引用次数必须覆盖全部出口", () => {
+  /*
+   * 📌 2026-09-23 契约变更：出口从「全用 ASSET_NODE_IMAGE_RADIUS」拆成两档。
+   *   外轮廓层（外层容器 / 内层描边容器 / 主图 <img>）用 IMAGE 半径 = 12；
+   *   内层 overflow:hidden 的**覆盖层**用 INNER 半径 = 12 − 1 = 11，
+   *   否则比父层裁剪路径大 1px，四个角被削（用户反馈的「描边被切断」之一）。
+   *   所以这里必须分别计数，合计仍是 7 —— 少哪一档都会漏改状态层。
+   */
+  it("外轮廓层必须用 IMAGE 半径", () => {
     const hits = assetNode.match(/borderRadius: ASSET_NODE_IMAGE_RADIUS/g) ?? [];
     expect(
       hits.length,
-      `圆角出口数不对（期望 7，实得 ${hits.length}）—— 有状态层漏改，` +
-        `会出现「正常图有圆角、加载中/过期时是直角」`
-    ).toBe(7);
+      `外轮廓出口数不对（期望 3，实得 ${hits.length}）—— ` +
+        `外层容器 / 内层描边容器 / 主图 <img> 三处必须是节点真实外圆角`
+    ).toBe(3);
+  });
+
+  it("内层覆盖层必须用 INNER 半径（比裁剪路径大就会削角）", () => {
+    const hits = assetNode.match(/borderRadius: ASSET_NODE_INNER_RADIUS/g) ?? [];
+    expect(
+      hits.length,
+      `覆盖层出口数不对（期望 4，实得 ${hits.length}）—— ` +
+        `模糊底图 / AI 处理中层 / 已过期层 / 未保存层，漏一个就四角被切`
+    ).toBe(4);
+  });
+
+  it("INNER 半径必须由 IMAGE 半径减描边宽推导，不能写死", () => {
+    expect(
+      assetNode,
+      "INNER 半径写成了字面量 —— 圆角或描边一改就又出现削角"
+    ).toContain(
+      "ASSET_NODE_IMAGE_RADIUS - ASSET_NODE_BORDER_WIDTH"
+    );
+    /*
+     * ⚠️ 变异 M3 实测漏网：最初写 `assetNode.toContain("Math.max(")`，
+     *   但 Math.max 在这个 3.7 万行文件里到处都是，断言等于恒绿。
+     *   必须把范围收窄到这个常量自己的声明块内。
+     *   （记忆判据：同一模式多次出现时 toContain 会让变异漏网。）
+     */
+    const declStart = assetNode.indexOf("const ASSET_NODE_INNER_RADIUS");
+    expect(declStart, "INNER 半径声明锚点失效").toBeGreaterThan(-1);
+    const decl = assetNode.slice(declStart, declStart + 160);
+    expect(
+      decl,
+      "INNER 半径没有下限保护 —— 描边比圆角宽时会算出负值圆角"
+    ).toContain("Math.max(");
   });
 
   it("主图 <img> 自身必须带圆角，不能只靠父层裁剪", () => {
@@ -122,7 +176,7 @@ describe("图片节点圆角：每个可见状态层都必须消费同一半径"
     expect(
       block,
       "生成中的模糊底图缺圆角 —— 出图过程中节点会变直角"
-    ).toContain("borderRadius: ASSET_NODE_IMAGE_RADIUS,");
+    ).toContain("borderRadius: ASSET_NODE_INNER_RADIUS,");
   });
 
   it("「该图片已过期」层必须同半径", () => {
@@ -130,8 +184,45 @@ describe("图片节点圆角：每个可见状态层都必须消费同一半径"
     expect(start, "过期层锚点失效").toBeGreaterThan(-1);
     const block = assetNode.slice(start, start + 600);
     expect(block, "过期层缺圆角").toContain(
-      "borderRadius: ASSET_NODE_IMAGE_RADIUS,"
+      "borderRadius: ASSET_NODE_INNER_RADIUS,"
     );
+  });
+
+  it("生成中的白色描边不能用直线段拼（会在圆角处断开）", () => {
+    /*
+     * ⚠️⚠️⚠️ 这条是 2026-09-23 用户反馈「四个角描边被切断」的直接根因锁。
+     *   旧写法用 4 条 linear-gradient 直线段贴在 top/bottom/left/right，
+     *   直线段是矩形的、走不了弧 —— 圆角一加大，四角就整块没有描边。
+     *   新写法用 border-box/content-box 双 mask 相减挖出沿圆角走的环。
+     */
+    const rule = sliceGenerationBorderRule();
+    expect(
+      rule,
+      "描边又退回「直线段拼边框」写法 —— 圆角四个角必然断开"
+    ).not.toMatch(/(top|bottom)\s*\/\s*100%\s+\d+px/);
+    expect(
+      rule,
+      "描边又退回「直线段拼边框」写法 —— 圆角四个角必然断开"
+    ).not.toMatch(/(left|right)\s*\/\s*\d+px\s+100%/);
+    expect(rule, "描边没有跟随父层圆角").toContain("border-radius: inherit");
+    expect(rule, "缺 mask 相减 —— 挖不出沿圆角走的环").toContain(
+      "mask-composite: exclude"
+    );
+    expect(rule, "缺 Safari 前缀，Safari 下描边会变成整块白").toContain(
+      "-webkit-mask-composite: xor"
+    );
+    expect(
+      rule,
+      "环的厚度必须由组件下发的 CSS 变量决定，不能写死"
+    ).toContain("var(--artx-gen-border-width");
+  });
+
+  it("描边厚度变量必须由组件真实下发", () => {
+    expect(
+      assetNode,
+      "组件没下发 --artx-gen-border-width —— CSS 只能吃兜底值，" +
+        "描边宽度改了描边不跟随"
+    ).toContain("--artx-gen-border-width");
   });
 
   it("「图片未保存」层必须同半径", () => {
@@ -140,7 +231,7 @@ describe("图片节点圆角：每个可见状态层都必须消费同一半径"
     // 这层的 style 在文案之前，往回切
     const block = assetNode.slice(Math.max(0, start - 900), start);
     expect(block, "未保存层缺圆角").toContain(
-      "borderRadius: ASSET_NODE_IMAGE_RADIUS,"
+      "borderRadius: ASSET_NODE_INNER_RADIUS,"
     );
   });
 });

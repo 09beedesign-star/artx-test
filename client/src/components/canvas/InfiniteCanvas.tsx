@@ -7488,6 +7488,24 @@ function AssetNodeComponent({
    */
   const ASSET_NODE_BORDER_WIDTH = 1;
   const ASSET_NODE_IMAGE_RADIUS = 12;
+  /**
+   * 内层覆盖层的圆角（2026-09-23）。
+   *
+   * ⚠️⚠️⚠️ CSS 规范：`overflow:hidden` 的容器，其**内容被裁剪的圆角半径
+   *   = borderRadius − borderWidth**。内层容器写的是 12px 圆角 + 1px 描边，
+   *   所以它内部所有 `absolute inset-0` 的层，实际能显示的圆角只有 11px。
+   *   这些层自己却写 12px —— 比裁剪边缘大 1px，**四个角会被削掉一圈**。
+   *
+   *   圆角 4px 时这 1px 误差肉眼无感；用户加到 12px 后，
+   *   叠加「直线段拼边框」的问题，就成了明显的「四角描边断开」。
+   *
+   * ✅ 用 R − 描边宽，让覆盖层与父层裁剪路径**逐像素重合**。
+   *   注意下限 0：以后万一有人把描边调得比圆角还宽，不能出负值。
+   */
+  const ASSET_NODE_INNER_RADIUS = Math.max(
+    0,
+    ASSET_NODE_IMAGE_RADIUS - ASSET_NODE_BORDER_WIDTH
+  );
   // 四角拖拽缩放：以对角锚点固定，拖动锚点作为伸缩方向
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, direction: "nw" | "ne" | "se" | "sw" = "se") => {
@@ -8557,8 +8575,12 @@ function AssetNodeComponent({
                 className="absolute inset-0 h-full w-full"
                 style={{
                   ...frameClipStyle,
-                  // 与主图同半径：生成中这层模糊底图也是用户看得见的「图片」
-                  borderRadius: ASSET_NODE_IMAGE_RADIUS,
+                  /*
+                   * 生成中这层模糊底图也是用户看得见的「图片」，必须有圆角。
+                   * ⚠️ 用 INNER 半径：它是内层 overflow:hidden 容器的子元素，
+                   *   父层实际裁剪半径 = 12 − 1 = 11px，这里写 12 会多出 1px 被削角。
+                   */
+                  borderRadius: ASSET_NODE_INNER_RADIUS,
                   objectFit: "cover",
                   filter: isInPlaceRepainting
                     ? "blur(26px) saturate(1.12) brightness(0.86)"
@@ -8583,7 +8605,14 @@ function AssetNodeComponent({
               }
               style={{
                 ...frameClipStyle,
-                borderRadius: ASSET_NODE_IMAGE_RADIUS,
+                /*
+                 * ⚠️ 这层就是挂 .artx-ai-generation-loading 的元素，
+                 *   白色描边（::after）靠 border-radius: inherit 取这里的值。
+                 *   必须用 INNER 半径与父层裁剪路径重合，否则描边环的四个角
+                 *   会被父层 overflow:hidden 削掉 —— 用户看到的就是「四角断开」。
+                 */
+                borderRadius: ASSET_NODE_INNER_RADIUS,
+                ["--artx-gen-border-width" as string]: `${ASSET_NODE_BORDER_WIDTH}px`,
                 /*
                  * ⚠️ 就地重绘这一段必须排在 isGeneratingImage 之前，且**不能是不透明色**：
                  *    下面 zIndex:0 那层高斯模糊的当前图片就是靠这里透出去给用户看的，
@@ -8694,7 +8723,8 @@ function AssetNodeComponent({
               className="absolute inset-0 flex flex-col items-center justify-center gap-3"
               style={{
                 ...frameClipStyle,
-                borderRadius: ASSET_NODE_IMAGE_RADIUS,
+                // 同为内层 overflow:hidden 的子层，跟随 INNER 半径（见常量注释）
+                borderRadius: ASSET_NODE_INNER_RADIUS,
                 background: isDark
                   ? "linear-gradient(135deg, #303038, #1d1d23)"
                   : "linear-gradient(135deg, #d6d6da, #eeeeef)",
@@ -8778,7 +8808,8 @@ function AssetNodeComponent({
               className="absolute inset-0 flex items-center justify-center px-4 text-center type-caption"
               style={{
                 ...frameClipStyle,
-                borderRadius: ASSET_NODE_IMAGE_RADIUS,
+                // 同为内层 overflow:hidden 的子层，跟随 INNER 半径（见常量注释）
+                borderRadius: ASSET_NODE_INNER_RADIUS,
                 color: isDark
                   ? "oklch(0.70 0.01 270)"
                   : "oklch(0.42 0.012 255)",

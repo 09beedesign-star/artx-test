@@ -545,19 +545,58 @@ html.light, .light {
     pointer-events: none;
   }
 
+  /*
+   * 生成中的白色描边（2026-09-23 重制）。
+   *
+   * ⚠️⚠️⚠️ 上一版是用 4 条**直线段**拼出来的边框：
+   *     linear-gradient(...) top / 100% 1px, bottom / 100% 1px,
+   *     left / 1px 100%, right / 1px 100%
+   *   直线段是矩形的，圆角是弧形的。圆角 4px 时四个角只缺一丁点看不出来，
+   *   用户把圆角加到 12px 后，四个角各有 12×12 的方形区域压根没有描边，
+   *   并且直线段伸进圆角区还会被父层 overflow:hidden 裁掉 ——
+   *   现象就是「四个角的描边被切断」。**零报错、零警告。**
+   *
+   * ✅ 正解：不要拼边，用 border-box/content-box 双 mask 相减挖出一个
+   *   **真正沿圆角路径走的环**。CSS 会自动把内圈半径算成 R − 厚度，
+   *   环的走向与节点外轮廓严格一致，任何圆角值都不会缺角。
+   *
+   * 📌 亮度分布改用 radial-gradient(farthest-corner)：
+   *   离中心越远越亮 → 四个角天然最亮、四边中点最暗，
+   *   既保留了原来「四角发光」的观感，又不依赖任何方向性的直线段，
+   *   而且会随节点长宽比自适应（原来的 90deg/180deg 写法做不到）。
+   */
   .artx-ai-generation-loading::after {
     content: "";
     position: absolute;
     inset: 0;
     z-index: -1;
+    /*
+     * ⚠️ 必须 inherit：父层的圆角由 React 侧 ASSET_NODE_INNER_RADIUS 下发，
+     *   与父容器 overflow:hidden 的实际裁剪半径（R − 描边宽）逐像素对齐。
+     *   这里写死数字 = 圆角一改就又缺角。
+     */
     border-radius: inherit;
-    background:
-      linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) top / 100% 1px no-repeat,
-      linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) bottom / 100% 1px no-repeat,
-      linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) left / 1px 100% no-repeat,
-      linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.08) 28%, rgba(255,255,255,0.08) 72%, rgba(255,255,255,0.95)) right / 1px 100% no-repeat;
+    padding: var(--artx-gen-border-width, 1px);
+    background: radial-gradient(
+      farthest-corner at 50% 50%,
+      rgba(255,255,255,0.06) 58%,
+      rgba(255,255,255,0.42) 82%,
+      rgba(255,255,255,0.95) 100%
+    );
+    /*
+     * 双 mask 相减：border-box 那层留下整块，content-box 那层扣掉内部，
+     * 差集就是沿圆角走的 1px 环。-webkit-* 前缀给 Safari。
+     */
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-sizing: border-box;
     box-shadow:
-      inset 0 0 28px rgba(255,255,255,0.14),
       0 0 34px rgba(255,255,255,0.14),
       0 0 58px rgba(0,0,0,0.24);
     animation: artx-generation-border-breathe 2.4s ease-in-out infinite;
@@ -614,18 +653,21 @@ html.light, .light {
     }
   }
 
+  /*
+   * ⚠️ 这里原来带 `inset` 内发光。加了 mask 之后元素只剩 1px 的环，
+   *   inset 阴影会被一起裁到环内 —— 既看不见又白耗一层合成。
+   *   内发光改由 ::before 的扫光层负责，这里只留外发光。
+   */
   @keyframes artx-generation-border-breathe {
     0%, 100% {
       opacity: 0.62;
       box-shadow:
-        inset 0 0 22px rgba(255,255,255,0.10),
         0 0 24px rgba(255,255,255,0.10),
         0 0 44px rgba(0,0,0,0.20);
     }
     50% {
       opacity: 1;
       box-shadow:
-        inset 0 0 34px rgba(255,255,255,0.18),
         0 0 42px rgba(255,255,255,0.16),
         0 0 74px rgba(0,0,0,0.28);
     }
