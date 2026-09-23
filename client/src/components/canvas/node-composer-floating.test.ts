@@ -415,11 +415,39 @@ describe("需求 7（2026-09-21）：引用标签尺寸对齐 + 底部按钮行 
     expect(header).toContain("maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth");
     expect(header).toContain("padding: COMPOSER_REF_TOKEN_SIZE.padding");
     expect(header).toContain("width: COMPOSER_REF_TOKEN_SIZE.iconSize");
-    // 计数断言：height/maxWidth/gap/padding 各 1 + iconSize 2 + labelMaxWidth/fontSize 2 = 8
+
+    /*
+     * 计数断言（2026-09-23 重制）：
+     *
+     * 原口径是「整个 header 切片里常量恰好出现 8 次」。两个毛病：
+     *   ① 把**注释里**的提及也算进去了 —— 补一句说明文档就假性变红；
+     *   ② 一个笼统数字盖住了两块互不相干的 UI（紫色引用标签 / 框选按钮），
+     *      任一边改动都要回来改同一个数字，读到失败也说不清是谁破的。
+     *
+     * 现在：先剥掉块注释，再按 data-region-select-toggle 切成两段分别计数。
+     * 这样「某处写回硬编码」仍然会被抓到，而且能直接指出是哪一段。
+     */
+    const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "");
+    const toggleAnchor = "data-region-select-toggle";
+    const anchorAt = header.indexOf(toggleAnchor);
+    expect(anchorAt, "框选按钮锚点失效，下面的分段计数已无意义").toBeGreaterThan(
+      0
+    );
+
+    const chipCode = stripComments(header.slice(0, anchorAt));
+    const toggleCode = stripComments(header.slice(anchorAt));
+    const countIn = (s: string) => s.split("COMPOSER_REF_TOKEN_SIZE").length - 1;
+
+    // 紫色引用标签：height/maxWidth/gap/padding 各 1 + 缩略图 iconSize 2 + labelMaxWidth 1 = 7
     expect(
-      header.split("COMPOSER_REF_TOKEN_SIZE").length - 1,
-      "尺寸常量引用次数异常 —— 可能某处又写回了硬编码尺寸"
-    ).toBe(8);
+      countIn(chipCode),
+      "紫色引用标签的尺寸常量引用次数异常 —— 可能某处又写回了硬编码尺寸"
+    ).toBe(7);
+    // 框选按钮：AiDecoratedIcon 的 size + 内层图标的 size = 2（与标签缩略图同源）
+    expect(
+      countIn(toggleCode),
+      "框选按钮的图标尺寸必须与引用标签缩略图同源，不能写字面量"
+    ).toBe(2);
   });
 
   it("「智能优化此图片」文案必须移除", () => {

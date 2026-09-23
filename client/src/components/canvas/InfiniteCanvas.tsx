@@ -134,6 +134,7 @@ import {
   Minus as MinusIcon,
   BadgeCheck,
   ScanSearch,
+  SquareDashedMousePointer,
   Move,
   PanelTopOpen,
   ImageOff,
@@ -176,6 +177,15 @@ import {
 } from "./in-place-repaint-confirm";
 import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
+import {
+  REGION_SELECT_COMMIT_EVENT,
+  REGION_SELECT_MODE_EVENT,
+  REGION_SELECT_MIN_RATIO,
+  buildRegionEditPromptPrefix,
+  createRegionSelectMask,
+  cropRegionThumbnail,
+  type RegionSelectRect,
+} from "./region-select-mask";
 import { Switch } from "@/components/ui/switch";
 
 // 「井号 + 方框」图标 — 创建画板专用
@@ -3335,8 +3345,8 @@ function AssetFloatingToolbar({
      * 恢复方式：在本注释位置放回一个 assetTools 条目即可（图标 Type，
      * 文案用「智能文案编辑」，派发的 action 沿用 edit-text）。
      * ⚠️ 这里刻意不把条目原样注释留在文件里 —— 守门测试用
-     *    not.toMatch 反向断言，注释掉的代码同样会被正则命中，
-     *    会让那条测试恒红。
+     *    `not.toMatch(/^\s{6}label: ...$/m)` 反向断言，注释掉的代码
+     *    同样会被正则命中，会让那条测试恒红。
      * ──────────────────────────────────────────────────────────────
      */
     /*
@@ -4214,15 +4224,14 @@ async function loadExternalImageWithProxyFallback(src: string) {
   } catch {
     // Fall back to direct image loading below.
   }
-  /**
-   * ⚠️⚠️⚠️【2026-09-23】「外部 URL 加载进来的图，退出画布再进来就没了」的源头。
+  /*
+   * ⚠️⚠️⚠️【2026-09-21】下面这两个兜底分支返回的 localSrc 是 **http URL，不是 data:**，
+   *    这就是「加载进来的图片，退出工作台再进来就没了」的源头。
    *
-   * 这个函数有 4 个返回点，原本**只有前两个返回 data URL**
-   * （入参本身就是 data: / 代理抓取成功）。代理不可用时走到下面两个兜底分支，
-   * 返回的 localSrc 是一个 **http 外链**。
-   * 而存储层只收 `startsWith("data:")` 的，于是这张图的真身**从未落盘** ——
-   * 画布上还能看见它，纯粹因为那个 URL 当时还活着。
-   * 外链一过期（AI 临时链接 / 签名 URL / CDN 清理）就变「该图片已过期」，全程零报错。
+   *    图片节点的持久化（persistCanvasNodeImagePayloads）以前只收 data: 开头的
+   *    localSrc，非 data: 的直接丢弃 —— 于是这两条路进来的图**真身从未落盘**。
+   *    画布上能看见纯粹是因为那个外链当时还活着；等它过期（AI 生成图的临时链接、
+   *    带 token 的签名 URL、CDN 清理都属常态），重进画布就是「该图片已过期」。
    *
    * ✅ 收口在这里，而不是只在存储层补救：
    *    图片此刻**已经是一个加载完成的 HTMLImageElement**，直接画到 canvas 上
@@ -6787,6 +6796,15 @@ function AssetNodeComponent({
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
+  /**
+   * 局部框选模式（2026-09-23）：点悬浮提示词面板上的「框选局部」图标后置 true，
+   * 光标变十字、图片上出现矩形选框叠层。
+   *
+   * ⚠️ 与 isErasing 共用「写在节点 data 上」这套机制（而不是组件内 useState）：
+   *    触发方是**面板**、消费方是**节点**，两者不是父子关系，只能走 data / 事件。
+   */
+  const isRegionSelecting = !!(data as { isRegionSelecting?: boolean })
+    .isRegionSelecting;
   const isExpanding = !!(data as { isExpanding?: boolean }).isExpanding;
   const isCameraViewAdjusting = !!(data as { isCameraViewAdjusting?: boolean })
     .isCameraViewAdjusting;
@@ -8078,6 +8096,118 @@ function AssetNodeComponent({
     []
   );
 
+  /**
+   * ── 局部框选（2026-09-23）────────────────────────────────────────────────
+   *
+   * 交互：在图片上按下拖拽出矩形 → 松手即完成 → 通过 window 事件把选区
+   * （**归一化 0~1 比例**，不是像素）交给悬浮提示词面板生成局部引用标签。
+   *
+   * ⚠️⚠️⚠️ 这里必须传比例而不是像素。节点在画布上是被缩放显示的，
+   *    getBoundingClientRect 拿到的是**屏幕尺寸**，与图片原始像素无关；
+   *    传像素等于把当前缩放级别烤进数据，用户缩放后同一个框会落在不同位置，
+   *    且零报错。比例则与缩放、与原图分辨率都无关。
+   */
+  const regionSelectRectRef = useRef<HTMLDivElement | null>(null);
+  const regionSelectStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [regionSelectPreview, setRegionSelectPreview] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  /** 退出框选模式时清掉预览框，避免下次进入时残留上一次的矩形 */
+  useEffect(() => {
+    if (!isRegionSelecting) {
+      setRegionSelectPreview(null);
+      regionSelectStartRef.current = null;
+    }
+  }, [isRegionSelecting]);
+
+  /** 屏幕坐标 → 相对图片的 0~1 比例（并夹取到边界内） */
+  const getRegionSelectRatioPoint = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const host = regionSelectRectRef.current;
+      if (!host) return null;
+      const rect = host.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      return {
+        x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+      };
+    },
+    []
+  );
+
+  const handleRegionSelectPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!isRegionSelecting || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = getRegionSelectRatioPoint(event);
+      if (!point) return;
+      regionSelectStartRef.current = point;
+      setRegionSelectPreview({ x: point.x, y: point.y, w: 0, h: 0 });
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [getRegionSelectRatioPoint, isRegionSelecting]
+  );
+
+  const handleRegionSelectPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const start = regionSelectStartRef.current;
+      if (!start || !isRegionSelecting) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = getRegionSelectRatioPoint(event);
+      if (!point) return;
+      setRegionSelectPreview({
+        x: Math.min(start.x, point.x),
+        y: Math.min(start.y, point.y),
+        w: Math.abs(point.x - start.x),
+        h: Math.abs(point.y - start.y),
+      });
+    },
+    [getRegionSelectRatioPoint, isRegionSelecting]
+  );
+
+  const handleRegionSelectPointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const start = regionSelectStartRef.current;
+      if (!start) return;
+      event.preventDefault();
+      event.stopPropagation();
+      regionSelectStartRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      const point = getRegionSelectRatioPoint(event);
+      if (!point) return;
+      const region = {
+        x: Math.min(start.x, point.x),
+        y: Math.min(start.y, point.y),
+        w: Math.abs(point.x - start.x),
+        h: Math.abs(point.y - start.y),
+      };
+      /*
+       * ⚠️ 过小的框直接丢弃。用户在框选模式下**单击**（而非拖拽）会产生
+       *    w=h=0 的退化矩形；不拦的话会生成一张全黑蒙版（零编辑区），
+       *    上游照样跑一轮、照常计费，最后返回一张"什么都没改"的图 —— 零报错。
+       */
+      if (region.w < REGION_SELECT_MIN_RATIO || region.h < REGION_SELECT_MIN_RATIO) {
+        setRegionSelectPreview(null);
+        toast("框选区域太小", { description: "请拖拽出一个更大的矩形范围" });
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent(REGION_SELECT_COMMIT_EVENT, {
+          detail: { nodeId, region },
+        })
+      );
+    },
+    [getRegionSelectRatioPoint, nodeId]
+  );
+
   const getRenderedImagePayload = useCallback(async () => {
     if (!displaySrc)
       return { src: "", width: 0, height: 0 };
@@ -8566,7 +8696,7 @@ function AssetNodeComponent({
 	          overflow: "visible",
 	          cursor: isResizing
             ? "nwse-resize"
-            : isErasing || isExpanding
+            : isErasing || isExpanding || isRegionSelecting
               ? "crosshair"
               : toolMode === "annotate"
                 ? "crosshair"
@@ -8589,7 +8719,11 @@ function AssetNodeComponent({
             borderRadius: ASSET_NODE_IMAGE_RADIUS,
             boxShadow: shadow,
             overflow:
-              isCropping || isExpanding || isErasing || isCameraViewAdjusting
+              isCropping ||
+              isExpanding ||
+              isErasing ||
+              isRegionSelecting ||
+              isCameraViewAdjusting
                 ? "visible"
                 : "hidden",
             transition: "border-color 0.15s, box-shadow 0.15s",
@@ -9646,6 +9780,68 @@ function AssetNodeComponent({
                 >
                   立即使用
                 </button>
+              </div>
+            </div>
+          )}
+          {/*
+            局部框选叠层（2026-09-23）。
+
+            ⚠️ 必须带 nodrag nopan：不加的话 React Flow 会把 pointerdown 当成
+               "拖动节点/平移画布"接管掉，用户拖出来的是节点位移而不是选框，
+               且完全不报错。这条与擦除叠层同因，照抄它的写法。
+          */}
+          {isRegionSelecting && !isAiProcessingImage && (
+            <div
+              ref={regionSelectRectRef}
+              className="absolute inset-0 nodrag nopan"
+              style={{
+                zIndex: 96,
+                cursor: "crosshair",
+                touchAction: "none",
+                // 未框选时给一层很淡的暗底，暗示"当前处于框选模式"
+                background: regionSelectPreview
+                  ? "transparent"
+                  : "rgba(10,10,22,0.18)",
+              }}
+              onPointerDown={handleRegionSelectPointerDown}
+              onPointerMove={handleRegionSelectPointerMove}
+              onPointerUp={handleRegionSelectPointerUp}
+              onPointerCancel={handleRegionSelectPointerUp}
+              onClick={event => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              {regionSelectPreview && (
+                <div
+                  className="pointer-events-none absolute"
+                  style={{
+                    left: `${regionSelectPreview.x * 100}%`,
+                    top: `${regionSelectPreview.y * 100}%`,
+                    width: `${regionSelectPreview.w * 100}%`,
+                    height: `${regionSelectPreview.h * 100}%`,
+                    border: "1.5px dashed oklch(0.72 0.20 290)",
+                    background: "oklch(0.58 0.22 290 / 0.16)",
+                    boxShadow: "0 0 0 9999px rgba(10,10,22,0.28)",
+                  }}
+                />
+              )}
+              <div
+                className="pointer-events-none absolute left-1/2 type-caption"
+                style={{
+                  top: `calc(100% + ${10 * stableUiScale}px)`,
+                  transform: `translateX(-50%) scale(${stableUiScale})`,
+                  transformOrigin: "top center",
+                  whiteSpace: "nowrap",
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: "rgba(18,18,28,0.94)",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  color: "white",
+                  fontSize: 12,
+                }}
+              >
+                拖拽框选要修改的局部区域，按 Esc 取消
               </div>
             </div>
           )}
@@ -16863,6 +17059,11 @@ function AssetEditPromptBar({
     ratio: CanvasAssistantImageRatio;
     count: number;
     skill: PendingSkillLoad | null;
+    /**
+     * 局部框选区域（归一化 0~1）。有值 = 本次是「只改这一块」的局部重绘，
+     * 提交链路会据此生成羽化蒙版并切到 preserveSource 模式。
+     */
+    region?: RegionSelectRect | null;
   }) => void;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -16887,6 +17088,20 @@ function AssetEditPromptBar({
   const [visible, setVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * ── 局部框选引用（2026-09-23）────────────────────────────────────────
+   *
+   * regionSelecting = 当前处于"鼠标选区"状态（图标高亮、节点上可拖框）；
+   * regionRef       = 已框选完成的局部引用（标签 + 缩略图 + 归一化选区）。
+   *
+   * ⚠️ 两者是**独立**的：框选完成后立刻退出选区模式，但标签要一直留着，
+   *    直到用户发送或手动移除。写成一个状态会导致"标签一出现就又能拖框"。
+   */
+  const [regionSelecting, setRegionSelecting] = useState(false);
+  const [regionRef, setRegionRef] = useState<{
+    region: RegionSelectRect;
+    thumbnail: string;
+  } | null>(null);
 
   // Fade-in after mount
   useEffect(() => {
@@ -16934,6 +17149,89 @@ function AssetEditPromptBar({
     window.dispatchEvent(new CustomEvent(PROMPT_BAR_FRONT_EVENT));
   }, []);
 
+  /* ── 局部框选：模式开关 + 框选结果接收 ───────────────────────────────── */
+
+  /** 统一的模式设置出口：改 state 的同时把信号广播给节点，两边永不脱节 */
+  const setRegionSelectMode = useCallback(
+    (active: boolean) => {
+      setRegionSelecting(active);
+      window.dispatchEvent(
+        new CustomEvent(REGION_SELECT_MODE_EVENT, {
+          detail: { nodeId: asset.id, active },
+        })
+      );
+    },
+    [asset.id]
+  );
+
+  /*
+   * ⚠️⚠️⚠️ 组件卸载时必须强制关掉框选模式。
+   *
+   * 面板的卸载时机有好几个（点空白取消选中、按 Esc、切到别的图、关闭按钮），
+   * 每一处都手动关一次必然会漏。漏掉的那次，节点上的全屏叠层会永久留在那里
+   * 吞掉所有点击，用户只能刷新 —— 且零报错。所以复位收口在卸载副作用里。
+   */
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent(REGION_SELECT_MODE_EVENT, {
+          detail: { nodeId: asset.id, active: false },
+        })
+      );
+    };
+  }, [asset.id]);
+
+  /** 接收节点传来的框选结果：裁缩略图 → 生成局部引用标签 → 退出选区模式 */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ nodeId?: string; region?: RegionSelectRect }>
+      ).detail;
+      if (!detail?.region || detail.nodeId !== asset.id) return;
+      const region = detail.region;
+      setRegionSelectMode(false);
+      void (async () => {
+        let thumbnail = "";
+        try {
+          thumbnail = await cropRegionThumbnail(asset.src, region);
+        } catch {
+          /*
+           * 缩略图只是标签上的装饰。裁剪失败（跨域图 / canvas 污染）时
+           * **不能**把整个局部引用一起丢掉 —— 选区本身是有效的，
+           * 丢了等于用户白框一次且不知道为什么。降级成无缩略图的标签。
+           */
+          thumbnail = "";
+        }
+        setRegionRef({ region, thumbnail });
+        toast("已框选局部区域", {
+          description: "在下方输入要如何修改这块区域",
+        });
+        setTimeout(() => textareaRef.current?.focus(), 60);
+      })();
+    };
+    window.addEventListener(REGION_SELECT_COMMIT_EVENT, handler);
+    return () =>
+      window.removeEventListener(REGION_SELECT_COMMIT_EVENT, handler);
+  }, [asset.id, asset.src, setRegionSelectMode]);
+
+  /** 框选模式下按 Esc 只退出框选，不关闭整个面板 */
+  useEffect(() => {
+    if (!regionSelecting) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setRegionSelectMode(false);
+    };
+    /*
+     * ⚠️ 必须挂**捕获阶段**：面板顶部那个 Escape 监听是冒泡阶段的 onClose，
+     *    不抢在它前面并 stopPropagation 的话，按 Esc 会直接把面板关掉，
+     *    用户预期的"退出框选回到输入"永远做不到。
+     */
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [regionSelecting, setRegionSelectMode]);
+
   const text = isDark ? "rgba(255,255,255,0.85)" : "rgba(20,20,36,0.85)";
   const subtext = isDark ? "rgba(255,255,255,0.71)" : "rgba(20,20,36,0.40)";
   const divider = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
@@ -16966,8 +17264,10 @@ function AssetEditPromptBar({
       const refText =
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
       const countText = imageCount > 1 ? ` · ${imageCount} 张` : "";
-      toast("AI 正在智能优化", {
-        description: `${prompt.slice(0, 60)}${refText}${countText}`.trim(),
+      const regionText = regionRef ? " · 局部区域" : "";
+      toast(regionRef ? "AI 正在局部重绘" : "AI 正在智能优化", {
+        description:
+          `${prompt.slice(0, 60)}${regionText}${refText}${countText}`.trim(),
       });
       onSubmit({
         prompt: prompt.trim(),
@@ -16975,6 +17275,13 @@ function AssetEditPromptBar({
         references: uploadedRefs,
         ratio: imageRatio,
         count: imageCount,
+        /*
+         * ⚠️ 这里传的是**选区比例**，不是蒙版图。蒙版要拿"节点当前真实显示的
+         *    那张图"去渲染（用户可能已经做过几轮重绘），而面板手上的 asset.src
+         *    是选中那一刻的快照，可能已经过期。取最新图是提交侧的职责，
+         *    所以蒙版在 handleAssetEditSubmit 里生成。
+         */
+        region: regionRef?.region ?? null,
         /*
          * 用户 2026-09-21 去掉了面板上的 Skill 按钮 —— 载荷恒为 null。
          * 类型保留 PendingSkillLoad | null：提交链路（handleAssetEditSubmit）
@@ -16986,6 +17293,12 @@ function AssetEditPromptBar({
       setUploadedRefs([]);
       setImageCount(1);
       setImageRatio("auto");
+      /*
+       * 局部引用是**一次性**的：这一框对应的是这一条指令。
+       * 留着不清会让用户下一条全图指令被悄悄限制在上次的框里，且零报错。
+       */
+      setRegionRef(null);
+      setRegionSelectMode(false);
       /*
        * ⚠️ 吸附模式（选中图片 → 节点下方悬浮框）**发完不关闭**。
        *
@@ -17213,6 +17526,52 @@ function AssetEditPromptBar({
             已引用
           </span>
         </div>
+        {/*
+          「框选局部」入口（2026-09-23 用户点名位置：紧挨紫色「已引用」标签右侧）。
+
+          图标沿用 AiDecoratedIcon 包裹，与命令条里「提示词反推 / 视角」同一套
+          视觉语言（虚线选框 + 右上角 AI 闪光角标）。
+          ⚠️ 尺寸取 COMPOSER_REF_TOKEN_SIZE.iconSize，与左边标签里的缩略图同源 ——
+             别再写一个字面量，否则标签尺寸一改这里就对不齐了。
+        */}
+        <button
+          type="button"
+          data-region-select-toggle
+          onClick={() => {
+            if (regionSelecting) {
+              setRegionSelectMode(false);
+              return;
+            }
+            setRegionSelectMode(true);
+            toast("框选局部区域", {
+              description: "在图片上拖拽出要修改的矩形范围",
+            });
+          }}
+          className="flex shrink-0 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-90"
+          style={{
+            width: 24,
+            height: 24,
+            marginLeft: 2,
+            background: regionSelecting
+              ? "oklch(0.58 0.22 290 / 0.20)"
+              : "transparent",
+            color: regionSelecting
+              ? isDark
+                ? "oklch(0.80 0.18 290)"
+                : "oklch(0.42 0.18 290)"
+              : subtext,
+          }}
+          title={regionSelecting ? "退出框选 (Esc)" : "框选局部区域"}
+          aria-label="框选局部区域"
+          aria-pressed={regionSelecting}
+        >
+          <AiDecoratedIcon
+            size={COMPOSER_REF_TOKEN_SIZE.iconSize}
+            cutoutBg={isDark ? "oklch(0.18 0.015 270)" : "oklch(0.98 0.003 255)"}
+          >
+            <SquareDashedMousePointer size={COMPOSER_REF_TOKEN_SIZE.iconSize} />
+          </AiDecoratedIcon>
+        </button>
         <div className="flex-1" />
         <button
           onClick={onClose}
@@ -17241,6 +17600,73 @@ function AssetEditPromptBar({
           style={{ color: text }}
           placeholder="描述你希望如何优化这张图片，例如：更换背景为星空、加强光效、调整配色、提升画质..."
         />
+        {/*
+          局部引用标签（2026-09-23）。
+
+          ⚠️ 用户点名「位于正文输入区域，不会覆盖紫色的全图的引用标签」——
+             所以它挂在 textarea 下方的正文容器里，而**不是** header 那一行。
+             两者是并存关系：紫色标签 = 整张图被引用，这个 = 图里的一小块。
+             颜色刻意取青色系，与紫色标签区分开，一眼能看出是两种引用。
+        */}
+        {regionRef && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div
+              data-region-ref-token
+              className="flex shrink-0 items-center overflow-hidden rounded-[var(--radius-md-design)]"
+              style={{
+                height: COMPOSER_REF_TOKEN_SIZE.height,
+                maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth,
+                gap: COMPOSER_REF_TOKEN_SIZE.gap,
+                padding: COMPOSER_REF_TOKEN_SIZE.padding,
+                background: isDark
+                  ? "oklch(0.72 0.18 200 / 0.18)"
+                  : "oklch(0.62 0.16 200 / 0.14)",
+                border: `1px solid ${
+                  isDark
+                    ? "oklch(0.75 0.16 200 / 0.38)"
+                    : "oklch(0.58 0.16 200 / 0.34)"
+                }`,
+                color: isDark ? "oklch(0.86 0.13 200)" : "oklch(0.38 0.14 200)",
+              }}
+              title={`局部区域 ${(regionRef.region.w * 100).toFixed(0)}% × ${(
+                regionRef.region.h * 100
+              ).toFixed(0)}%`}
+            >
+              {regionRef.thumbnail ? (
+                <img
+                  src={regionRef.thumbnail}
+                  alt=""
+                  style={{
+                    width: COMPOSER_REF_TOKEN_SIZE.iconSize,
+                    height: COMPOSER_REF_TOKEN_SIZE.iconSize,
+                    borderRadius: 2,
+                    objectFit: "cover",
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
+                <SquareDashedMousePointer
+                  size={COMPOSER_REF_TOKEN_SIZE.iconSize}
+                />
+              )}
+              <span
+                className="type-caption truncate"
+                style={{ maxWidth: COMPOSER_REF_TOKEN_SIZE.labelMaxWidth }}
+              >
+                局部引用
+              </span>
+              <button
+                type="button"
+                aria-label="移除局部引用"
+                onClick={() => setRegionRef(null)}
+                className="flex shrink-0 items-center justify-center transition-opacity hover:opacity-70"
+                style={{ width: 12, height: 12, color: "inherit" }}
+              >
+                <X size={10} />
+              </button>
+            </div>
+          </div>
+        )}
         {uploadedRefs.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {uploadedRefs.map(ref => (
@@ -27027,6 +27453,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    *
    * ⚠️ 只拦横向为主的手势（|deltaX| > |deltaY|）。全拦会把纵向滚动一起吃掉，
    *    画布就没法上下平移了 —— 修一个 bug 造一个更大的。
+   * ⚠️ 不拦 ctrlKey/metaKey 的 wheel：那是捏合缩放，归 React Flow 管。
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -27038,7 +27465,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        * 捏合缩放手势（触控板双指捏合会带 ctrlKey），不归我们管。
        *
        * ℹ️ 这行目前是**防御性冗余**，实测证据：外层 containerRef 上已经挂了
-       *    handleCanvasWheel（本文件搜 "const handleCanvasWheel"，同样 capture:true）。
+       *    handleCanvasWheel（本文件约 29972 行，同样 capture:true）。
        *    捕获阶段自外向内，它比我们先拿到事件，对 ctrl/meta 的 wheel
        *    调 stopPropagation() 自己接管缩放 —— 捏合事件根本传不到这一层。
        *    （变异自证里删掉这行探针不变红，就是因为它是等价变异，不是探针瞎。）
@@ -28978,6 +29405,37 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       window.removeEventListener("asset-erase-cancel", cancelHandler);
     };
   }, [runDerivedImageGeneration, setNodes]);
+
+  /**
+   * 局部框选模式开关（2026-09-23）：悬浮提示词面板 → 节点。
+   *
+   * ⚠️⚠️⚠️ 关模式这件事必须**无条件对所有节点生效**，不能只关 detail.nodeId
+   *    那一个。用户可能在 A 图开了框选、没框就去点了 B 图 —— 这时面板整个
+   *    重挂载、state 归零，但 A 节点 data 上的 isRegionSelecting 还是 true，
+   *    A 会永远卡在框选态、挡住一切点击，只能刷新页面。
+   *    这就是记忆里那条「『开』在 A『关』在 B，只要 B 可能收不到就必然卡死
+   *    且零报错」—— 所以 active=false 时走全量复位。
+   */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ nodeId?: string; active?: boolean }>
+      ).detail;
+      const active = Boolean(detail?.active);
+      const nodeId = detail?.nodeId;
+      setNodes(nds =>
+        nds.map(n => {
+          if (n.type !== "asset") return n;
+          const data = n.data as Record<string, unknown>;
+          const nextActive = active && n.id === nodeId;
+          if (Boolean(data.isRegionSelecting) === nextActive) return n;
+          return { ...n, data: { ...data, isRegionSelecting: nextActive } };
+        })
+      );
+    };
+    window.addEventListener(REGION_SELECT_MODE_EVENT, handler);
+    return () => window.removeEventListener(REGION_SELECT_MODE_EVENT, handler);
+  }, [setNodes]);
 
   useEffect(() => {
     const applyHandler = async (e: Event) => {
@@ -34657,6 +35115,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ratio: CanvasAssistantImageRatio;
         count: number;
         skill: PendingSkillLoad | null;
+        /** 局部框选区域（归一化 0~1）；有值时本次走「只改这一块」的局部重绘 */
+        region?: RegionSelectRect | null;
       },
       targetOverride?: { nodeId: string; title: string; src: string }
     ) => {
@@ -34680,6 +35140,41 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        *     （服务端 editImageWithPrompt 不消费 skillId，主助手面板同样靠
        *     客户端拼接生效），skillId 随 payload 透传保持链路一致。
        */
+      /**
+       * ── 局部框选重绘（2026-09-23）────────────────────────────────────
+       *
+       * 有选区时本次不是「重画一张」而是「只改这一块」，链路整体切档：
+       *   · maskSrc        羽化蒙版，后端据此把框外像素按 alpha 贴回原图
+       *   · operation      "annotation_edit"（后端已有的局部编辑分叉）
+       *   · preserveSource true → 命中 isSourcePreservingEdit，启用蒙版合成
+       *
+       * ⚠️⚠️⚠️ 蒙版必须用 latestImageSrc（节点当前真实显示的图）来渲染，
+       *    而不是面板传来的 asset.src。用户可能已经重绘过几轮，两者尺寸/内容
+       *    都可能不同；拿旧图算蒙版 = 选区落在错误的位置上，且零报错。
+       */
+      const regionRect = payload.region || null;
+      let regionMaskSrc = "";
+      if (regionRect) {
+        try {
+          const built = await createRegionSelectMask(latestImageSrc, regionRect);
+          regionMaskSrc = built.maskSrc;
+        } catch (maskError) {
+          /*
+           * ⚠️ 蒙版生成失败**必须中断**，不能降级成整图重绘。
+           *
+           * 用户框了一小块，期望是"只有这块变"。悄悄退回整图重绘会把整张图
+           * 换掉 —— 那是比报错严重得多的后果，而且它不报错，用户只会以为
+           * 是模型不听话。宁可明确失败让用户重来。
+           */
+          notifyAiFailure(
+            "局部重绘失败",
+            maskError instanceof Error
+              ? maskError.message
+              : "无法生成框选区域的蒙版，请重新框选后再试"
+          );
+          return;
+        }
+      }
       const skill = payload.skill || null;
       const skillRatio = getSkillPreferredRatio(skill, "");
       const selectedRatio =
@@ -34756,7 +35251,18 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ? {
                 taskId: generationId,
                 capability: "image_edit",
-                operation: "edit",
+                /*
+                 * ⚠️⚠️⚠️ 局部重绘时这里必须同步改成 annotation_edit + maskSrc。
+                 *
+                 * 这份占位不是纯 UI 状态 —— AI 任务恢复守护器会拿它当真实任务
+                 * 复原。占位说"整图 edit"、真实请求说"局部 annotation_edit"时，
+                 * 守护器可能抢先用同一个 taskId 起掉整图那条，真正带蒙版的载荷
+                 * 被整份丢弃，用户看到整张图被换掉且零报错（2026-09-21 同款事故）。
+                 */
+                operation: regionMaskSrc ? "annotation_edit" : "edit",
+                ...(regionMaskSrc
+                  ? { maskSrc: regionMaskSrc, preserveSource: true }
+                  : {}),
                 imageSrc: latestImageSrc,
                 prompt: placeholderPrompt,
                 model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
@@ -34790,10 +35296,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               : []),
           ].join("\n"),
         });
-        const finalPrompt =
+        const optimizedText =
           optimizedPrompt.text.trim() ||
           payload.prompt ||
           `基于原图优化：${target.title}`;
+        /**
+         * 局部重绘时在优化后的提示词**前面**加一段硬约束。
+         *
+         * ⚠️⚠️⚠️ 顺序不能反。callLLM 那一步的提示词增强会把"保持 / 不要改变 X"
+         *    这类否定约束洗掉（记忆里的 cb247da）—— 所以约束必须加在增强
+         *    **之后**，让它原样进到图片模型。加在增强之前等于没加，且零报错。
+         *
+         * 这段文字承载的是用户那句「边缘要和整图完全融合，不要出现明显的
+         * 分割、割裂」—— 与蒙版羽化是两道并行防线，缺一都会露缝。
+         */
+        const finalPrompt = regionRect
+          ? [buildRegionEditPromptPrefix(regionRect), `具体修改要求：${optimizedText}`].join(
+              "\n"
+            )
+          : optimizedText;
         const runSingleEdit = async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
@@ -34801,6 +35322,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             // 修复：此前前台/后台两条链路都写死 DEFAULT_IMAGE_AI_MODEL_ID，
             // 用户在节点框选的模型从未真正生效。
             model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
+            ...(regionMaskSrc
+              ? {
+                  maskSrc: regionMaskSrc,
+                  operation: "annotation_edit",
+                  preserveSource: true,
+                }
+              : {}),
             targetWidth: sourceSize.width,
             targetHeight: sourceSize.height,
             referencedAssets: payload.references,
@@ -34823,7 +35351,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             requestedCount === 1
               ? {
                   capability: "image_edit",
-                  operation: "edit",
+                  // 与上方占位 payload 保持同一套字段，缺一个就会被守护器错判
+                  operation: regionMaskSrc ? "annotation_edit" : "edit",
+                  ...(regionMaskSrc
+                    ? { maskSrc: regionMaskSrc, preserveSource: true }
+                    : {}),
                   imageSrc: latestImageSrc,
                   prompt: finalPrompt,
                   model: payload.model || DEFAULT_IMAGE_AI_MODEL_ID,
