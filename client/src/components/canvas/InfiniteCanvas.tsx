@@ -4203,11 +4203,49 @@ async function loadExternalImageWithProxyFallback(src: string) {
   } catch {
     // Fall back to direct image loading below.
   }
+  /**
+   * ⚠️⚠️⚠️【2026-09-23】「外部 URL 加载进来的图，退出画布再进来就没了」的源头。
+   *
+   * 这个函数有 4 个返回点，原本**只有前两个返回 data URL**
+   * （入参本身就是 data: / 代理抓取成功）。代理不可用时走到下面两个兜底分支，
+   * 返回的 localSrc 是一个 **http 外链**。
+   * 而存储层只收 `startsWith("data:")` 的，于是这张图的真身**从未落盘** ——
+   * 画布上还能看见它，纯粹因为那个 URL 当时还活着。
+   * 外链一过期（AI 临时链接 / 签名 URL / CDN 清理）就变「该图片已过期」，全程零报错。
+   *
+   * ✅ 收口在这里，而不是只在存储层补救：
+   *    图片此刻**已经是一个加载完成的 HTMLImageElement**，直接画到 canvas 上
+   *    导出 data URL 即可，不需要再发一次网络请求，也就不存在"退出太快 fetch
+   *    没回来"的竞态 —— 存储层那次异步补救挡不住「拖完图立刻点返回」。
+   *
+   * 📌 判据：**能在数据产生的那一刻就把它变成自洽格式，就不要留到保存时再补救。**
+   *    保存时机受用户操作速度支配，是不可控的；数据产生时机是可控的。
+   */
+  const inlineLoadedImage = (image: HTMLImageElement, fallbackSrc: string) => {
+    try {
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      if (!width || !height) return fallbackSrc;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return fallbackSrc;
+      ctx.drawImage(image, 0, 0);
+      // ⚠️ 跨域图片未带 CORS 头时 toDataURL 会抛 SecurityError（画布被污染），
+      //    这属正常情况，退回原 URL，由存储层的异步固化再试一次。
+      return canvas.toDataURL("image/png");
+    } catch {
+      return fallbackSrc;
+    }
+  };
   try {
-    return { image: await loadImageForCanvas(src), localSrc: src };
+    const image = await loadImageForCanvas(src);
+    return { image, localSrc: inlineLoadedImage(image, src) };
   } catch {
     const proxyUrl = getImageProxyUrl(src);
-    return { image: await loadImageForCanvas(proxyUrl), localSrc: proxyUrl };
+    const image = await loadImageForCanvas(proxyUrl);
+    return { image, localSrc: inlineLoadedImage(image, proxyUrl) };
   }
 }
 
@@ -14498,12 +14536,44 @@ async function hydrateImageGenerationTaskImages(
     .filter(image => Boolean(image.src));
 }
 
+/**
+ * 已尝试过"抓取远程图固化入库"的 URL，避免同一张图被反复下载。
+ *
+ * ⚠️ 必须**先记 key 再发请求**，不能等请求回来才记 —— persist 会被多个时机
+ *    并发触发（自动保存 / pagehide / 组件卸载），后记的话同一张图会被同时抓好几次。
+ */
+const canvasRemoteImageInlineAttempted = new Set<string>();
+
+/**
+ * 把远程图抓下来转成 data URL，好让它能离线存进 IndexedDB。
+ * 失败一律返回 null（网络错 / 跨域 / 图太大），由调用方跳过，绝不抛。
+ */
+async function inlineRemoteImageForStorage(src: string): Promise<string | null> {
+  try {
+    const response = await fetch(src, { mode: "cors", credentials: "omit" });
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    if (!blob.size || !blob.type.startsWith("image/")) return null;
+    return await new Promise<string | null>(resolve => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function persistCanvasNodeImagePayloads(
   projectId: string,
   nodes: Node[]
 ) {
-  const imageEntries = removePendingImageGenerationNodes(nodes)
-    .filter(node => node.type === "asset")
+  const assetNodes = removePendingImageGenerationNodes(nodes).filter(
+    node => node.type === "asset"
+  );
+  const imageEntries = assetNodes
     .map(node => {
       const data = node.data as Record<string, unknown>;
       const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
@@ -14512,6 +14582,49 @@ async function persistCanvasNodeImagePayloads(
         : null;
     })
     .filter(Boolean) as { key: string; localSrc: string }[];
+
+  /*
+   * ⚠️⚠️⚠️【2026-09-23】兜底：localSrc 是远程 URL 的节点，在这里抓下来固化。
+   *
+   * 正常情况下 loadExternalImageWithProxyFallback 已经在图片进画布那一刻就
+   * 转成了 data URL（见该函数里的 inlineLoadedImage）。但有两条路走不到它：
+   *   · 跨域图片没带 CORS 头 → canvas 被污染，toDataURL 抛 SecurityError，
+   *     只能先退回原 URL；
+   *   · 某些出口直接把外链塞进 localSrc，没走那个加载函数。
+   * 这两种情况下真身从未落盘，**画布上能看见图纯粹是因为那个 URL 还活着**，
+   * 一过期就是「该图片已过期」，且全程零报错。
+   *
+   * 📌 判据：**存储条件要写成「这份数据需不需要被保存」，
+   *    不能写成「这份数据恰好是不是某种格式」。** 格式是上游出口的实现细节，
+   *    上游多一个出口、少转一次格式，存储层就漏一张图。
+   */
+  const remoteNodes = assetNodes.filter(node => {
+    const data = node.data as Record<string, unknown>;
+    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+    if (!localSrc || localSrc.startsWith("data:")) return false;
+    if (!/^https?:\/\//i.test(localSrc)) return false;
+    // 先记后抓，防并发重复下载
+    if (canvasRemoteImageInlineAttempted.has(localSrc)) return false;
+    canvasRemoteImageInlineAttempted.add(localSrc);
+    return true;
+  });
+  if (remoteNodes.length > 0) {
+    const inlined = await Promise.all(
+      remoteNodes.map(async node => {
+        const data = node.data as Record<string, unknown>;
+        const dataUrl = await inlineRemoteImageForStorage(
+          data.localSrc as string
+        );
+        return dataUrl
+          ? { key: canvasImagePayloadKey(projectId, node.id), localSrc: dataUrl }
+          : null;
+      })
+    );
+    inlined.forEach(entry => {
+      if (entry) imageEntries.push(entry);
+    });
+  }
+
   if (imageEntries.length === 0) return;
   const db = await openCanvasImageDb();
   if (!db) return;
@@ -14546,8 +14659,20 @@ async function hydrateCanvasNodeImagePayloads(
   const missingAssetNodes = nodes.filter(node => {
     if (node.type !== "asset") return false;
     const data = node.data as Record<string, unknown>;
-    // 只看「这个图片节点现在没有可用的 localSrc」，不问它当初存在哪。
-    if (typeof data.localSrc === "string" && data.localSrc) return false;
+    /*
+     * ⚠️⚠️⚠️【2026-09-23】「外部 URL 加载进来的图，退出再进就没了」的最后一环。
+     *
+     * 这里原本写的是 `if (localSrc) return false` —— 只要 localSrc 非空就认为
+     * "这个节点不缺数据"。但一个 http 外链**也是非空字符串**，于是：
+     *   · 外链还活着 → 图能显示，看起来一切正常；
+     *   · 外链一过期（AI 临时链接 / 签名 URL / CDN 清理）→ 直接变「该图片已过期」，
+     *     而 IndexedDB 里明明可能存着固化好的 data URL，却因为"不缺数据"没人去取。
+     *
+     * 📌 判据：**「有没有数据」要按「这份数据能不能离线自洽」判，不是按「字段空不空」判。**
+     *    外链是一个**随时会失效的引用**，不是数据本身。
+     */
+    const localSrc = typeof data.localSrc === "string" ? data.localSrc : "";
+    if (localSrc.startsWith("data:")) return false;
     // 正在生成中的占位节点本来就没图，不该去捞，也捞不到。
     return !isPendingImageGenerationNode(node);
   });
@@ -26865,6 +26990,92 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       flushCanvasState();
     };
   }, [projectId]);
+
+  /**
+   * 触控板双指横滑 → 浏览器"返回上一页"，在画布里必须禁掉。
+   *
+   * 【为什么会触发】
+   * 画布用 panOnScroll 自己消费滚轮来平移视口，但 React Flow 的 pane
+   * **不是一个真正可滚动的容器**（没有溢出内容，scrollWidth === clientWidth）。
+   * 浏览器判定"这个方向已经滚到头了"，于是把横向惯性交给上层 —— 在 macOS /
+   * Chrome / Safari 上就是 overscroll 导航手势（后退/前进）。
+   * 用户感受到的是：画布正拖着，手一横滑整个页面就跳走了，画布状态全没了。
+   *
+   * 【为什么不能只写 CSS】
+   * `overscroll-behavior-x: none` 只对**可滚动容器**生效。pane 不可滚动，
+   * 这行 CSS 在它身上是空操作 —— 写了不报错、也不起作用，是个典型的静默无效。
+   * 所以必须双管齐下：
+   *   ① CSS 挂到 body/html（它们确实是滚动容器），断掉页面级的 overscroll 导航；
+   *   ② JS 在画布容器上 preventDefault 掉横向 wheel，从源头不让浏览器拿到手势。
+   *
+   * 【为什么用 passive: false + capture】
+   * · passive 默认为 true 时 preventDefault() 会被忽略（浏览器只警告，不报错），
+   *   这是最容易踩的坑：代码看着写了，实际一行没生效。
+   * · capture 让我们先于 React Flow 自己的 wheel 处理器拿到事件，
+   *   避免它 stopPropagation 之后我们就收不到了。
+   *
+   * ⚠️ 只拦横向为主的手势（|deltaX| > |deltaY|）。全拦会把纵向滚动一起吃掉，
+   *    画布就没法上下平移了 —— 修一个 bug 造一个更大的。
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const root = document.querySelector<HTMLElement>(".react-flow");
+    if (!root) return;
+
+    const blockHorizontalOverscroll = (event: WheelEvent) => {
+      /*
+       * 捏合缩放手势（触控板双指捏合会带 ctrlKey），不归我们管。
+       *
+       * ℹ️ 这行目前是**防御性冗余**，实测证据：外层 containerRef 上已经挂了
+       *    handleCanvasWheel（本文件搜 "const handleCanvasWheel"，同样 capture:true）。
+       *    捕获阶段自外向内，它比我们先拿到事件，对 ctrl/meta 的 wheel
+       *    调 stopPropagation() 自己接管缩放 —— 捏合事件根本传不到这一层。
+       *    （变异自证里删掉这行探针不变红，就是因为它是等价变异，不是探针瞎。）
+       * ⚠️ 但**不要因此删掉它**：一旦外层那个 effect 被改动或下线，
+       *    没有这行我们就会把捏合缩放当横滑吃掉。
+       */
+      if (event.ctrlKey || event.metaKey) return;
+      // 纵向为主的滚动照常放行，否则画布没法上下平移
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      /*
+       * 到这里就是"以横向为主"的双指滑动。
+       * preventDefault 会同时阻止浏览器的返回手势，
+       * 但不影响 React Flow 自己读 deltaX 做平移（它读的是同一个事件对象）。
+       */
+      event.preventDefault();
+      /*
+       * ⚠️⚠️⚠️ 打个自己的标记，供自动化验证使用。
+       *    不能用 defaultPrevented 判断"是不是我拦的"——
+       *    React Flow 在 panOnScroll 模式下**对每一个 wheel 都会 preventDefault**
+       *    （它要自己接管滚动），所以 defaultPrevented 恒为 true，
+       *    纵向、捏合全都是 true，这个判据分不出任何东西。
+       *    实测就踩了这个坑：第一版探针显示"纵向也被拦了"，其实是 RF 拦的。
+       */
+      (event as WheelEvent & { __artxBlockedSwipe?: boolean }).__artxBlockedSwipe =
+        true;
+    };
+
+    // ⚠️ passive: false 是关键，缺了它 preventDefault 静默失效。
+    root.addEventListener("wheel", blockHorizontalOverscroll, {
+      passive: false,
+      capture: true,
+    });
+
+    /*
+     * 页面级兜底：手势有时会在 pane 之外的空白处起手（比如快速甩到边缘），
+     * 那时 wheel 的 target 不在 .react-flow 里，上面的监听器收不到。
+     * 给 body 加 overscroll-behavior-x 断掉导航，离开画布时恢复原值。
+     */
+    const previousOverscroll = document.body.style.overscrollBehaviorX;
+    document.body.style.overscrollBehaviorX = "none";
+
+    return () => {
+      root.removeEventListener("wheel", blockHorizontalOverscroll, {
+        capture: true,
+      } as EventListenerOptions);
+      document.body.style.overscrollBehaviorX = previousOverscroll;
+    };
+  }, []);
 
   useEffect(() => {
     if (

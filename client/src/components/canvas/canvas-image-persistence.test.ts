@@ -102,6 +102,42 @@ function readOpenDbBody() {
   return source.slice(start, end);
 }
 
+/**
+ * 切出 loadExternalImageWithProxyFallback —— 外部图片进画布的**源头收口**。
+ *
+ * 这是链四的靶心：它有 4 个返回点，只要有一个返回的 localSrc 是 http URL，
+ * 那张图的真身就永远不会落盘（存储层只收 data URL）。
+ */
+function readExternalLoaderBody() {
+  const start = source.indexOf(
+    "async function loadExternalImageWithProxyFallback"
+  );
+  expect(start, "找不到 loadExternalImageWithProxyFallback").toBeGreaterThan(-1);
+  const end = source.indexOf("\nasync function loadReadableImageForCanvas", start);
+  expect(end, "找不到 loadExternalImageWithProxyFallback 的结尾").toBeGreaterThan(
+    start
+  );
+  return stripWholeLineComments(source.slice(start, end), [
+    "inlineLoadedImage",
+    "getImageProxyUrl",
+  ]);
+}
+
+/** 切出 persistCanvasNodeImagePayloads —— 链五（存储层兜底固化远程图）。 */
+function readPersistBody() {
+  const start = source.indexOf("async function persistCanvasNodeImagePayloads");
+  expect(start, "找不到 persistCanvasNodeImagePayloads").toBeGreaterThan(-1);
+  const end = source.indexOf(
+    "\nasync function hydrateCanvasNodeImagePayloads",
+    start
+  );
+  expect(end, "找不到 persistCanvasNodeImagePayloads 的结尾").toBeGreaterThan(start);
+  return stripWholeLineComments(source.slice(start, end), [
+    "canvasImagePayloadKey",
+    "imageEntries",
+  ]);
+}
+
 function readFlushBody() {
   const start = source.indexOf("const flushCanvasState = ");
   expect(start, "找不到 flushCanvasState").toBeGreaterThan(-1);
@@ -119,12 +155,30 @@ describe("链一：回填条件只能看「缺不缺」，不能看「存哪了�
     ).not.toContain("fullImageStoredInSession === true");
   });
 
-  it("判据必须是「当前没有可用的 localSrc」", () => {
+  it("判据必须是「当前没有离线自洽的 localSrc」", () => {
+    /*
+     * ⚠️⚠️【2026-09-23 契约升级】原断言写死成一句源码表达式
+     *   `typeof data.localSrc === "string" && data.localSrc`，
+     * 即「非空即算有数据」。那个契约已被推翻：一个 http 外链也是非空字符串，
+     * 但它随时会失效（AI 临时链接 / 签名 URL / CDN 清理），
+     * 外链一过期就变成「该图片已过期」，而 IDB 里可能存着固化好的 data URL 没人去取。
+     *
+     * 📌 判据：**断言要验语义，不要写死成某句源码表达式** ——
+     *    否则实现一升级就假性变红，让人误以为是回归。
+     *    这里验的语义是：判断依据必须落在 localSrc 的「可离线性」上，
+     *    而不是回到 fullImageStoredInSession 那类「当初存哪了」的标记。
+     */
     const body = readHydrateSelectorBody();
+    expect(body, "回填判据必须读 data.localSrc").toContain("data.localSrc");
     expect(
       body,
-      "必须按「现在缺不缺 localSrc」来挑待回填节点"
-    ).toContain('typeof data.localSrc === "string" && data.localSrc');
+      "回填判据必须按「是不是离线自洽的 data URL」来判，而不是「字段空不空」"
+    ).toMatch(/localSrc[\s\S]{0,80}startsWith\(\s*"data:"\s*\)/);
+    // 反向锚：不能退回成"只要非空就算有数据"
+    expect(
+      body,
+      "退回了「非空即算有数据」，外链过期后图会丢"
+    ).not.toContain('typeof data.localSrc === "string" && data.localSrc)');
   });
 
   it("正在生成中的占位节点要排除，否则每次都白捞一轮", () => {
@@ -468,5 +522,108 @@ describe("行为级验证：复刻三个函数的契约，跑真实丢图场景"
       countImages(hydrate(idb, projectId, withoutFlag)),
       "新逻辑必须救回来"
     ).toBe(1);
+  });
+});
+
+/**
+ * 【2026-09-23 新增】链四 / 链五：外部 URL 图片的真身必须落盘。
+ *
+ * 用户现象与粘贴那条链**一模一样**，但根因完全不同，所以必须单独守：
+ *   「刚加载进来的图，退出工作台再进来就没了。」
+ *
+ * 粘贴进来的图本来就是 data URL，存储层照单全收，那条链是好的（已实测）。
+ * 外部 URL 加载进来的图不一样：
+ *   · loadExternalImageWithProxyFallback 有 4 个返回点，
+ *     代理不可用时的兜底分支直接把 http URL 当 localSrc 返回；
+ *   · persistCanvasNodeImagePayloads 只收 `startsWith("data:")` 的，
+ *     于是**真身从未落盘**；
+ *   · 画布上还能看见图，纯粹因为那个 URL 当时还活着。
+ *     外链一过期（AI 临时链接 / 签名 URL / CDN 清理）→「该图片已过期」，全程零报错。
+ *
+ * 📌 判据：**「用户看得见图」≠「图被保存了」。** 验持久化只能查存储层，
+ *    不能以界面上还显示着为准。
+ */
+describe("链四：外部图片在进画布那一刻就要转成自洽格式", () => {
+  it("所有返回点都不得把裸 http URL 当作 localSrc 返回", () => {
+    const body = readExternalLoaderBody();
+    // 正向：两个 loadImageForCanvas 的返回都必须过 inlineLoadedImage
+    const inlineCount = body.split("inlineLoadedImage(image,").length - 1;
+    expect(
+      inlineCount,
+      "外部图加载的返回点没有全部固化成 data URL，漏掉的那条链会丢图"
+    ).toBe(2);
+    /*
+     * 反向锚：兜底分支不能退回成直接返回裸 URL。
+     *
+     * ⚠️ 不能简单写 not.toMatch(/localSrc:\s*src\s*\}/) —— 会**误伤合法代码**：
+     *    函数开头有个 `if (src.startsWith("data:")) return { ..., localSrc: src }`，
+     *    那里的 src 本来就是 data URL，返回它完全正确。
+     *    09-23 实测踩了这一下，断言红了但实现是对的。
+     * ✅ 正确做法是只盯 try/catch 兜底那两行的形态：`return { image, localSrc: X };`
+     *    —— 它们必须经过 inlineLoadedImage，不能直接给裸变量。
+     */
+    expect(body, "兜底分支退回成直接返回裸 src，真身不会落盘").not.toContain(
+      "return { image, localSrc: src };"
+    );
+    expect(
+      body,
+      "兜底分支退回成直接返回裸 proxyUrl，真身不会落盘"
+    ).not.toContain("return { image, localSrc: proxyUrl };");
+  });
+
+  it("固化失败必须退回原 URL，不能让整张图变成空", () => {
+    // ⚠️ 跨域图没带 CORS 头时 toDataURL 会抛 SecurityError，这是**正常情况**。
+    //    那时必须退回原 URL 至少还能显示，绝不能返回空串把图直接弄没。
+    const body = readExternalLoaderBody();
+    expect(body, "inlineLoadedImage 缺少失败兜底").toContain("fallbackSrc");
+  });
+});
+
+describe("链五：存储层必须兜底固化远程 URL", () => {
+  it("远程 URL 的节点要被抓取并存进 IndexedDB", () => {
+    const body = readPersistBody();
+    expect(
+      body,
+      "存储层没有兜底抓取远程图，源头一旦漏掉（如跨域污染 canvas）就永久丢图"
+    ).toContain("inlineRemoteImageForStorage");
+    expect(body, "缺少对远程 URL 节点的筛选").toMatch(/https\?:/);
+
+    /*
+     * ⚠️⚠️⚠️ 只写 toContain("inlineRemoteImageForStorage") 是**抓不住架空的**：
+     *    把守卫改成 `if (false) { ... }`，整段兜底变成死代码、一行都不会执行，
+     *    但那个函数名仍然出现在源码里，toContain 照样绿。
+     *    09-23 变异自证实测漏网（P-E）。
+     *
+     * 📌 判据：**验"某段逻辑存在"不能只验它的名字出现过，
+     *    还要验它的入口条件是活的。** 死代码里的名字和活代码里的名字长得一样。
+     * ✅ 这里锁住守卫必须是"真的有远程节点才跑"，而不是恒假/恒真的常量。
+     */
+    expect(
+      body,
+      "远程图兜底的入口守卫被架空成常量，整段成了死代码"
+    ).toContain("if (remoteNodes.length > 0)");
+    expect(body, "兜底入口被写成恒假").not.toMatch(/if\s*\(\s*false\s*\)/);
+    expect(body, "兜底入口被写成恒真（会在无远程节点时空跑）").not.toMatch(
+      /if\s*\(\s*true\s*\)/
+    );
+  });
+
+  it("并发触发时同一张图不得重复下载", () => {
+    /*
+     * persist 会被多个时机并发触发（自动保存 / pagehide / 组件卸载）。
+     * ⚠️ 去重标记必须**先记 key 再发请求**，等请求回来才记的话，
+     *    同一张图会被同时抓好几次 —— 不报错，只是白白吃带宽。
+     */
+    const body = readPersistBody();
+    expect(body, "缺少远程图抓取的并发去重").toContain(
+      "canvasRemoteImageInlineAttempted"
+    );
+    const addIdx = body.indexOf("canvasRemoteImageInlineAttempted.add");
+    const fetchIdx = body.indexOf("inlineRemoteImageForStorage(");
+    expect(addIdx, "找不到去重标记的写入点").toBeGreaterThan(-1);
+    expect(
+      addIdx,
+      "去重标记必须先于抓取写入，否则并发下同一张图会被重复下载"
+    ).toBeLessThan(fetchIdx);
   });
 });
