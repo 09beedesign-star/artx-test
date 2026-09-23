@@ -155,7 +155,10 @@ describe("图片命令条：6 个命令收进「更多」菜单", () => {
       // "introduce-to-chat" 已于 2026-09-21 按用户要求整条移除，
       // 反向断言在 InfiniteCanvas.prompt-controls.test.ts 里守着
       "edit-elements",
-      "edit-text",
+      // "edit-text"（智能文案编辑）已于 2026-09-23 按用户要求**从前端隐藏**：
+      // 只摘命令条入口，handler / 面板 / server 端 text_edit 全链路原样保留
+      // （与擦除文字、OCR 提取共用底层，删了会静默废掉那几个功能）。
+      // 反向断言在 InfiniteCanvas.prompt-controls.test.ts 里守着。
       "reverse-prompt",
       "camera-view",
       "more",

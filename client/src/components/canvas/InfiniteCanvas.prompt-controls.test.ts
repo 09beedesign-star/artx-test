@@ -1022,20 +1022,36 @@ describe("InfiniteCanvas prompt controls", () => {
     )?.[0];
 
     /**
-     * 「智能文案编辑」工具栏入口必须处于**启用态**。
+     * 「智能文案编辑」工具栏入口必须处于**隐藏态**。
      *
-     * 断言方式沿用 2026-09-12 那次的思路，只是方向反过来（那次是入口被屏蔽）。
-     * 用行首缩进 + 无 `//` 前缀区分「真实代码」与「被注释的代码」——
-     * 单纯 `toContain('label: "智能文案编辑"')` 是假阳性写法，
-     * 注释文本里同样含这个字符串，入口被注释掉也照样通过。
+     * 2026-09-12 屏蔽 → 2026-09-13 恢复开放 → 2026-09-23 按用户要求再次隐藏，
+     * 口径是「仅仅在前端不显示，但是不影响其他的任何功能」。
      *
-     * 2026-09-12 屏蔽 → 2026-09-13 恢复开放（改走即梦做 AI 叠字评估）。
+     * ⚠️ 断言必须切到 assetTools 片段里判，不能对整份 source 做
+     *    `not.toContain("智能文案编辑")` —— 标签映射 `"edit-text": "智能文案编辑"`
+     *    和一堆说明注释里都含这几个字，那样写会恒红（而且红得毫无信息量）。
+     *
+     * ⚠️ 也不能只判 `label:` 那一行：条目是 `{ icon, label, action }`，
+     *    真正决定「点不点得到」的是 action。两条一起判才封得住。
      */
-    expect(source).toMatch(/^\s{6}label: "智能文案编辑",$/m);
-    expect(source).not.toMatch(/^\s*\/\/\s*label: "智能文案编辑",$/m);
+    const assetToolsBlock = source.slice(
+      source.indexOf("const assetTools"),
+      source.indexOf("const frameTools")
+    );
+    expect(assetToolsBlock, "assetTools 片段截取失败").toBeTruthy();
+    expect(
+      assetToolsBlock,
+      "「智能文案编辑」又出现在图片命令条主条里了"
+    ).not.toMatch(/^\s{6}label: "智能文案编辑",$/m);
+    expect(
+      assetToolsBlock,
+      "命令条里仍能派发 edit-text —— 入口没真正隐藏"
+    ).not.toMatch(/^\s{6}action: "edit-text",$/m);
     /**
-     * 实现必须原样保留（只屏蔽入口，不删功能），
-     * 这样恢复时只需还原那段注释。
+     * 实现必须原样保留（只隐藏入口，不删功能）：
+     * text_edit 底层与「擦除文字」「OCR 文案提取」「保真编辑」共用同一套
+     * 蒙版与回填管线，删了会连带静默废掉那几个还在用的功能。
+     * 下面这些断言就是「不影响其他功能」这句承诺的守门人。
      */
     expect(source).toContain('"edit-text": "智能文案编辑"');
     expect(source).toContain('if (action === "edit-text")');
