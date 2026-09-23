@@ -16675,6 +16675,25 @@ function LassoEraser({
   );
 }
 
+/**
+ * 悬浮提示词输入框与**浏览器视口下边界**之间的最小安全距离（px）。
+ *
+ * 2026-09-21 用户点名：「悬浮提示窗最多最多与浏览器底部保持 16 像素的距离，
+ * 不能再往下了」。所以这是一条**硬下限**，不是建议值。
+ *
+ * ⚠️⚠️⚠️ 这个常量是**唯一事实源**，三处都必须引用它，不许再各写一份数字：
+ *   1. InnerCanvas 里 attachedNodeComposerAnchor 的**粗夹取**（用估算高度，
+ *      只为让首帧就落在大致正确的位置，避免肉眼可见地跳一下）；
+ *   2. AssetEditPromptBar 内部的**精夹取**（用 ResizeObserver 实测高度，
+ *      这一步才是真正的保证）；
+ *   3. 传统模式（双击进入的快捷编辑）的 bottom 值。
+ *
+ * 📌 为什么必须有第 2 步：面板高度不是定值 —— 带参考图缩略图、提示词换行、
+ *    模型名长短都会改变它。只靠第 1 步的估算值，实际面板比估算高时底部照样
+ *    会被视口切掉，而且**零报错**（CSS 不会因为元素超出视口而报任何东西）。
+ */
+const NODE_COMPOSER_VIEWPORT_BOTTOM_GAP = 16;
+
 // ── Asset Edit Prompt Bar (in-canvas, no overlay) ──────────────────────────────────────────────
 function AssetEditPromptBar({
   asset,
@@ -16874,8 +16893,92 @@ function AssetEditPromptBar({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  /*
+   * ⚠️⚠️⚠️ 底部**硬下限**的精夹取（2026-09-21）。
+   *
+   * 问题：图片被拖到画布最底部时，这个框整条挂在图片下边缘，
+   * 底部会被浏览器视口下边界切掉 —— 发送按钮、模型选择器都点不到，
+   * 而且**不报任何错**（元素超出视口在 CSS 里完全合法）。
+   *
+   * 调用方（InnerCanvas）已经做了一次粗夹取，但它用的是**估算高度 188**。
+   * 面板真实高度会随「有没有参考图缩略图 / 提示词有没有换行 / 模型名多长」
+   * 变化，估算值偏小时粗夹取就不够，底部照样露不出来。
+   *
+   * 所以这里用**实测高度**再兜一道，这一道才是真正的保证：
+   *   框底边（相对视口） = originY + top + height  ≤  innerHeight - 16
+   *
+   * 📌 为什么要 originY：`top` 是相对 offsetParent 的 CSS 值，而 16px 约束
+   *    是相对**浏览器视口**的。两者原点不一定重合（画布根容器上方可能还有
+   *    顶栏）。直接拿 window.innerHeight 减，等于默认 originY===0 —— 一旦
+   *    有顶栏就会偏，且偏多少完全看布局，属于"只在某些窗口尺寸下复现"的坑。
+   *    量 offsetParent 的 rect 是唯一能对齐两个原点的办法。
+   *
+   * 📌 用 offsetHeight 而不是 getBoundingClientRect().height：入场动画期间
+   *    元素带 translateY(20px)，rect 会被 transform 影响；offsetHeight 不会。
+   */
+  const barRef = useRef<HTMLDivElement>(null);
+  const [bottomClampMetrics, setBottomClampMetrics] = useState<{
+    height: number;
+    originY: number;
+    viewportHeight: number;
+  } | null>(null);
+  const anchoredMode = !!anchor;
+  useLayoutEffect(() => {
+    if (!anchoredMode) return;
+    const el = barRef.current;
+    if (!el) return;
+    const sync = () => {
+      const parent = el.offsetParent as HTMLElement | null;
+      const next = {
+        height: el.offsetHeight,
+        originY: parent ? parent.getBoundingClientRect().top : 0,
+        viewportHeight: window.innerHeight,
+      };
+      setBottomClampMetrics(prev => {
+        // 值没变就复用旧对象 —— 否则 setState 每次都给新引用，
+        // ResizeObserver 回调 → setState → 重排 → 回调，会自激成死循环。
+        if (
+          prev &&
+          prev.height === next.height &&
+          prev.originY === next.originY &&
+          prev.viewportHeight === next.viewportHeight
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
+    };
+    // 只需要「吸附模式下挂一次观察者」，位置计算在 render 里做。
+    // ⚠️ 不能把 anchor 本身放进依赖：它是每帧新建的对象字面量，会让 effect 每帧重挂。
+  }, [anchoredMode]);
+  /**
+   * 吸附模式下最终采用的 top：调用方给的 desired 值，再被底部硬下限压住。
+   * 还没测到尺寸时（首帧）先用调用方的粗夹取值，测到后立刻纠正。
+   */
+  const anchoredTop = (() => {
+    if (!anchor) return 0;
+    if (!bottomClampMetrics || bottomClampMetrics.height <= 0) return anchor.top;
+    const { height, originY, viewportHeight } = bottomClampMetrics;
+    const maxTop =
+      viewportHeight - NODE_COMPOSER_VIEWPORT_BOTTOM_GAP - height - originY;
+    // 面板比视口还高这种极端情况（超小窗口）：宁可顶部溢出也要保住底部可点，
+    // 所以下限只用 0 兜住，不再往回拉。
+    return Math.min(anchor.top, Math.max(0, maxTop));
+  })();
+
   return (
     <div
+      ref={barRef}
       onPointerDownCapture={handlePromptBarPointerDown}
       style={{
         position: "absolute",
@@ -16884,7 +16987,8 @@ function AssetEditPromptBar({
         ...(anchor
           ? {
               left: anchor.left,
-              top: anchor.top,
+              // ⚠️ 用 anchoredTop 而不是 anchor.top —— 前者带了底部 16px 硬下限。
+              top: anchoredTop,
               width: anchor.width,
               // -50% 管左右居中；Y 方向不回退，因为 top 给的就是框的顶边。
               transform: visible
@@ -16892,7 +16996,8 @@ function AssetEditPromptBar({
                 : "translateX(-50%) translateY(20px)",
             }
           : {
-              bottom: 16,
+              // 传统模式本来就是 16，与吸附模式的硬下限同一个口径，收口到常量。
+              bottom: NODE_COMPOSER_VIEWPORT_BOTTOM_GAP,
               left: 24,
               right: Math.max(136, canvasRightInset) + 32,
               maxWidth: "min(680px, calc(100% - 56px))",
@@ -35867,7 +35972,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    * ⚠️ 夹取：图片贴近画布底部时整条会跑出可视区，用 padding 兜住底边。
    */
   const nodeComposerGap = 8;
-  const nodeComposerViewportPadding = 8;
+  /*
+   * ⚠️⚠️⚠️ 这里是**粗夹取**，只负责让首帧就落在大致正确的位置（避免肉眼
+   *    可见地跳一下）。真正保证「底边距视口底部 ≥16px」的是 AssetEditPromptBar
+   *    内部用 ResizeObserver 实测高度做的精夹取 —— 因为面板高度会随参考图
+   *    缩略图 / 提示词换行变化，下面的 188 只是估算值，偏小时压根兜不住。
+   *    两处共用常量 NODE_COMPOSER_VIEWPORT_BOTTOM_GAP，不许各写一个数字。
+   */
+  const nodeComposerViewportPadding = NODE_COMPOSER_VIEWPORT_BOTTOM_GAP;
   const nodeComposerEstimatedHeight = 188;
   const assistantComposerInnerWidth =
     (isAssistantCollapsed ? 372 : assistantPanelWidth) - 24;
