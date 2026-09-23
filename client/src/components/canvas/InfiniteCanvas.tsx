@@ -165,6 +165,15 @@ import {
   readHandoffReferences,
   type HomePromptReference,
 } from "@/lib/home-prompt-handoff";
+import {
+  buildRepaintConfirmedMessage,
+  buildRepaintConfirmPatch,
+  isRepaintSnapshotLive,
+  IN_PLACE_REPAINT_CONFIRM_EVENT,
+  REPAINT_CONFIRM_BUTTON_ARIA,
+  REPAINT_CONFIRM_BUTTON_LABEL,
+  REPAINT_CONFIRM_BUTTON_TITLE,
+} from "./in-place-repaint-confirm";
 import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
 import { Switch } from "@/components/ui/switch";
@@ -6711,22 +6720,21 @@ function AssetNodeComponent({
    * ⚠️ 这里读的字段都由唯一回包出口 handleImageGenerate 写入，
    *    节点自身只负责渲染。任何一处想「本地先标一下」都会和回包打架。
    */
-  const inPlaceRepaintUndo = (data as {
-    inPlaceRepaintUndo?: { localSrc?: string; repaintedLocalSrc?: string };
-  }).inPlaceRepaintUndo;
   /**
-   * ⚠️ 判据是 `repaintedLocalSrc`（重绘后写进去的那一个）而不是 `localSrc`：
-   *    原节点可能是「没有 localSrc、直接引用内置素材图」的那种，
-   *    这时重绘前的 localSrc 本来就是空串 —— 拿它当判据按钮永远不会出现，
-   *    用户就失去了撤销的唯一入口，且零报错。
+   * 「撤销重绘」与「确认修改」共用的**同一个**判据 —— 收口在
+   * `in-place-repaint-confirm.ts` 的 `isRepaintSnapshotLive`。
    *
-   * ⚠️ 同时要求节点当前像素**仍然**等于重绘后那一个：用户重绘完又换了一张图时，
-   *    快照已经过期，按钮必须自己消失，而不是点下去把后来的图覆盖掉。
+   * ⚠️⚠️ 2026-09-23 新增确认按钮时特意把这段内联判据搬走：
+   *    两个按钮是同一份快照的两个出口，判据一旦各写一份，将来改一处就会出现
+   *    「撤销消失了但确认还亮着」这类零报错的错位。本项目已经栽过十三次。
+   *
+   * 判据本身的两条理由（细节见纯函数里的注释）：
+   *   - 用 repaintedLocalSrc 而不是 localSrc，否则内置素材图节点永远不出按钮；
+   *   - 还要求节点当前像素仍等于重绘后那一个，否则快照过期还能点。
    */
-  const canUndoInPlaceRepaint =
-    typeof inPlaceRepaintUndo?.repaintedLocalSrc === "string" &&
-    (data as { localSrc?: string }).localSrc ===
-      inPlaceRepaintUndo.repaintedLocalSrc;
+  const canUndoInPlaceRepaint = isRepaintSnapshotLive(
+    data as { localSrc?: unknown; inPlaceRepaintUndo?: unknown }
+  );
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
@@ -8822,50 +8830,94 @@ function AssetNodeComponent({
             </div>
           )}
           {/*
-            ── 局部重绘的「撤销」按钮（2026-09-21） ─────────────────────────────
-            需求：修改直接落在原图上，一旦效果不理想，用户要能一键回到重绘之前。
+            ── 局部重绘的「撤销 + 确认」按钮组（2026-09-21 / 2026-09-23） ───────
+            需求：修改直接落在原图上，一旦效果不理想，用户要能一键回到重绘之前；
+                 2026-09-23 追加 —— 效果满意时要能**显式确认**，并在右侧对话窗口
+                 里出现一条「图片修改成功」的气泡。
 
-            ⚠️ 显示条件不是「重绘过」而是**快照仍然有效**：
+            ⚠️ 显示条件不是「重绘过」而是**快照仍然有效**（isRepaintSnapshotLive）：
                快照里既存了重绘前的 localSrc，也存了重绘后写进去的那一个；
-               只有节点当前像素还等于后者时才给撤销按钮 ——
+               只有节点当前像素还等于后者时才给这两个按钮 ——
                否则用户先重绘、再换了一张图，点撤销会把他后来的图整张换掉，
-               且不会有任何提示。这个等式就是这个按钮的失效边界。
+               而点确认会去确认一张早已不在的效果。这个等式是两个按钮共同的失效边界。
+
+            ⚠️⚠️ 两个按钮必须包在**同一个容器**里按同一个条件渲染：
+               各写一个 `{cond && <button/>}` 就等于两个出口 —— 将来任何一侧
+               的条件被改动，就会出现「撤销没了但确认还亮着」，零报错。
           */}
           {canUndoInPlaceRepaint && !isAiProcessingImage && (
-            <button
-              type="button"
-              aria-label="撤销局部重绘"
-              title="回到本次局部重绘之前的效果"
-              className="absolute nodrag nopan flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] transition-all duration-150 hover:brightness-110"
-              style={{
-                left: 10,
-                bottom: 10,
-                height: 30,
-                padding: "0 11px",
-                zIndex: 116,
-                background: "rgba(16,16,20,0.76)",
-                color: "rgba(255,255,255,0.94)",
-                border: "1px solid rgba(255,255,255,0.22)",
-                backdropFilter: "blur(6px)",
-                boxShadow: "0 12px 30px rgba(0,0,0,0.34)",
-                fontSize: 11,
-                fontWeight: 700,
-                lineHeight: 1,
-                whiteSpace: "nowrap",
-              }}
-              onPointerDown={event => event.stopPropagation()}
-              onClick={event => {
-                event.stopPropagation();
-                window.dispatchEvent(
-                  new CustomEvent("in-place-repaint-undo-request", {
-                    detail: { nodeId },
-                  })
-                );
-              }}
+            <div
+              className="absolute nodrag nopan flex items-center gap-1.5"
+              style={{ left: 10, bottom: 10, zIndex: 116 }}
             >
-              <Undo2 size={13} strokeWidth={2.4} />
-              撤销重绘
-            </button>
+              <button
+                type="button"
+                aria-label="撤销局部重绘"
+                title="回到本次局部重绘之前的效果"
+                className="flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] transition-all duration-150 hover:brightness-110"
+                style={{
+                  height: 30,
+                  padding: "0 11px",
+                  background: "rgba(16,16,20,0.76)",
+                  color: "rgba(255,255,255,0.94)",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  backdropFilter: "blur(6px)",
+                  boxShadow: "0 12px 30px rgba(0,0,0,0.34)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => {
+                  event.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent("in-place-repaint-undo-request", {
+                      detail: { nodeId },
+                    })
+                  );
+                }}
+              >
+                <Undo2 size={13} strokeWidth={2.4} />
+                撤销重绘
+              </button>
+              {/*
+                确认按钮用**实心高亮**而不是和撤销一样的半透明玻璃：
+                这两个动作是互斥的取舍，长得一样用户会犹豫点哪个。
+                主动作（保留效果）在右、退回动作在左，符合从左到右的阅读收束。
+              */}
+              <button
+                type="button"
+                aria-label={REPAINT_CONFIRM_BUTTON_ARIA}
+                title={REPAINT_CONFIRM_BUTTON_TITLE}
+                className="flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] transition-all duration-150 hover:brightness-110"
+                style={{
+                  height: 30,
+                  padding: "0 11px",
+                  background: "rgba(255,255,255,0.94)",
+                  color: "rgba(14,14,18,0.96)",
+                  border: "1px solid rgba(255,255,255,0.94)",
+                  backdropFilter: "blur(6px)",
+                  boxShadow: "0 12px 30px rgba(0,0,0,0.34)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => {
+                  event.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent(IN_PLACE_REPAINT_CONFIRM_EVENT, {
+                      detail: { nodeId },
+                    })
+                  );
+                }}
+              >
+                <Check size={13} strokeWidth={2.8} />
+                {REPAINT_CONFIRM_BUTTON_LABEL}
+              </button>
+            </div>
           )}
           {isCameraViewAdjusting && !isAiProcessingImage && (
             <div
@@ -30550,7 +30602,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         forgetViewportBeforeGeneration(generationId);
         toast(image ? "局部重绘已完成" : "局部重绘失败", {
           description: image
-            ? "不满意可以点图片左下角的「撤销重绘」回到重绘前"
+            ? "图片左下角：满意点「确认修改」，不满意点「撤销重绘」"
             : "AI 未返回可用图片，原图已保留",
         });
         return;
@@ -34197,6 +34249,67 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     return () =>
       window.removeEventListener("in-place-repaint-undo-request", handler);
   }, [edgesRef, nodesRef, pushHistory, setNodes]);
+  /**
+   * 「确认局部重绘」的唯一执行点（2026-09-23）。
+   *
+   * 需求原文（用户）：「在撤销重绘的按钮旁边再加上一个确认按钮，意思就是确认
+   * 修改的效果。然后在右边的对话窗口内，同时会出现确认图片修改成功的消息气泡。」
+   *
+   * 做三件事，一件都不能少：
+   *   1. 清掉撤销快照 —— 用户已经拍板，这一层回退不再需要，两个按钮一起收起；
+   *   2. 往右侧对话面板发一条气泡（走现成的 canvas-assistant-external-message
+   *      通道，面板侧已挂监听，不需要把 messages 提升到父级）；
+   *   3. 一个轻量 toast，跟撤销那侧保持对称。
+   *
+   * ⚠️ **不碰 localSrc**。确认只是「我要了」，像素一个字节都不该动。
+   *    顺手重写一次 localSrc 会换掉缓存键，浏览器重拉图，用户看到一次闪白。
+   *
+   * ⚠️ 判据必须和按钮的显示条件走**同一个** isRepaintSnapshotLive：
+   *    按钮那侧已经挡过一次，这里再挡一次是因为事件可以被重放
+   *    （用户双击、或快照在 dispatch 与 handler 之间被别的链路改掉）。
+   *    两侧判据一旦各写一份，就会出现「按钮不见了但事件仍被执行」。
+   *
+   * ⚠️ 确认**不进历史栈**：它不改像素，压一格会让 Ctrl+Z 多按一次才有反应
+   *    （本项目在别的交互上栽过「撤销一次没反应，撤两次才回来」）。
+   */
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      const node = nodesRef.current.find(item => item.id === nodeId);
+      if (!node || node.type !== "asset") return;
+      const data = node.data as Record<string, unknown>;
+      if (!isRepaintSnapshotLive(data)) return;
+      setNodes(nds =>
+        nds.map(item => {
+          if (item.id !== nodeId || item.type !== "asset") return item;
+          return {
+            ...item,
+            data: {
+              ...(item.data as Record<string, unknown>),
+              ...buildRepaintConfirmPatch(),
+            },
+          };
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "assistant",
+            content: buildRepaintConfirmedMessage(
+              getAssetNodeDisplayTitle(node)
+            ),
+          },
+        })
+      );
+      toast("已确认修改效果", {
+        description: "本次局部重绘已保留，撤销入口已收起",
+      });
+    };
+    window.addEventListener(IN_PLACE_REPAINT_CONFIRM_EVENT, handler);
+    return () =>
+      window.removeEventListener(IN_PLACE_REPAINT_CONFIRM_EVENT, handler);
+  }, [nodesRef, setNodes]);
   /**
    * 图片「基于原图重新生成」的**唯一提交出口**。
    *

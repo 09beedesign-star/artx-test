@@ -162,24 +162,41 @@ describe("需求 1：修改落在原图上（payload 与唯一回包出口）", 
 });
 
 describe("需求 2：撤销按钮与快照失效边界", () => {
-  it("撤销按钮必须挂在「快照仍然有效」的判断上", () => {
+  /*
+   * ⚠️ 2026-09-23：这条断言原先写死成源码字面表达式
+   *   （`typeof inPlaceRepaintUndo?.repaintedLocalSrc === "string"`）。
+   *   新增「确认修改」按钮时判据被收口进 in-place-repaint-confirm.ts 的纯函数
+   *   —— 实现变了、语义一模一样，字面断言却假性变红。
+   *   📌 断言要验**语义**（判据是否仍收口在唯一事实源上），不能验某句源码长什么样。
+   *   判据本身的两条行为（内置素材图节点也能撤销 / 快照过期必须失效）
+   *   现在由 in-place-repaint-confirm.test.ts 用真调用断言，比文本断言强得多。
+   */
+  it("撤销按钮必须挂在「快照仍然有效」的判断上（且判据收口在纯函数）", () => {
     const flag = sliceBetween(
       "  const canUndoInPlaceRepaint =",
       "  const isEditing ="
     );
     expect(
       flag,
-      "判据用了重绘前的 localSrc —— 原节点本来没有 localSrc 时按钮永远不出现，用户失去撤销入口"
-    ).toContain('typeof inPlaceRepaintUndo?.repaintedLocalSrc === "string"');
+      "判据没走 isRepaintSnapshotLive —— 撤销和确认两个按钮的失效边界会各走各的"
+    ).toContain("isRepaintSnapshotLive(");
     expect(
       flag,
-      "没有比对节点当前像素是否仍等于重绘后的那一个 —— 快照过期后点撤销会覆盖用户后来的图"
-    ).toContain("inPlaceRepaintUndo.repaintedLocalSrc");
+      "判据又内联了一份比较 —— 收口失效，改一处必然漏另一处"
+    ).not.toContain('=== "string" &&');
+    expect(
+      source,
+      "纯函数没有被引入，判据是假的"
+    ).toContain('from "./in-place-repaint-confirm"');
   });
 
   it("按钮点击必须派发唯一的撤销事件，且不能把点击传给画布", () => {
+    /*
+     * ⚠️ 2026-09-23 锚点更新：原来是单个「撤销」按钮，现在是
+     *    「撤销 + 确认」按钮组（两个按钮共用一个条件渲染，见需求 4）。
+     */
     const button = sliceBetween(
-      "            ── 局部重绘的「撤销」按钮",
+      "            ── 局部重绘的「撤销 + 确认」按钮组",
       "{isCameraViewAdjusting && !isAiProcessingImage && ("
     );
     expect(button, "切片非空保障").toContain(
