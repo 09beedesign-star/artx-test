@@ -7467,7 +7467,8 @@ function AssetNodeComponent({
   /*
    * ── 图片节点的圆角唯一事实源（2026-09-23 用户点名）────────────────────────
    *
-   * 需求：所有图片节点一律 4px 圆角，且圆角要「看得见」。
+   * 需求：所有图片节点一律 12px 圆角，且圆角要「看得见」。
+   *   （2026-09-23 先定 4px，用户实测觉得太细微，当天改为 12px。）
    *
    * ⚠️⚠️⚠️ 为什么不能只在外层容器写 borderRadius: 4：
    *   外层容器是 `overflow:hidden` + `border: Npx`。CSS 规范下，
@@ -7478,15 +7479,15 @@ function AssetNodeComponent({
    *
    * ✅ 收口做法两条，缺一条圆角都会「看不出来」：
    *   1. 描边收窄到 ASSET_NODE_BORDER_WIDTH = 1px（用户原话「改为一项数」），
-   *      这样裁剪半径 = 4 − 1 = 3px，已接近目标；
+   *      这样裁剪半径 = R − 1（描边越宽，圆角被吃得越多）；
    *   2. **圆角直接打在 <img> 本身**（ASSET_NODE_IMAGE_RADIUS），
-   *      让图片自带 4px 圆角，不再依赖父层裁剪 ——
+   *      让图片自带该圆角，不再依赖父层裁剪 ——
    *      这才是用户说的「圆角的四像素是向内部的四像素」。
    *
    * 📌 改这两个常量即可全量生效，别再往各分支里散写数字。
    */
   const ASSET_NODE_BORDER_WIDTH = 1;
-  const ASSET_NODE_IMAGE_RADIUS = 4;
+  const ASSET_NODE_IMAGE_RADIUS = 12;
   // 四角拖拽缩放：以对角锚点固定，拖动锚点作为伸缩方向
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, direction: "nw" | "ne" | "se" | "sw" = "se") => {

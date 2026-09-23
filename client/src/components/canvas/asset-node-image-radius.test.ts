@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * 图片节点 4px 圆角 + 1px 描边的回归锁（2026-09-23 用户点名）。
+ * 图片节点 12px 圆角 + 1px 描边的回归锁（2026-09-23 用户点名）。
  *
  * 需求原话：
  *   「所有图片节点一律添加 4 像素的圆角」
@@ -44,11 +44,16 @@ describe("图片节点圆角：唯一事实源", () => {
     ).toBeGreaterThan(5000);
   });
 
-  it("圆角必须是 4px，且收口成常量", () => {
+  it("圆角必须是 12px，且收口成常量", () => {
+    /*
+     * ⚠️ 必须带结尾分号，否则 "= 1" 会被 "= 12"/"= 16" 前缀匹配放过
+     *   （数值型断言的前缀匹配坑）。
+     * 📌 2026-09-23 先定 4px，用户实测觉得太细微，当天改为 12px。
+     */
     expect(
       assetNode,
-      "ASSET_NODE_IMAGE_RADIUS 不是 4 —— 用户要的就是 4 像素"
-    ).toContain("const ASSET_NODE_IMAGE_RADIUS = 4;");
+      "ASSET_NODE_IMAGE_RADIUS 不是 12 —— 用户要的就是 12 像素"
+    ).toContain("const ASSET_NODE_IMAGE_RADIUS = 12;");
   });
 
   it("外框描边必须是 1px（用户原话「改为一个像素」）", () => {
