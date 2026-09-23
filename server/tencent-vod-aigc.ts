@@ -297,13 +297,17 @@ export async function createVodImageExpandTask(input: VodImageExpandInput): Prom
     return { Type: "Url", Url: url };
   };
 
+  // 扩图同样把原图以 base64 塞进请求体，2K 图一张就可能越过 10MB 上限 ——
+  // 与 createVodImageTask 走同一个收口，避免只修一个出口。
+  const expandFileInfos = await shrinkFileInfosToLimit([toFileInfo(input.imageUrl)]);
+
   const payload: CreateImageTaskRequest = {
     SubAppId: config.subAppId,
     ModelName: "Kling",
     ModelVersion: "scene",
     SceneType: "image_expand",
     Prompt: input.prompt || "",
-    FileInfos: [toFileInfo(input.imageUrl)],
+    FileInfos: expandFileInfos,
     ExtInfo: JSON.stringify({
       AdditionalParameters: JSON.stringify({
         up_expansion_ratio: ratios.up,
@@ -478,11 +482,54 @@ async function shrinkFileInfosToLimit(list: FileInfo[]): Promise<FileInfo[]> {
     current = measureBase64Bytes(working);
   }
 
+  // 兜底：等比循环没收敛（极端长宽比 / 蒙版 PNG 压不动）时，按最长边硬封顶再压一次。
+  // 不加这一步的话，超限载荷会被原样发出去，用户只看到上游那句 RequestSizeLimit。
+  if (current > VOD_PAYLOAD_TARGET_BYTES) {
+    const HARD_MAX_EDGE = 1024;
+    const next: FileInfo[] = [];
+    for (const file of working) {
+      if (!file.Base64) {
+        next.push(file);
+        continue;
+      }
+      const buffer = Buffer.from(file.Base64, "base64");
+      const isMask = file.ReferenceType === "mask";
+      const output = await sharp(buffer, { limitInputPixels: false })
+        .resize(HARD_MAX_EDGE, HARD_MAX_EDGE, {
+          fit: "inside",
+          withoutEnlargement: true,
+          kernel: isMask ? "nearest" : "lanczos3",
+        })
+        [isMask ? "png" : "jpeg"](isMask ? { compressionLevel: 9 } : { quality: 80, mozjpeg: true })
+        .toBuffer();
+      next.push({ ...file, Base64: output.toString("base64") });
+    }
+    working = next;
+    current = measureBase64Bytes(working);
+    console.log(`[vod-aigc] 请求体硬封顶到最长边 ${HARD_MAX_EDGE}px -> ${(current / 1048576).toFixed(1)}MB`);
+  }
+
   console.log(
     `[vod-aigc] 请求体降采样: ${(measureBase64Bytes(list) / 1048576).toFixed(1)}MB -> ${(current / 1048576).toFixed(1)}MB（上限 ${VOD_REQUEST_MAX_BYTES / 1048576}MB）`,
   );
+
+  // 仍然超限：显式失败，给出可读原因，而不是把注定被拒的载荷发给上游。
+  if (current > VOD_REQUEST_MAX_BYTES) {
+    throw new Error(
+      `VOD 请求体降采样后仍为 ${(current / 1048576).toFixed(1)}MB，超过上限 ` +
+        `${VOD_REQUEST_MAX_BYTES / 1048576}MB。请减少参考图数量或降低分辨率后重试。`,
+    );
+  }
   return working;
 }
+
+/** 仅供测试：暴露降采样收口逻辑（两个 CreateAigcImageTask 出口都走它）。 */
+export const __testShrinkFileInfosToLimit = shrinkFileInfosToLimit;
+/** 仅供测试：暴露上限常量，避免测试里写死魔数与实现漂移。 */
+export const __testVodRequestLimits = {
+  maxBytes: VOD_REQUEST_MAX_BYTES,
+  targetBytes: VOD_PAYLOAD_TARGET_BYTES,
+};
 
 export async function createVodImageTask(input: VodImageGenerationInput): Promise<{ taskId: string }> {
   const config = getConfig();

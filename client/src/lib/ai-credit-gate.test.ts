@@ -364,35 +364,22 @@ describe("失败信号传播：返回值靠不住，必须能抛", () => {
     );
   });
 
-  it("智能文案编辑这条链路必须传 throwOnFailure: true", () => {
-    const { stripped } = readSource(canvasPath);
-    // 文案编辑结果 -> throwOnFailure: true 必须在同一个调用对象里
-    expect(stripped).toMatch(
-      /style: "文案编辑结果",[\s\S]{0,600}?throwOnFailure: true,/
-    );
-  });
-
-  it("成功提示必须在 await 之后，且失败时到不了 —— 用调用顺序锁住", () => {
-    const { stripped } = readSource(canvasPath);
-    const callIdx = stripped.indexOf('style: "文案编辑结果"');
-    const toastIdx = stripped.indexOf("文案已应用到新图");
-    expect(callIdx).toBeGreaterThan(-1);
-    expect(toastIdx).toBeGreaterThan(callIdx);
-  });
-
-  it("文案应用的 catch 不重复弹 —— 已提示过的错误只做收尾", () => {
-    const { stripped } = readSource(canvasPath);
-    expect(stripped).toMatch(
-      /if \(!isAiFailureAlreadyNotified\(error\)\) \{[\s\S]{0,120}?notifyAiFailure\("文案应用失败", message\)/
-    );
-  });
+  /*
+   * 2026-09-23：原本这里有三条「智能文案编辑」专属断言
+   * （throwOnFailure 透传、成功提示在 await 之后、catch 不重复弹），
+   * 随该功能整条链路下线一并删除 —— 被测代码没了，留着必然恒红。
+   *
+   * 上面那几条 throwOnFailure / markAiFailureNotified 的通用机制断言
+   * 服务于所有 AI 链路，继续保留。
+   */
 });
 
 /**
  * 「服务端判超时必须晚于前端放弃」的契约测试。
  *
- * 智能文案编辑是两次串行即梦出图，原来两边都是 5 分钟，谁先到点谁判负；
- * 服务端一旦先判 failed，图就算生成出来了前端也拿不到。
+ * 起因是已下线的智能文案编辑（两次串行即梦出图），原来两边都是 5 分钟，
+ * 谁先到点谁判负；服务端一旦先判 failed，图就算生成出来了前端也拿不到。
+ * 该约束对所有长耗时出图链路都成立，所以功能下线后这条继续守。
  */
 describe("出图超时阈值：服务端必须留余量给前端", () => {
   it("服务端阈值 > 前端轮询总时长", () => {

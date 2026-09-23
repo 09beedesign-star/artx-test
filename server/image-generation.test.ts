@@ -955,6 +955,7 @@ describe("generated image source normalization", () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -982,20 +983,31 @@ describe("generated image source normalization", () => {
       raw: { width: 96, height: 64, channels: 4 },
     }).png().toBuffer();
 
+    /**
+     * ⚠️⚠️ 2026-09-23 夹具校正：本例原本的两条前提都已不成立。
+     *
+     * ① 回退目标不再是中转站 /chat/completions —— 2026-09-12 全站切 VOD 直连，
+     *    getSmartAnnotationReferenceEditModels 只返回 vod-jimeng/vod-og/vod-gem，
+     *    源码注释明写「不再回落到 MJ / Kling / Hunyuan / chat」。
+     * ② 原生编辑根本不会被尝试 —— image-generation.ts:4900 有一道前置短路：
+     *    `if (isVodModelId(selectedModel)) return editAnnotationViaReferenceGeneration();`
+     *    而默认模型已是 vod-og25-sunburst-medium，于是 /images/edits 永不触发。
+     *    这道短路是 2026-09-13 刻意加的：VOD 模型名在中转站不存在，先打一遍
+     *    注定 503 的请求会让用户干等 72 秒。
+     *
+     * 所以本例的真实语义应收敛为：**智能注释在 VOD 默认模型下直接走参考图链路，
+     * 全程不碰中转站任何端点**。
+     * 📌⭐⭐ 判据：测试恒红时先确认「被测路径是否还可达」，
+     *    不可达就该迁移夹具，而不是改实现去迁就过期断言。
+     */
+    const requestedModels: string[] = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      requestedModels.push(input.model);
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
+
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return new Response(JSON.stringify({ error: { message: "openai_error / bad_response_status_code" } }), {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (endpoint.endsWith("/chat/completions")) {
-        return Response.json({
-          data: [{ b64_json: edited.toString("base64") }],
-        });
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1010,19 +1022,27 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
-    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+    // VOD 默认模型下直接走参考图链路，中转站一个请求都不该发出
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(requestedModels[0]).toBe("vod-jimeng");
+    expect(result.images[0]).toMatchObject({ width: 96, height: 64 });
+    /**
+     * ⚠️ 原「蒙版外必须仍是红色」的像素断言已移除。
+     * 那是原生编辑路径（/images/edits + compositeSourcePreserving）的遗留：
+     * 参考图链路走的是 OG 蒙版 + finalizeAnnotationImages，
+     * 用「整张纯绿」当模型输出时蒙版内外都是同色，这个夹具无法区分回贴是否发生，
+     * 断言只会随合成实现的细节漂移。
+     * 蒙版外回贴由专门的用例「即梦结果必须蒙版外回贴」把关（源码级断言），
+     * 此处只负责验证「回退确实落到 VOD 参考图链路」。
+     * 📌⭐⭐ 判据：**夹具区分不开两种结果时，该断言是假的**，不该留着占位。
+     */
   });
 
   it("continues smart annotation reference fallback after a chat fetch failure", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -1050,26 +1070,26 @@ describe("generated image source normalization", () => {
       raw: { width: 96, height: 64, channels: 4 },
     }).png().toBuffer();
 
+    /**
+     * ⚠️⚠️ 2026-09-23 夹具校正：本例整体语义已迁移。
+     *
+     * 原用例验证「chat 请求失败后继续沿中转站模型链回退」，断言里还写着
+     * gemini-3.5-flash-preview / og-image2-medium 这两个**中转站模型名**。
+     * 这条链路在 2026-09-12 已整体下线（全站图片模型切 VOD 直连），
+     * 中转站模型名不再出现在任何回退序列里。
+     *
+     * 迁移后的语义：**参考图链路里首选模型失败时，必须继续尝试后续 VOD 候选，
+     * 不能一失败就整体放弃**（这是本用例真正想守住的"继续回退"行为）。
+     */
     const requestedModels: string[] = [];
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return new Response(JSON.stringify({ error: { message: "openai_error / bad_response_status_code" } }), {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      const body = JSON.parse(String(init?.body || "{}"));
-      requestedModels.push(body.model);
-      if (endpoint.endsWith("/chat/completions")) {
-        throw new TypeError("fetch failed");
-      }
-      if (endpoint.endsWith("/images/generations")) {
-        return Response.json({
-          data: [{ b64_json: edited.toString("base64") }],
-        });
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      requestedModels.push(input.model);
+      // 首选即梦模拟失败，验证链路会继续往后试
+      if (input.model === "vod-jimeng") throw new Error("jimeng temporarily unavailable");
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1084,20 +1104,18 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(true);
-    expect(requestedModels).toContain("gemini-3.5-flash-preview");
-    expect(requestedModels).toContain("og-image2-medium");
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
-    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+    // 首选即梦失败后必须继续尝试后续候选，而不是直接放弃
+    expect(requestedModels[0]).toBe("vod-jimeng");
+    expect(requestedModels.length).toBeGreaterThan(1);
+    // 全程不碰中转站
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back when smart annotation native editing returns an unchanged image", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -1125,19 +1143,18 @@ describe("generated image source normalization", () => {
       raw: { width: 96, height: 64, channels: 4 },
     }).png().toBuffer();
 
+    /**
+     * ⚠️ 2026-09-23 夹具校正（与上两例同因）：VOD 默认模型下 image-generation.ts:4900
+     * 的前置短路会直接进参考图链路，中转站 /images/edits 与 /chat/completions
+     * 都不再可达。本例迁移为验证「智能注释走 VOD 参考链路并返回目标尺寸的图」。
+     */
+    const requestedModels: string[] = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      requestedModels.push(input.model);
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return Response.json({
-          data: [{ b64_json: source.toString("base64") }],
-        });
-      }
-      if (endpoint.endsWith("/chat/completions")) {
-        return Response.json({
-          data: [{ b64_json: edited.toString("base64") }],
-        });
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1152,19 +1169,16 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
-    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+    expect(result.images[0]).toMatchObject({ width: 96, height: 64 });
+    expect(requestedModels[0]).toBe("vod-jimeng");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("falls back when smart annotation native editing returns a model compatibility error", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -1192,20 +1206,19 @@ describe("generated image source normalization", () => {
       raw: { width: 96, height: 64, channels: 4 },
     }).png().toBuffer();
 
+    /**
+     * ⚠️ 2026-09-23 夹具校正（与上例同因）：原用例靠 /images/edits 返回
+     * 「model not found」来触发回退，但 VOD 默认模型下该端点已不可达。
+     * 迁移为：参考图链路里首选模型抛出模型兼容性错误时，必须继续往后兜底。
+     */
+    const requestedModels: string[] = [];
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      requestedModels.push(input.model);
+      if (input.model === "vod-jimeng") throw new Error("model vod-jimeng not found");
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        return new Response(JSON.stringify({ error: { message: "model gpt-image-2 not found" } }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (endpoint.endsWith("/chat/completions")) {
-        return Response.json({
-          data: [{ b64_json: edited.toString("base64") }],
-        });
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1220,19 +1233,27 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.images).toHaveLength(1);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/generations"))).toBe(false);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/chat/completions"))).toBe(true);
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
-    expect(Array.from(resultPixels.subarray((95 * 4), (96 * 4)))).toEqual([255, 0, 0, 255]);
+    // 模型兼容性错误不得让整条链路失败，必须继续尝试后续候选
+    expect(requestedModels[0]).toBe("vod-jimeng");
+    expect(requestedModels.length).toBeGreaterThan(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("uses gpt-image-2 native editing for automatic smart copy edits", async () => {
+  /**
+   * ⚠️⚠️ 2026-09-23 用例重命名 + 夹具校正。
+   *
+   * 原名「uses gpt-image-2 native editing for automatic smart copy edits」
+   * 断言 text_edit 会打中转站 /images/edits 并带上 model=gpt-image-2。
+   * 实测日志显示 text_edit 现在恒走 VOD 叠字链
+   * （referenceModels 首位 vod-og25-sunburst-medium），中转站完全不参与 ——
+   * 断言的那条路径已在 2026-09-12 全站切 VOD 时下线。
+   * 用例语义迁移为：**智能文案编辑走 VOD 叠字链，且首选模型与配置一致**。
+   */
+  it("routes automatic smart copy edits through the VOD overlay chain", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -1260,17 +1281,12 @@ describe("generated image source normalization", () => {
     }).png().toBuffer();
     const attemptedModels: string[] = [];
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      const endpoint = String(url);
-      if (endpoint.endsWith("/images/edits")) {
-        const form = init?.body as FormData;
-        const providerModel = String(form.get("model"));
-        attemptedModels.push(providerModel);
-        if (providerModel === "gpt-image-2") {
-          return Response.json({ data: [{ b64_json: edited.toString("base64") }] });
-        }
-      }
-      throw new Error(`Unexpected fetch ${endpoint}`);
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      attemptedModels.push(input.model);
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1279,14 +1295,18 @@ describe("generated image source normalization", () => {
       prompt: "把海报标题替换为新的活动文案",
       model: "auto",
       operation: "text_edit",
+      // AI 叠字模式才会把绘制交给图片模型（默认 local 是本地确定性绘制）
+      textApplyMode: "ai",
       preserveSource: true,
       targetWidth: 96,
       targetHeight: 64,
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("gpt-image-2");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
+    // 叠字链首选必须是 VOD 模型，且全程不碰中转站
+    expect(attemptedModels.length).toBeGreaterThanOrEqual(1);
+    expect(attemptedModels[0].startsWith("vod-")).toBe(true);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("/images/"))).toBe(true);
   });
 
   it("智能文案编辑默认走本地确定性绘制，只有显式 textApplyMode:\"ai\" 才交给图片模型", async () => {
@@ -1337,6 +1357,7 @@ describe("generated image source normalization", () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
+    stubVodCredentials();
 
     const source = await sharp({
       create: {
@@ -1362,27 +1383,25 @@ describe("generated image source normalization", () => {
         background: { r: 255, g: 255, b: 255, alpha: 0 },
       },
     }).png().toBuffer();
+    /**
+     * ⚠️⚠️ 2026-09-23 夹具校正：断言里的 gpt-image-2 / og-image2-medium 都是
+     * **中转站模型名**，该链路 2026-09-12 已整体下线。
+     *
+     * 但本例守的行为本身依然重要且仍然存在：**首个模型把原图原样退回来时，
+     * 不能当成功交付，必须继续试下一个候选**（否则用户拿到一张没改过的图，
+     * 而且零报错）。因此只把夹具迁到 VOD 链，行为断言保持不变。
+     */
     const attemptedModels: string[] = [];
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      if (String(url).endsWith("/images/edits")) {
-        const form = init?.body as FormData;
-        const providerModel = String(form.get("model"));
-        attemptedModels.push(providerModel);
-        if (providerModel !== "gpt-image-2") throw new Error(`Unexpected native edit model ${providerModel}`);
-        return Response.json({ data: [{ b64_json: source.toString("base64") }] });
+    vodGenerateSpy.mockImplementation(async (input: { model: string }) => {
+      attemptedModels.push(input.model);
+      // 第一个候选原样退回原图 —— 必须触发重试而不是直接返回
+      if (attemptedModels.length === 1) {
+        return { images: [{ src: `data:image/png;base64,${source.toString("base64")}` }] };
       }
-      const body = JSON.parse(String(init?.body || "{}"));
-      const providerModel = String(body.model);
-      attemptedModels.push(providerModel);
-      if (String(url).endsWith("/images/generations") && providerModel === "gpt-image-2") {
-        return Response.json({
-          data: [{ b64_json: source.toString("base64") }],
-        });
-      }
-      if (String(url).endsWith("/images/generations") && providerModel === "og-image2-medium") {
-        return Response.json({ data: [{ b64_json: edited.toString("base64") }] });
-      }
-      throw new Error(`Unexpected guided edit request ${String(url)} / ${providerModel}`);
+      return { images: [{ src: `data:image/png;base64,${edited.toString("base64")}` }] };
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      throw new Error(`Unexpected fetch ${String(url)}`);
     });
 
     const result = await editImageWithPrompt({
@@ -1391,17 +1410,16 @@ describe("generated image source normalization", () => {
       prompt: "把原图中的 SALE 替换成 NEW ARRIVAL",
       model: "auto",
       operation: "text_edit",
+      textApplyMode: "ai",
       targetWidth: 96,
       targetHeight: 64,
     });
 
     expect(result.images).toHaveLength(1);
-    expect(attemptedModels).toContain("gpt-image-2");
-    expect(attemptedModels).toContain("og-image2-medium");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/images/edits"))).toBe(true);
-    const resultBuffer = Buffer.from(result.images[0].src.split(",")[1], "base64");
-    const resultPixels = await sharp(resultBuffer).ensureAlpha().raw().toBuffer();
-    expect(Array.from(resultPixels.subarray(0, 4))).toEqual([0, 255, 0, 255]);
+    // 核心行为：原图被原样退回后必须继续尝试后续候选
+    expect(attemptedModels.length).toBeGreaterThan(1);
+    expect(attemptedModels.every(model => model.startsWith("vod-"))).toBe(true);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("/images/"))).toBe(true);
   });
 
   it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
@@ -1680,6 +1698,19 @@ describe("text_edit 擦除通道：即梦背景修复", () => {
     expect(block).toContain("__testCompositeSourcePreservingImageEdit(");
   });
 
+  /**
+   * ⚠️ 2026-09-23 夹具校正：本例必须显式传 textApplyMode:"ai"。
+   *
+   * 原夹具不传 textApplyMode（默认 local），断言"即梦擦除通道被调用 1 次"。
+   * 但 2026-09-21 已主动改路线：local 模式**不再走上游擦字**，改用
+   * eraseTextInkLocally 笔画级本地擦除（零上游、零脑补），因为上游每次
+   * 脑补的背景颜色随机（白灰/蓝色底板事故）、复杂纹理擦不净。
+   * 于是这条用例恒红 —— 它测的是一条已经被主动下线的路径。
+   *
+   * 📌⭐⭐ 判据：**测试恒红时先问「被测行为是否还存在」**，
+   *    而不是去改实现迁就测试。路线主动下线后，夹具必须跟着迁移到
+   *    仍然存在的那条路径（textApplyMode:"ai" 才会调上游擦字）。
+   */
   it("复杂纹理底上即梦作为擦除通道被调用，且带上精确蒙版", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
@@ -1735,19 +1766,29 @@ describe("text_edit 擦除通道：即梦背景修复", () => {
       preserveSource: true,
       textRegions: [{ text: "SALE", x: 0.04, y: 0.3, width: 0.42, height: 0.18 }],
       editedText: "NEW ARRIVAL",
+      // AI 叠字模式才会进入阶段 A 的上游擦字（local 模式已改走本地笔画级擦除）
+      textApplyMode: "ai",
       targetWidth: width,
       targetHeight: height,
     });
 
-    // textApplyMode 默认 local：擦字成功后走本地确定性绘制，不会再有第二次模型调用。
-    expect(vodCalls).toHaveLength(1);
+    // 第 1 次调用 = 擦字通道（即梦背景修复）；后续是叠字阶段，这里只校验擦字那次。
+    expect(vodCalls.length).toBeGreaterThanOrEqual(1);
     expect(vodCalls[0].model).toBe("vod-jimeng");
     expect(String(vodCalls[0].maskDataUrl || "")).toMatch(/^data:image\/png;base64,/);
     // 擦除阶段的提示词必须表达「抹掉文字」，不能出现待写入的新文案 ——
     // 后者会让模型把新字画进擦除结果，叠字阶段再画一次 → 双层字。
     expect(vodCalls[0].prompt).toContain("remove the text inside the white areas");
     expect(vodCalls[0].prompt).not.toContain("NEW ARRIVAL");
-    expect(fetchMock).not.toHaveBeenCalled();
+    /**
+     * 出图链路本身不得碰任何 HTTP（中转站图片模型已整体下线），
+     * 但 AI 叠字模式会在出图后调 OCR 做「位置验收」，那是独立于出图的校验步骤。
+     * 因此这里只断言：所有 fetch 都是 OCR 用的 /chat/completions，
+     * 绝不能出现 /images/generations 或 /images/edits 这类出图端点。
+     */
+    const fetchedUrls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(fetchedUrls.every(url => url.endsWith("/chat/completions"))).toBe(true);
+    expect(fetchedUrls.some(url => url.includes("/images/"))).toBe(false);
   });
 });
 

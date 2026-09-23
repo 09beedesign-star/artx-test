@@ -90,10 +90,21 @@ describe("AI 任务追踪：执行/输出时间", () => {
   });
 
   it("前端任务追踪列表展示执行与输出时间", () => {
-    expect(clientSource).toContain("执行指令");
-    expect(clientSource).toContain("输出结果");
+    /**
+     * ⚠️ 2026-09-23 断言校正：原为 toContain("执行指令") / toContain("输出结果")，
+     * 但这两个词只是**当时的界面文案**。文案后来改成了「发起 → 回传」，
+     * 功能一行没动，断言却红了 —— 典型的假性变红。
+     * 📌⭐⭐ 判据：源码断言不要钉死某句具体文案/表达式，要验**语义**：
+     *    「两个时间字段都被读出来、都被渲染进同一行、推算值有标注」。
+     */
+    // 两个时间字段都真的被读出来并格式化（而不是只声明了类型）。
+    expect(clientSource).toContain("formatTaskTime(task.startedAt)");
+    expect(clientSource).toContain("formatTaskTime(task.completedAt)");
+    // 起止时间与耗时渲染在同一行里（文案可换，三者同现不可少）。
+    expect(clientSource).toMatch(/submeta:\s*`[^`]*\$\{startTime\}[^`]*\$\{endTime\}[^`]*\$\{latencyText\}/);
     // 反推出来的时间要明确标注，避免被当成真实落库值。
     expect(clientSource).toContain("（按耗时推算）");
+    expect(clientSource).toMatch(/task\.timelineDerived\s*\?\s*"（按耗时推算）"/);
   });
 
   it("时间轴信息放在独立的 submeta 行，不会被 meta 的 truncate 截断", () => {

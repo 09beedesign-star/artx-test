@@ -1,5 +1,4 @@
 import fs from "fs";
-import { getSkill } from "./skill-registry";
 import { getUploadsRoot } from "./local-image-storage";
 import {
   DEFAULT_IMAGE_MODEL_ID,

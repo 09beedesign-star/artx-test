@@ -165,7 +165,29 @@ describe("cross-border commerce visual agent", () => {
 
     expect(source).toContain("const MAX_SMART_COMMERCE_IMAGE_COUNT = 9");
     expect(source).toContain("const PROVIDER_IMAGE_BATCH_SIZE = 4");
-    expect(source).toContain("await getSkill(input.skillId)");
     expect(source).toContain("__testNormalizeGeneratedImagesToTargetAspect(");
+  });
+
+  it("skill 注入发生在编排层，而不是留在出图模块里", () => {
+    /**
+     * ⚠️ 2026-09-23 断言搬迁：原来这条断言写在上面那个用例里，
+     * 在 server/image-generation.ts 里找 `await getSkill(input.skillId)`。
+     * 实现后来把 skill 注入上移到了 server/ai-orchestrator.ts，
+     * image-generation.ts 只剩一条**没人调用的死导入** —— 断言因此恒红。
+     * 📌⭐⭐⭐ 判据：源码断言要跟着实现走。断言红了先查「这段逻辑是不是搬走了」，
+     *    搬走了就把断言搬到新位置，顺手删掉旧文件里的死导入，
+     *    否则死导入会一直骗人「这里还在用」。
+     */
+    const orchestrator = readFileSync(resolve(__dirname, "ai-orchestrator.ts"), "utf8");
+    // 显式指定 skillId 走精确取用，没指定才按能力+提示词匹配。两条路都不能丢。
+    expect(orchestrator).toContain("await getSkill(input.skillId)");
+    expect(orchestrator).toContain("await matchSkill(capability, input.prompt)");
+    // skill 的提示词必须真的拼进最终提示词，光取出来不用等于没注入。
+    // 注意：参数表里还嵌着 brandKitToPrompt(brandKit)，所以不能用 [^)]* 做界定。
+    expect(orchestrator).toMatch(/buildPrompt\([^;]*skill\?\.prompt/);
+
+    // 出图模块不该再残留 getSkill 的死导入。
+    const imageGeneration = readFileSync(resolve(__dirname, "image-generation.ts"), "utf8");
+    expect(imageGeneration).not.toMatch(/import\s*\{\s*getSkill\s*\}\s*from/);
   });
 });
