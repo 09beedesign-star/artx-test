@@ -3875,10 +3875,40 @@ function coerceOptionalNumber(value: unknown) {
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
+/**
+ * 上游出图 → 目标画幅的归一化。
+ *
+ * ⚠️⚠️⚠️ 2026-09-23「文字被裁切 + 错位」根因修复。
+ *
+ * 上游只接受 getEditSizeForAspect 的三个档位（1536x1024 / 1024x1536 / 1024x1024），
+ * 任何原始比例都会被吸附。原实现一律 `fit:"cover"` + 居中裁切，对两类链路的后果完全不同：
+ *
+ *   - **纯生成**：画面是新画的，没有"必须与原图对齐"的约束，cover 裁掉边缘
+ *     只是构图取舍，可以接受（而 fill 会把人脸压扁，更糟）。
+ *   - **保真编辑（text_edit 等）**：上游拿到的就是整张原图，输出是**同一画框的重绘**。
+ *     此时 cover 会干两件事：① 按长边放大后把短边方向两端各裁掉一截；
+ *     ② 放大本身让所有像素坐标整体外扩。于是
+ *     「蒙版 / textRegions / 擦净基底」全都还在原坐标系，而模型输出已被裁+缩放，
+ *     两者**再也对不上**——下游 diff 混合与蒙版合成拿着错位的图做逐像素运算，
+ *     表现就是"文字被裁掉一截、并且整体错位"。
+ *
+ * 实测量级（线上中秋海报单）：原图 1600x900（1.78），档位落到 1536x1024（1.50），
+ * cover 需按宽放大 4.2%，再上下各裁 83px = 高度的 18.6% —— 顶行文字直接被切掉。
+ *
+ * 📌⭐⭐⭐ 判据：**当输出需要与另一份数据逐像素对齐时，任何裁切都是错的**。
+ *    裁切不报错，它只是悄悄把两个坐标系错开。保真编辑必须用 `fill`
+ *    做非等比拉回——轻微形变可接受（档位比例偏差通常 <20%，且蒙版外像素
+ *    最终会被原图还原覆盖，形变实际只作用于文字层），坐标对齐不可失。
+ */
 export async function __testNormalizeGeneratedImagesToTargetAspect(
   images: GeneratedImage[],
   targetWidth: number,
   targetHeight: number,
+  /**
+   * 保真编辑（蒙版合成 / diff 混合）链路必须传 true：改用 `fill` 保持坐标线性对应。
+   * 默认 false 以维持纯生成链路的既有行为不变。
+   */
+  preserveFullFrame = false,
 ): Promise<GeneratedImage[]> {
   const sharp = (await import("sharp")).default;
 
@@ -3886,10 +3916,12 @@ export async function __testNormalizeGeneratedImagesToTargetAspect(
     const { buffer } = await imageSrcToBuffer(image.src);
     const png = await sharp(buffer, { limitInputPixels: false })
       .rotate()
-      .resize(targetWidth, targetHeight, {
-        fit: "cover",
-        position: "centre",
-      })
+      .resize(targetWidth, targetHeight, preserveFullFrame
+        ? { fit: "fill" }
+        : {
+            fit: "cover",
+            position: "centre",
+          })
       .png()
       .toBuffer();
 
@@ -6423,10 +6455,19 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
     ? buildCameraViewEditInstruction(input)
     : "";
   const finalizeImages = async (images: GeneratedImage[]) => {
+    /**
+     * ⚠️⚠️⚠️ 第三参数必须是 isSourcePreservingEdit（2026-09-23 裁切错位修复）。
+     *
+     * 下面的 diff 混合与蒙版合成，是拿「模型输出」与「擦净基底 / 原图 / 蒙版」
+     * 做**逐像素**运算的。只要归一化阶段裁过一刀，这几份数据的坐标系就错开了，
+     * 且全程零报错——用户看到的就是文字被切掉一截并整体偏移。
+     * 保真编辑一律走 fill（保持坐标线性对应），纯生成保持原 cover 行为。
+     */
     const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(
       images,
       targetWidth,
       targetHeight,
+      isSourcePreservingEdit,
     );
     if (!isSourcePreservingEdit || !maskImageData) return normalizedImages;
     /**

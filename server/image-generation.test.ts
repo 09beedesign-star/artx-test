@@ -554,6 +554,64 @@ describe("generated image source normalization", () => {
     expect(image.height).toBe(1536);
   });
 
+  /**
+   * ⚠️ 保真编辑链路的归一化**不允许裁切**（2026-09-23「文字被裁切+错位」回归）。
+   *
+   * 夹具刻意用「顶部一条色带」的图：cover 会把色带连同上下边缘一起裁掉，
+   * fill 则会把它压扁但仍留在顶部。断言查顶行是否还是色带颜色 ——
+   * 若有人把 preserveFullFrame 改回 cover，顶行会变成背景色，测试立刻红。
+   * 📌 这是行为断言而非源码文本断言，改实现不会假性变红。
+   */
+  it("preserves the full frame (no crop) when normalizing source-preserving edits", async () => {
+    // 0.56 比例的上游输出，目标画幅 1.0 —— cover 必然裁掉上下各 78px，
+    // 顶部这条红色标题带（模拟被裁掉的标题文字）整条消失。
+    const input = await sharp({
+      create: { width: 200, height: 356, channels: 3, background: "#000000" },
+    })
+      .composite([
+        {
+          input: await sharp({
+            create: { width: 200, height: 20, channels: 3, background: "#ff0000" },
+          }).png().toBuffer(),
+          top: 0,
+          left: 0,
+        },
+      ])
+      .png()
+      .toBuffer();
+    const src = `data:image/png;base64,${input.toString("base64")}`;
+
+    const readTopPixel = async (buffer: Buffer) => {
+      const { data } = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
+      return { r: data[0], g: data[1], b: data[2] };
+    };
+
+    const [preserved] = await __testNormalizeGeneratedImagesToTargetAspect(
+      [{ src, width: 200, height: 356 }],
+      200,
+      200,
+      true,
+    );
+    const preservedTop = await readTopPixel(
+      Buffer.from(preserved.src.split(";base64,")[1] || "", "base64"),
+    );
+    // fill：红色band 被压扁但仍在顶部
+    expect(preservedTop.r).toBeGreaterThan(200);
+    expect(preservedTop.g).toBeLessThan(60);
+
+    // 反向对照：默认 cover 会把顶部红band 裁掉，顶行变黑。
+    // 这条保证上面的断言不是恒真的（变异自证）。
+    const [cropped] = await __testNormalizeGeneratedImagesToTargetAspect(
+      [{ src, width: 200, height: 356 }],
+      200,
+      200,
+    );
+    const croppedTop = await readTopPixel(
+      Buffer.from(cropped.src.split(";base64,")[1] || "", "base64"),
+    );
+    expect(croppedTop.r).toBeLessThan(60);
+  });
+
   it("keeps AI output dimensions at least as large as the source bitmap", () => {
     expect(__testResolveHighDefinitionTargetSize(420, 560, 1080, 1440))
       .toEqual({ width: 1152, height: 1536 });
