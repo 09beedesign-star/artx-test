@@ -61,4 +61,41 @@ describe("admin list filters", () => {
 
     expect(result.map((order) => order.id)).toEqual(["ord-1"]);
   });
+
+  it("按上海时区归一跨日的 UTC 时间，不取字面日期前缀", () => {
+    // ⚠️⚠️⚠️ 防回归：`2026-07-04T16:30:00.000Z` 的上海时间是 07-05 00:30。
+    // 曾经的实现用 /^(\d{4})[/-](\d{2})[/-](\d{2})/ 直接取前缀 → 算成 07-04，
+    // 于是列表显示 07/05（展示侧按上海换算）却按 07-05 筛不出来，差一天且零报错。
+    const orders = [
+      { id: "utc-cross-day", user: "Sofa Lab", amount: 99, paidAt: "2026-07-04T16:30:00.000Z" },
+      { id: "local-same-day", user: "Sofa Lab", amount: 99, paidAt: "2026/07/05 00:30:00" },
+      { id: "offset-cross-day", user: "Sofa Lab", amount: 99, paidAt: "2026-07-04T18:30:00+02:00" },
+    ];
+    const run = (paidFrom: string, paidTo: string) => filterAdminOrders(orders, {
+      query: "",
+      paidFrom,
+      paidTo,
+      amountMin: "",
+      amountMax: "",
+    }).map((order) => order.id);
+
+    expect(run("2026-07-05", "2026-07-05")).toEqual(["utc-cross-day", "local-same-day", "offset-cross-day"]);
+    expect(run("2026-07-04", "2026-07-04")).toEqual([]);
+  });
+
+  it("无时区标记的本地串按字面日期处理，不受运行时时区影响", () => {
+    // ⚠️ 落库后的 paidAt 就是 `"2026/07/05 10:01:00"` 这种本地串。
+    // 对它走 Date.parse 会按运行环境时区解析，服务器换个 TZ 结果就漂。
+    const result = filterAdminOrders([
+      { id: "ord-local", user: "Sofa Lab", amount: 99, paidAt: "2026/07/05 00:10:00" },
+    ], {
+      query: "",
+      paidFrom: "2026-07-05",
+      paidTo: "2026-07-05",
+      amountMin: "",
+      amountMax: "",
+    });
+
+    expect(result.map((order) => order.id)).toEqual(["ord-local"]);
+  });
 });

@@ -16,9 +16,26 @@ type OrderFilterRecord = {
   paidAt?: string;
 };
 
-function shanghaiDate(input?: string) {
+/**
+ * 把任意时间串归一成上海时区的 `YYYY-MM-DD`，用于和 `<input type="date">` 比较。
+ *
+ * ⚠️ 已导出给 admin-order-export.ts 复用 —— **不要在别处复制第二份实现**。
+ * 订单时间有两种形态（`"2026/07/05 10:01:00"` 本地串 / ISO），
+ * 只有走这里才能同时正确处理；直接 `Date.parse` 本地串会差 8 小时且零报错。
+ */
+export function shanghaiDate(input?: string) {
   if (!input) return "";
-  const absoluteMatch = input.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
+  /**
+   * ⚠️⚠️⚠️ 带显式时区标记的串（`...Z` 或 `...+08:00`）**不能取字面日期前缀**。
+   * `"2026-07-04T16:30:00.000Z"` 的上海时间已经是 **07-05 00:30**，
+   * 取前缀会算成 07-04 —— 整整差一天，而且零报错。
+   * 更糟的是展示侧 formatExactOrderTime 对同一串是按上海时区换算的，
+   * 于是「列表显示 07/05、按 07-05 筛选却查不到」。
+   * 没有时区标记的串（`"2026/07/05 10:01:00"`、`"2026-07-05"`）本身就是
+   * 上海本地时间，取字面前缀才对，走 Date.parse 反而会被浏览器时区带偏。
+   */
+  const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(input);
+  const absoluteMatch = hasExplicitZone ? null : input.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
   if (absoluteMatch) return `${absoluteMatch[1]}-${absoluteMatch[2]}-${absoluteMatch[3]}`;
   const timestamp = Date.parse(input);
   if (!Number.isFinite(timestamp)) return "";

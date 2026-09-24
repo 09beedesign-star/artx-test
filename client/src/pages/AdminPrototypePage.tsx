@@ -56,6 +56,7 @@ import {
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
 import { formatExactOrderTime } from "./admin-order-time";
 import { filterAdminOrders, filterAdminUsers } from "./admin-list-filters";
+import { buildOrderExportFileName, exportOrdersToCsv } from "./admin-order-export";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
 
@@ -119,6 +120,13 @@ type Order = {
   id: string;
   user: string;
   userId?: string;
+  /**
+   * 真实登录账号 / 邮箱。服务端 PaymentOrder 一直在下发这两个字段，
+   * 前端以前没声明出来所以取不到（TS 当它不存在）。
+   * 导出表格的「账号」列必须落到这里 —— `user` 是显示名，重名就对不上人。
+   */
+  userAccount?: string;
+  userEmail?: string;
   packageName?: string;
   /**
    * 品类判定相关字段。服务端 fullPayload 里 orders 是裸传 data.orders，
@@ -964,6 +972,35 @@ function AdminPrototypePage() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "图片模型失败日志下载失败");
     }
+  }
+
+  /**
+   * 导出支付订单表格（账号 / 下单时间 / 支付时间 / 支付金额 / 支付方式）。
+   *
+   * ⚠️ 导出对象是 `filteredOrders`（筛选后的**全部**），不是 `visibleOrders`。
+   *    `visibleOrders` 只有当前这一页，传错了会导出 20 条就完事，
+   *    而且界面上看不出任何异常 —— 用户会以为导全了。
+   *
+   * ⚠️ 序列化/时间/金额一律由 admin-order-export.ts 收口，这里不做任何格式化，
+   *    否则「过滤口径在页面、格式口径在模块」迟早漂移成两套。
+   */
+  function handleExportOrders() {
+    const range = { from: paidFrom, to: paidTo };
+    const { content, rowCount } = exportOrdersToCsv(filteredOrders, range);
+    if (rowCount === 0) {
+      setNotice("当前筛选条件下没有可导出的支付订单，请调整时间范围后重试。");
+      return;
+    }
+    // CSV 已自带 UTF-8 BOM（不带的话 Excel 按 GBK 猜，中文列头直接乱码）。
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = buildOrderExportFileName(range, new Date().toISOString().slice(0, 10));
+    anchor.click();
+    URL.revokeObjectURL(url);
+    const scope = paidFrom || paidTo ? `${paidFrom || "起始"} 至 ${paidTo || "至今"}` : "全部时间";
+    setNotice(`已导出 ${rowCount} 条支付订单（${scope}），含账号、下单时间、支付时间、支付金额、支付方式。`);
   }
 
   const selectedUser = adminData.users.find((item) => item.id === selectedUserId) ?? adminData.users[0];
@@ -2054,6 +2091,23 @@ function AdminPrototypePage() {
             amountMax={amountMax}
             setAmountMax={setAmountMax}
           />
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
+            <p className="min-w-0 text-xs text-slate-400">
+              {paidFrom || paidTo
+                ? `已按支付时间筛选 ${paidFrom || "起始"} 至 ${paidTo || "至今"}，共 ${filteredOrders.length} 条`
+                : `未限定时间范围，当前共 ${filteredOrders.length} 条支付订单`}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-w-0 border-white/12 bg-white/5 text-slate-100 hover:bg-white/10"
+              onClick={handleExportOrders}
+              title="按当前时间过滤导出支付订单表格（账号 / 下单时间 / 支付时间 / 支付金额 / 支付方式）"
+            >
+              <Download className="size-4" />
+              导出订单表格
+            </Button>
+          </div>
           <div className="min-w-0 overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
             <OrdersTable
               orders={visibleOrders}
