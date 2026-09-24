@@ -1,11 +1,15 @@
 name: Deploy GitHub Pages
 
+# Pages 只托管跳转页，内容与业务代码无关。
+# 因此只在跳转页本身或本工作流变动时才重新部署，避免每次推 main 都空跑一遍。
+# 它不涉及「发布新功能给用户」，所以保留 push 触发不违反手动上线约定。
 on:
   push:
     branches:
       - main
-      - gh-pages
-      - feature/interaction-framework
+    paths:
+      - ".github/pages-redirect/**"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
 permissions:

@@ -1,9 +1,13 @@
 name: Sync Main to Test Framework
 
+# ⚠️⚠️⚠️ 已停用 push 自动触发（ericbi 2026-09-24 拍板）。
+#
+# 原因：本工作流会把 main 同步到 feature/interaction-framework，并**显式 dispatch
+# 一次腾讯云部署**。只要它还挂在 push 上，deploy 工作流改成手动触发就是形同虚设 ——
+# 推 main 依旧会经由这条链路自动上线，用户照样立刻看到。
+#
+# 现在保留 workflow_dispatch 仅供需要时手动同步测试分支，不再随 push 自动跑。
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       run_full_smoke:

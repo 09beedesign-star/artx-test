@@ -1,11 +1,14 @@
 name: Deploy Tencent Cloud Test
 
+# ⚠️⚠️⚠️ 本工作流只能手动触发，不要加回 push 触发器。
+#
+# 约定（ericbi 2026-09-24 拍板）：
+#   「推送到分支」= 只推 main，代码存档，**线上网站不变、用户看不到**
+#   「推送到正式环境」= 推 main + 手动触发本工作流 → www.artxsd.com
+#
+# 之前是 push 到 main 就自动上线，导致「提交代码」和「发布给用户」无法分开。
+# 恢复 push 触发 = 您的每一次代码存档都会直推给真实用户。
 on:
-  push:
-    branches:
-      - main
-      - feature/interaction-framework
-      - test/feature/interaction-framework
   workflow_dispatch:
     inputs:
       run_full_smoke:
