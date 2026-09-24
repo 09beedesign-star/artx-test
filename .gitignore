@@ -44,6 +44,15 @@ scripts/verify-local-erase-scene-c.mts
 .env.production.local
 # 忽略所有 .env 副本与变体（如 (1).env、backup.env），避免误提交泄露密钥
 *.env
+#
+# ⚠️⚠️⚠️ 上面的 `*.env` 只匹配「以 .env 结尾」的文件名，
+#   匹配不到 `.env.production` / `.env.staging` 这类**后缀在后面**的变体。
+#   实测：`git check-ignore -v .env.production` 曾返回未忽略 —— 一旦有人
+#   在服务器上生成了这个文件又顺手 `git add .`，真实密钥就进仓库了，且零提示。
+# ✅ 用 `.env.*` 覆盖所有后缀变体，再用 `!` 放行需要入库的模板文件。
+.env.*
+!.env.example
+!*.env.example
 
 # IDE and editor files
 .vscode/

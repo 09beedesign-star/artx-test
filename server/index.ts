@@ -36,6 +36,7 @@ import { sendOpsNotification, sendUserEmailNotification } from "./notifications"
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
 import { INVITE_REWARD_CONFIG } from "../shared/billing-config";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
+import { InMemoryRateLimiter, readRuleFromEnv, resolveClientIp } from "./ai-rate-limit";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
 import { exportImageProviderFailureLog } from "./image-provider-failure-log";
 import { resolveImageResolutionTier, type AiBillingCapability } from "../shared/ai-credit-policy";
@@ -863,6 +864,31 @@ async function recordAiRouteUsage(input: {
   return record;
 }
 
+/**
+ * AI 生图接口的 IP 级防刷闸门 —— **唯一实例**。
+ *
+ * ⚠️⚠️⚠️ 为什么挂在 handleTrackedAiRequest 里，而不是每个路由各写一份：
+ *   生图相关路由有 13 个（generate / edit / erase / expand / ocr / text-replace …），
+ *   逐个补必然漏，漏掉的那个就是攻击者刷 Key 的入口，且**零报错**。
+ *   这个函数是它们共同的唯一漏斗，收口在这里 = 13 个出口一次全覆盖。
+ *
+ * ⚠️ 闸门必须在 `reserveAiRouteUsage`（预扣费）**之前**，否则恶意请求
+ *   已经把积分扣了、把上游调了，限流再拦已经没有意义。
+ */
+const aiRateLimiter = new InMemoryRateLimiter(readRuleFromEnv(process.env));
+
+/**
+ * 是否信任反代注入的 X-Forwarded-For。
+ *
+ * ⚠️⚠️⚠️ 生产是 nginx 反代到 127.0.0.1:3002。若不信任 XFF，`req.socket.remoteAddress`
+ *   恒为 127.0.0.1 —— **全站所有用户共用一个限流桶**，一个人刷满全站被 429。
+ *   功能看起来"在工作"，语义却完全错了，而且零报错。
+ * ⚠️ 反过来，本地直连时信任 XFF 会让客户端自己伪造 IP 绕过限流。
+ *   所以用显式开关，不做自动猜测：生产置 1，本地默认 0。
+ */
+const trustProxyHeaders = process.env.TRUST_PROXY_HEADERS === "1"
+  || process.env.NODE_ENV === "production";
+
 async function handleTrackedAiRequest<T>(
   req: express.Request,
   res: express.Response,
@@ -873,6 +899,37 @@ async function handleTrackedAiRequest<T>(
   let user: SessionUser | null = null;
   let reservation: AiUsageReservation | undefined;
   let successRecorded = false;
+
+  /*
+   * 限流放在**最前面**：早于鉴权、早于预扣费。
+   * 放在鉴权之后的话，未登录的刷量请求仍会每次去查一遍会话（打数据库），
+   * 限流就挡不住数据库层面的压力。
+   */
+  const clientIp = resolveClientIp(
+    req.headers as Record<string, unknown>,
+    req.socket.remoteAddress,
+    trustProxyHeaders,
+  );
+  const limit = aiRateLimiter.check(`${clientIp}|ai`);
+  res.setHeader("X-RateLimit-Remaining", String(limit.remaining));
+  if (!limit.allowed) {
+    res.setHeader("Retry-After", String(limit.retryAfterSec));
+    /*
+     * ⚠️ 这里**不直接调** securityEventDetector —— 它是 startServer() 内的局部变量，
+     *   模块级函数够不着。而且不需要：下方 app.use 的 finish 钩子会按
+     *   classifyApplicationSecuritySignal(path, status) 把这条 429 自动归到
+     *   `rate_limited` 规则里，连续触发会升级成安全告警。
+     *   在这儿再调一次等于同一事件被记两遍，会让告警阈值提前触发。
+     */
+    console.warn(`[ai-rate-limit] 拦截刷量请求 ip=${clientIp} path=${req.path}`);
+    res.status(429).json({
+      error: `请求过于频繁，请 ${limit.retryAfterSec} 秒后再试`,
+      code: "RATE_LIMITED",
+      retryAfterSec: limit.retryAfterSec,
+    });
+    return;
+  }
+
   try {
     user = await requireSessionUser(req, res);
     if (!user) return;
