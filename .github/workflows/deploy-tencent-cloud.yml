@@ -149,7 +149,10 @@ jobs:
           # 不是 current/.env.gray。
           #
           # 理由一：current 指向 releases/ 下的某个目录，而 releases/ 是会被轮转、
-          # 会被 rm -rf 的临时区。一旦那份被删（见上面 RELEASE_NAME 的事故说明），
+          # 会被 rm -rf 的临时区（轮转实现见本文件末尾「轮转旧 release」一段；
+          # ⚠️ 2026-09-24 之前这句话是**空头支票**——注释写着会轮转，代码里却没有，
+          # 于是堆了 261 个 release 吃掉 45G。注释描述的行为必须有代码兜底）。
+          # 一旦那份被删（见上面 RELEASE_NAME 的事故说明），
           # 「从 current 拷贝」就会死锁——拷贝源正是被删掉的那个文件，
           # 此后每次部署都失败，且无法自愈，只能人工 SSH 补文件。
           # 理由二：systemd 最终加载的就是 ${base}/.env.gray（EnvironmentFile 顺序
@@ -243,6 +246,43 @@ jobs:
             -H 'Content-Type: application/json' -d '{}')"
           echo "POST /api/invite/send -> ${post_code}"
           [ "${post_code}" != "400" ] || { echo "JSON body 解析已损坏，回滚部署" >&2; exit 1; }
+
+          # ── 轮转旧 release ──────────────────────────────────────────────
+          #
+          # ⚠️⚠️⚠️ 2026-09-24 真实事故：这里原本没有任何清理逻辑，
+          #   而上面第 151 行的注释却写着「releases/ 是会被轮转的临时区」——
+          #   一个**从未兑现的假设**。实际后果：12 天堆了 261 个 release，
+          #   每个 738MB（其中 node_modules 就占 720MB，dist 只有 18MB），
+          #   吃掉 45G，磁盘从 80G 干到只剩 21G（74%）。
+          #   ⚠️ 全程零报错、零告警 —— 磁盘写满前没有任何症状，
+          #   写满的那一刻是**数据库和上传目录一起挂**。
+          #
+          # ⚠️ 位置很关键：必须放在上面所有冒烟检查**之后**。
+          #   放前面的话，冒烟失败时旧版本已被删光，`current` 无处可回滚。
+          #
+          # 保留 5 份的理由：够回滚 2-3 个版本，且 5 × 738MB ≈ 3.6G 可控。
+          keep_count=5
+          rel_dir="${base}/releases"
+          cur_name="$(basename "$(readlink -f "${base}/current")")"
+
+          # ⚠️ 三道安全闸，任何一道不过就跳过清理（宁可不清，不可误删现役）
+          if [ -z "${cur_name}" ] || [ ! -d "${rel_dir}/${cur_name}" ]; then
+            echo "⚠️ 无法确认现役 release，跳过清理" >&2
+          elif ! ls -1t "${rel_dir}" | head -n "${keep_count}" | grep -qx "${cur_name}"; then
+            echo "⚠️ 现役不在最近 ${keep_count} 个内，跳过清理（需人工介入）" >&2
+          else
+            ls -1t "${rel_dir}" | tail -n "+$((keep_count + 1))" | while read -r old; do
+              # 双保险：即便排序出意外也绝不删现役
+              [ "${old}" = "${cur_name}" ] && continue
+              # 只删符合命名规范的目录，避免误伤人工放进去的东西
+              case "${old}" in
+                artx-backstage-*) rm -rf "${rel_dir:?}/${old}" && echo "  已清理 ${old}" ;;
+                *) echo "  跳过非预期命名：${old}" ;;
+              esac
+            done
+            echo "轮转完成，现存 $(ls "${rel_dir}" | wc -l) 个 release"
+          fi
+          df -h / | tail -1
           REMOTE
 
       - name: Verify public smoke
