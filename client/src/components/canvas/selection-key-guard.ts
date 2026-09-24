@@ -65,6 +65,19 @@
 export const CANVAS_SELECTION_KEY = "Shift";
 
 /**
+ * 自发复位事件的标记键。
+ *
+ * 用 `Symbol.for` 而不是字符串属性：避免和任何库/浏览器未来的事件字段撞名，
+ * 也不会被 `{...event}` 之类的浅拷贝带出去造成误判。
+ *
+ * ⚠️ 必须声明在 `shouldReleaseSelectionKey` 之前 —— 那里在**入口第一行**就要
+ *    用它短路自发事件（见下方递归事故注释）。
+ */
+export const SELECTION_KEY_RELEASE_FLAG = Symbol.for(
+  "artx.canvas.selectionKeyReleaseSynthetic"
+);
+
+/**
  * 需要兜底复位的按键事件判据。
  *
  * 返回 true 表示：这次事件意味着「框选热键此刻不应该还处于按下状态」，
@@ -81,6 +94,23 @@ export function shouldReleaseSelectionKey(event: {
   key?: string;
   shiftKey?: boolean;
 }): boolean {
+  /*
+   * ⚠️⚠️⚠️ 2026-09-23 实测事故：无限递归 `Maximum call stack size exceeded`。
+   *
+   * 复位手段是「往 document 补发一个合成 keyup」，而兜底监听器挂在 **window
+   * 捕获阶段**。合成事件 `bubbles: true` → 从 document 冒泡到 window →
+   * 被同一个监听器收到 → 这个函数看它「type=keyup 且 key=Shift」判 true →
+   * 又 release() 一次 → 再冒泡回来…… 一次真实的 Shift keyup 就能把调用栈打爆。
+   *
+   * 表象极具误导性：控制台刷的是 InfiniteCanvas 里 release/handleKeyEvent 两行
+   * 互相调用，**完全看不出跟"框选卡死兜底"有关**，而且框选功能本身看着还是好的
+   * （栈爆之前状态已经清掉了），属于典型零功能报错的静默故障。
+   *
+   * 📌⭐⭐⭐ 判据：**凡「监听某类事件」+「自己派发同类事件」的兜底，必须给自发
+   *    事件打标记并在入口短路**，否则必然自激。光靠"挂 document、听 window"
+   *    这种层级差躲不开 —— 冒泡会把它们接上。
+   */
+  if (isSelectionKeyReleaseEvent(event)) return false;
   if (event.type === "keyup" && event.key === CANVAS_SELECTION_KEY) return true;
   /*
    * ⚠️ keydown 也要查：用户松开 Shift 后按下的**任何**下一个键，
@@ -112,11 +142,57 @@ export function shouldReleaseSelectionKey(event: {
  * ⚠️ `bubbles: true` 必需：监听器挂在 document 上，不冒泡就到不了。
  */
 export function createSelectionKeyReleaseEvent(): KeyboardEvent {
-  return new KeyboardEvent("keyup", {
+  const event = new KeyboardEvent("keyup", {
     key: CANVAS_SELECTION_KEY,
     code: "ShiftLeft",
     shiftKey: false,
     bubbles: true,
     cancelable: true,
   });
+  return markSelectionKeyReleaseEvent(event);
+}
+
+/**
+ * 给一个事件打上「这是本模块自己派发的复位事件」的标记。
+ *
+ * ⚠️⚠️ 自发标记（2026-09-23 修无限递归时加）。
+ *
+ * 为什么打在事件对象上、而不是用一个模块级布尔"我正在派发中"：
+ * 派发是同步的，但兜底监听器还挂着 pointerdown / blur / visibilitychange
+ * 三条其它入口，模块级标志位在嵌套场景下会被提前清掉（谁清谁的问题），
+ * 标记跟着事件对象走则天然精确 —— 只有这一个事件被豁免。
+ *
+ * ⚠️ 不能改成 `bubbles: false` 来躲递归：xyflow 的监听器挂在 document，而我们
+ *    正是从 document 派发 —— 不冒泡时 target === currentTarget 仍然命中它，
+ *    看着也行；但将来改成从别的节点派发就静默失效。保持冒泡 + 打标记才两边都安全。
+ *
+ * 📌 抽成独立纯函数的唯一理由：本项目 vitest 跑在 `environment: "node"`，
+ *    没有 `KeyboardEvent` 构造器。只有这样才能对「标记真的打上了」写**真断言**，
+ *    而不是退化成源码字符串断言（后者改个写法就假性变红/漏网）。
+ */
+export function markSelectionKeyReleaseEvent<T extends object>(event: T): T {
+  Object.defineProperty(event, SELECTION_KEY_RELEASE_FLAG, {
+    value: true,
+    enumerable: false,
+  });
+  return event;
+}
+
+/**
+ * 自发复位事件的标记键。
+ *
+ * 用 Symbol 而不是字符串属性：避免和任何库/浏览器未来的事件字段撞名，
+ * 也不会被 `{...event}` 之类的浅拷贝带出去造成误判。
+ */
+/**
+ * 判断一个事件是否是本模块自己派发的复位事件。
+ *
+ * 📌 判据：兜底逻辑必须能认出自己的回声。认不出就会自激。
+ */
+export function isSelectionKeyReleaseEvent(event: unknown): boolean {
+  return Boolean(
+    event &&
+      typeof event === "object" &&
+      (event as Record<symbol, unknown>)[SELECTION_KEY_RELEASE_FLAG] === true
+  );
 }

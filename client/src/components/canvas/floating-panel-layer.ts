@@ -229,3 +229,80 @@ export function copyPanelScreenScale(zoom: number): number {
   const denom = Math.max(MIN_DRAG_ZOOM, safeZoom || 1);
   return safeZoom / denom;
 }
+
+/* ════════════════════════════════════════════════════════════════
+ * 节点命令条 ↔ 顶部工具盘：不许重叠
+ * ════════════════════════════════════════════════════════════════
+ *
+ * 事故（2026-09-23 本地点测时抓到，用户也会遇到）：
+ * 「画板一键规整」按钮点不动。Playwright 真实点击直接超时，
+ * `document.elementFromPoint(按钮中心)` 返回的是**顶部工具盘的「铅笔」按钮**。
+ *
+ * 根因是两个数字撞上了，两边单看都"没错"：
+ *   · 顶部工具盘：`top: 68`、高约 44 → 占据屏幕 y ∈ [68, 112]，zIndex 110
+ *   · 节点命令条：贴在所选节点上方，贴顶时被夹到 `minTop = 8 + 44 = 52`
+ *     → 占据 y ∈ [52, 96]，zIndex **也是 110**
+ *
+ * 区间 [68, 96] 重叠，且 z-index 相同 —— CSS 规则是「同层后来者在上」，
+ * 工具盘在 DOM 里更靠后，于是它赢了。命令条画得出来、看得见、
+ * `getBoundingClientRect` 一切正常，**只是点不到**。
+ *
+ * 📌⭐⭐⭐ 判据：**「元素存在 + 可见 + 有尺寸」都不等于「点得到」。**
+ *    验可点击性唯一可靠的办法是 `elementFromPoint(中心)` 回指自己，
+ *    或用带命中检测的真实点击（Playwright locator.click）。合成
+ *    `el.click()` 会绕过命中检测 —— 它照样"成功"，所以测不出这个 bug。
+ *
+ * 📌⭐⭐ 判据：同一屏上两个浮层写同一个 zIndex，等于把层级交给 DOM 顺序
+ *    这种隐式的东西决定。要么给出明确高低，要么保证几何不重叠。
+ *    这里选后者：命令条本来就该避开工具盘，重叠着也没法用。
+ */
+
+/** 顶部工具盘的上边缘（与 InfiniteCanvas 里 `top: 68` 必须一致）。 */
+export const CANVAS_TOOL_PALETTE_TOP = 68;
+
+/** 顶部工具盘的高度估值（含内边距，按实测 40 + 边框余量取 44）。 */
+export const CANVAS_TOOL_PALETTE_HEIGHT = 44;
+
+/** 命令条与工具盘之间至少留的间距。 */
+export const TOOLBAR_PALETTE_CLEARANCE = 8;
+
+/**
+ * 节点命令条被夹到视口顶部时允许的最小 `top`（屏幕坐标）。
+ *
+ * 语义：命令条用 `translateY(-100%)` 定位，所以它的**底边**就是这个 top 值；
+ * 返回值保证底边落在工具盘下沿之下，整条不与工具盘相交。
+ *
+ * @param toolbarHeight 命令条自身高度（屏幕像素）
+ * @param viewportPadding 距视口顶部的最小留白
+ */
+export function minNodeToolbarTop(
+  toolbarHeight: number,
+  viewportPadding: number
+): number {
+  /*
+   * ⚠️ 两条下限取**较大**者，不是二选一：
+   *   · 视口下限：光贴着视口顶还不够，命令条自身高度要能放下（老逻辑）
+   *   · 工具盘下限：底边必须在工具盘下沿 + 间距之下（本次新增）
+   * 少了前者会飞出视口，少了后者会被工具盘吃掉点击 —— 都必须同时满足。
+   */
+  const viewportFloor = viewportPadding + toolbarHeight;
+  const paletteFloor =
+    CANVAS_TOOL_PALETTE_TOP +
+    CANVAS_TOOL_PALETTE_HEIGHT +
+    TOOLBAR_PALETTE_CLEARANCE +
+    toolbarHeight;
+  return Math.max(viewportFloor, paletteFloor);
+}
+
+/**
+ * 命令条与顶部工具盘是否相交（测试与自检用的判据）。
+ *
+ * `top` 是命令条**底边**的屏幕 y（配合 translateY(-100%)）。
+ */
+export function overlapsToolPalette(top: number, toolbarHeight: number): boolean {
+  const barBottom = top;
+  const barTop = top - toolbarHeight;
+  const paletteTop = CANVAS_TOOL_PALETTE_TOP;
+  const paletteBottom = CANVAS_TOOL_PALETTE_TOP + CANVAS_TOOL_PALETTE_HEIGHT;
+  return barTop < paletteBottom && barBottom > paletteTop;
+}

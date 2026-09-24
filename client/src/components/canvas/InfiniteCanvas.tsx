@@ -65,6 +65,7 @@ import {
   PROMPT_BAR_BACK_Z,
   PROMPT_BAR_FRONT_EVENT,
   PROMPT_BAR_FRONT_Z,
+  minNodeToolbarTop,
   type PanelPosition,
 } from "./floating-panel-layer";
 import {
@@ -36808,6 +36809,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    *
    * 夹取逻辑：图片被拖到贴近画布顶部时，命令条会整条跑出可视区。
    * 用 imageToolbarViewportPadding 兜住，至少保证它留在视口内可点。
+   *
+   * ⚠️⚠️⚠️ 2026-09-23：夹取下限**不能只看视口**。
+   *    老逻辑 `minTop = 8 + 44 = 52` 会把命令条放到 y ∈ [52, 96]，
+   *    而顶部工具盘占 y ∈ [68, 112] 且 zIndex 同为 110 —— 重叠区里
+   *    DOM 更靠后的工具盘赢，命令条**看得见但点不到**（画板「一键规整」
+   *    就是这么被吃掉的，Playwright 真实点击直接超时）。
+   *    下限计算已收口到 floating-panel-layer.ts 的 minNodeToolbarTop，
+   *    不要在这里再写第二套数字。
    */
   const imageToolbarGap = 8;
   const imageToolbarViewportPadding = 8;
@@ -36817,8 +36826,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         const screenTop = selectedImageBounds.y * viewport.zoom + viewport.y;
         const desiredTop = screenTop - imageToolbarGap;
         // 命令条整体在 desiredTop 之上，所以它的实际顶边 = desiredTop - 高度
-        const minTop =
-          imageToolbarViewportPadding + imageToolbarScreenHeight;
+        const minTop = minNodeToolbarTop(
+          imageToolbarScreenHeight,
+          imageToolbarViewportPadding
+        );
         return {
           left: selectedImageBounds.centerX * viewport.zoom + viewport.x,
           top: Math.max(desiredTop, minTop),

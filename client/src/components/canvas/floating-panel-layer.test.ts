@@ -20,6 +20,11 @@ import {
   resolveNodeZIndex,
   resolvePromptBarZIndex,
   shouldStartPanelDrag,
+  CANVAS_TOOL_PALETTE_HEIGHT,
+  CANVAS_TOOL_PALETTE_TOP,
+  minNodeToolbarTop,
+  overlapsToolPalette,
+  TOOLBAR_PALETTE_CLEARANCE,
 } from "./floating-panel-layer";
 import {
   assertStripKeptSource,
@@ -331,5 +336,108 @@ describe("接线断言：portal + 点击置前必须真的接上", () => {
     expect(start).toBeGreaterThan(-1);
     const rootBlock = source.slice(start, start + 200);
     expect(rootBlock).toContain('data-artx-canvas-root=""');
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════
+ * 节点命令条 ↔ 顶部工具盘：不许重叠（2026-09-23 事故）
+ * ════════════════════════════════════════════════════════════════
+ *
+ * 现场：画板「一键规整」按钮点不动。按钮在 DOM 里、可见、有尺寸、
+ * getBoundingClientRect 正常，但 `elementFromPoint(按钮中心)` 返回的是
+ * **顶部工具盘的「铅笔」按钮**，Playwright 真实点击直接超时。
+ *
+ * 根因：命令条贴顶时被夹到 y ∈ [52, 96]，顶部工具盘占 y ∈ [68, 112]，
+ * 两者 zIndex **都是 110** → 同层后来者（DOM 更靠后的工具盘）在上。
+ *
+ * 📌⭐⭐⭐ 判据：「元素存在 + 可见 + 有尺寸」≠「点得到」。
+ * 📌⭐⭐ 判据：两个浮层写同一个 zIndex = 把层级交给 DOM 顺序，等于没定层级。
+ */
+describe("命令条不能被顶部工具盘吃掉点击", () => {
+  const BAR_H = 44;
+  const PAD = 8;
+
+  it("⭐ 核心：贴顶夹取后的位置必须与工具盘零重叠", () => {
+    // 这一条就是 bug 的直接判据。把 minNodeToolbarTop 退回
+    // `viewportPadding + toolbarHeight`（老逻辑），这里立刻变红。
+    const top = minNodeToolbarTop(BAR_H, PAD);
+    expect(
+      overlapsToolPalette(top, BAR_H),
+      `夹取后的 top=${top} 仍与顶部工具盘相交 —— 命令条看得见但点不到`
+    ).toBe(false);
+  });
+
+  it("夹取值必须落在工具盘下沿 + 间距之下", () => {
+    const top = minNodeToolbarTop(BAR_H, PAD);
+    const barTop = top - BAR_H;
+    expect(barTop).toBeGreaterThanOrEqual(
+      CANVAS_TOOL_PALETTE_TOP + CANVAS_TOOL_PALETTE_HEIGHT + TOOLBAR_PALETTE_CLEARANCE
+    );
+  });
+
+  it("视口下限仍然生效 —— 不能为了避让工具盘把命令条推出视口，也不能反过来丢掉视口保护", () => {
+    /*
+      两条下限必须同时满足（取较大者）。若实现写成"只要工具盘下限"，
+      当工具盘常量被改小/改成 0 时视口保护就没了。这里用一个极大的
+      viewportPadding 反推：结果必须跟着视口下限走。
+      📌 这条能杀掉「把 Math.max 改成直接返回 paletteFloor」的变异。
+    */
+    const hugePad = 500;
+    expect(minNodeToolbarTop(BAR_H, hugePad)).toBe(hugePad + BAR_H);
+  });
+
+  it("命令条越高，夹取下限必须越大（单调性）", () => {
+    // 杀掉「忽略 toolbarHeight」的变异：高度参数必须真的参与计算。
+    expect(minNodeToolbarTop(80, PAD)).toBeGreaterThan(minNodeToolbarTop(44, PAD));
+  });
+
+  it("相交判据本身要对：正好压在工具盘上必须判 true", () => {
+    // 老逻辑的产物：top=52、高 44 → 占 [8,52]... 取一个真重叠的例子，
+    // 命令条底边落在工具盘内部。
+    const overlapping = CANVAS_TOOL_PALETTE_TOP + 10;
+    expect(overlapsToolPalette(overlapping, BAR_H)).toBe(true);
+  });
+
+  it("相交判据不能恒 true —— 完全在工具盘下方时必须判 false", () => {
+    /*
+      ⚠️ 恒 true / 恒 false 的判据等于没有判据。这条和上一条成对存在，
+      任何一个方向失效都会被抓到。
+    */
+    const wellBelow =
+      CANVAS_TOOL_PALETTE_TOP + CANVAS_TOOL_PALETTE_HEIGHT + 100 + BAR_H;
+    expect(overlapsToolPalette(wellBelow, BAR_H)).toBe(false);
+  });
+
+  it("相交判据：完全在工具盘上方（理论情形）也必须判 false", () => {
+    expect(overlapsToolPalette(CANVAS_TOOL_PALETTE_TOP, BAR_H)).toBe(false);
+  });
+
+  it("工具盘常量必须与 InfiniteCanvas 里写死的 top 一致", () => {
+    /*
+      ⚠️⚠️ 这是唯一能防住「有人把工具盘挪了位置、避让计算悄悄失效」的断言。
+      两处数字漂移不会报错，只会让 bug 无声无息地回来。
+    */
+    const source = readFileSync(canvasPath, "utf8");
+    const stripped = stripSourceComments(source);
+    assertStripKeptSource(stripped, source);
+    expect(
+      stripped,
+      `顶部工具盘的 top 已不再是 ${CANVAS_TOOL_PALETTE_TOP}，` +
+        "CANVAS_TOOL_PALETTE_TOP 必须同步更新，否则命令条避让会失效"
+    ).toContain(`top: ${CANVAS_TOOL_PALETTE_TOP},`);
+  });
+
+  it("InfiniteCanvas 必须走 minNodeToolbarTop，不许自己再算一遍下限", () => {
+    const source = readFileSync(canvasPath, "utf8");
+    const stripped = stripSourceComments(source);
+    assertStripKeptSource(stripped, source);
+    expect(stripped, "命令条夹取没接到唯一事实源").toContain(
+      "minNodeToolbarTop("
+    );
+    expect(
+      stripped,
+      "命令条夹取仍在用旧的「只看视口」下限 —— 会被工具盘覆盖"
+    ).not.toContain("imageToolbarViewportPadding + imageToolbarScreenHeight");
   });
 });
