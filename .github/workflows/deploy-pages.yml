@@ -17,6 +17,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# ⚠️ GitHub Pages 已从「完整应用镜像」降级为「跳转页」。
+# 正式站唯一入口是 https://www.artxsd.com（同机 nginx 已把 backstage / 裸域 301 收口）。
+# 保留本工作流而不是直接删除，是为了让老收藏夹仍能落地并自动前往新域名，
+# 而不是吃一个 GitHub 404。这里刻意不再 pnpm install / vite build：
+# 多一个能跑的应用副本 = 多一个会漂移的线上出口。
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,33 +29,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build site
-        env:
-          GITHUB_PAGES: "true"
-          GITHUB_PAGES_REPO: ${{ github.event.repository.name }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
-          VITE_AI_API_BASE_URL: ${{ vars.VITE_AI_API_BASE_URL || secrets.VITE_AI_API_BASE_URL || vars.VITE_API_BASE_URL || secrets.VITE_API_BASE_URL || 'https://artx-test.onrender.com' }}
-        run: pnpm exec vite build
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload artifact
+      - name: Upload redirect page
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/public
+          path: .github/pages-redirect
 
   deploy:
     environment:

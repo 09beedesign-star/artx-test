@@ -93,6 +93,9 @@ jobs:
         env:
           RELEASE_NAME: artx-backstage-${{ github.sha }}-${{ github.run_id }}
           GRAY_PUBLIC_URL: ${{ env.PUBLIC_URL }}
+          # 标记这是腾讯云生产构建，让 deployment.json 的 environment 落到 "production"
+          # 而不是兜底的 "local"（vite.config.ts getBuildMetadata）。
+          ARTX_DEPLOY_TARGET: tencent-cloud
         run: pnpm run package:tencent-cloud
 
       - name: Prepare SSH

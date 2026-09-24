@@ -286,12 +286,21 @@ function getBuildMetadata() {
     process.env.GITHUB_REF_NAME ||
     gitValue("git branch --show-current", "local");
   const buildTime = process.env.VITE_BUILD_TIME || new Date().toISOString();
-  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://backstage.artxsd.com";
-  const testBackendUrl = normalizeBackendUrl(process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://backstage.artxsd.com");
+  // 正式域名统一为 www.artxsd.com。backstage.artxsd.com 是老入口，线上已 301 收口到 www，
+  // 这里的默认值不能再指向老域名，否则产物里会把老网址当成自己的规范地址对外暴露。
+  const testFrontendUrl = process.env.VITE_TEST_FRONTEND_URL || "https://www.artxsd.com";
+  const testBackendUrl = normalizeBackendUrl(process.env.VITE_TEST_BACKEND_URL || process.env.VITE_API_BASE_URL || "https://www.artxsd.com");
 
   return {
     app: "artx",
-    environment: process.env.GITHUB_PAGES === "true" ? "github-pages-test" : "local",
+    // 三个互斥环境：GitHub Pages 镜像 / 腾讯云生产 / 本机开发。
+    // ⚠️ 以前只有前两个分支，腾讯云生产构建落进了 "local" 兜底，线上长期显示 environment=local。
+    environment:
+      process.env.GITHUB_PAGES === "true"
+        ? "github-pages-test"
+        : process.env.ARTX_DEPLOY_TARGET === "tencent-cloud"
+          ? "production"
+          : "local",
     commitSha,
     shortCommit: commitSha.slice(0, 7),
     branch,

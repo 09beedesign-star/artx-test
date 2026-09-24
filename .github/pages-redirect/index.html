@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>正在前往 ArtX Studio</title>
+    <link rel="canonical" href="https://www.artxsd.com/" />
+    <meta name="robots" content="noindex" />
+    <!--
+      GitHub Pages 是 ArtX 的老入口，已停止独立提供应用。
+      静态托管无法返回 301，所以用三重保险把访客送到正式站：
+      ① meta refresh（禁用 JS 时仍生效）
+      ② JS location.replace（不留历史记录，返回键不会弹回本页）
+      ③ 可见的手动链接（前两者都失败时的兜底）
+      路径与查询串一并透传，保证深链不丢。
+    -->
+    <meta http-equiv="refresh" content="0; url=https://www.artxsd.com/" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #222;
+        color: #f5f5f5;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", "Segoe UI", sans-serif;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        text-align: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 20px;
+        font-weight: 600;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+        font-size: 14px;
+        color: #a9a9a9;
+        line-height: 1.7;
+      }
+      a.btn {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 11px 26px;
+        border-radius: 8px;
+        background: #936cff;
+        color: #fff;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>ArtX Studio 已迁至新网址</h1>
+      <p>
+        正在为你跳转到 <strong>www.artxsd.com</strong><br />
+        如果没有自动跳转，请点击下方按钮。
+      </p>
+      <a class="btn" id="go" href="https://www.artxsd.com/">立即前往</a>
+    </div>
+    <script>
+      (function () {
+        var TARGET = "https://www.artxsd.com";
+        // Pages 的站点根是 /<repo>/，要先把这段前缀剥掉，
+        // 否则 /artx-test/workspace 会被拼成 www.artxsd.com/artx-test/workspace（404）。
+        var path = location.pathname.replace(/^\/[^/]+\/?/, "/");
+        var dest = TARGET + path + location.search + location.hash;
+        var link = document.getElementById("go");
+        if (link) link.href = dest;
+        // replace 而非 assign：避免用户按返回键又被弹回跳转页形成死循环。
+        location.replace(dest);
+      })();
+    </script>
+  </body>
+</html>
