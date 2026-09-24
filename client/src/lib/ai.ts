@@ -953,6 +953,7 @@ export async function editImageWithPrompt({
   operation,
   preserveSource,
   preserveSourceSize,
+  regionSelectEdit,
   targetWidth,
   targetHeight,
   referencedAssets = [],
@@ -974,6 +975,14 @@ export async function editImageWithPrompt({
    * 用户在提示词里写了尺寸、或选择器选了非 auto 时为 false。
    */
   preserveSourceSize?: boolean;
+  /**
+   * 画布框选式局部重绘（2026-09-23）。后端据此**强制**做蒙版贴回。
+   *
+   * ⚠️⚠️⚠️ 本函数是「显式解构逐字段转发」而非 spread —— 新字段只要漏写在
+   * 这里的任一处（解构、类型、两个出口），就会被静默丢掉，后端收不到、
+   * 贴回不生效、且全链路零报错。加字段时四处必须同时改。
+   */
+  regionSelectEdit?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   referencedAssets?: Array<{ src: string; title?: string }>;
@@ -1006,6 +1015,7 @@ export async function editImageWithPrompt({
       operation: operation || "edit",
       preserveSource,
       preserveSourceSize,
+      regionSelectEdit,
       imageSrc,
       maskSrc,
       model,
@@ -1026,6 +1036,7 @@ export async function editImageWithPrompt({
     operation: operation || "edit",
     preserveSource,
     preserveSourceSize,
+    regionSelectEdit,
     imageSrc,
     maskSrc,
     model,

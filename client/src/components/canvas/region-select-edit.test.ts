@@ -542,3 +542,79 @@ describe("⚠️ 模式开关必须有唯一出口 + 强制复位（漏一次就
     ).toContain('window.addEventListener("keydown", handler, true)');
   });
 });
+
+/**
+ * ── 需求 ⑤ 的第三道防线：后端必须真的做蒙版贴回 ──────────────────────
+ *
+ * 2026-09-23 线上实测暴露的缺陷：前端字段全对、请求体全对、蒙版也传到了，
+ * 但后端 `editSmartAnnotationImage` 里 `isVodMaskModel` 那条分支
+ * **直接 return、跳过了贴回合成**，理由是「VOD 已保证蒙版外保持原图」。
+ *
+ * 实测该前提是假的：选区外改动率 16.27%（白字区 51%、右下角 74%、maxDelta 239）。
+ * 全站默认模型 DEFAULT_IMAGE_MODEL_ID = "vod-og25-sunburst-medium" 恒命中这条分支，
+ * 即「边缘完全融合」这个硬需求在修复前 100% 落空，且零报错。
+ *
+ * 📌⭐⭐⭐ 判据：前端把字段发对了 ≠ 后端消费了它。凡是新增的跨端字段，
+ *    必须一路断言到「真正改变行为的那一行」，中间任何一个 early-return 都能
+ *    把它悄悄吃掉。
+ */
+describe("需求 ⑤（后端）：框选重绘必须强制蒙版贴回，不能被 VOD 早退跳过", () => {
+  const IMAGE_GEN_PATH = join(__dirname, "../../../../server/image-generation.ts");
+  const AI_CLIENT_PATH = join(__dirname, "../../lib/ai.ts");
+  const ORCHESTRATOR_PATH = join(__dirname, "../../../../server/ai-orchestrator.ts");
+  const backend = readFileSync(IMAGE_GEN_PATH, "utf8");
+  const aiClient = readFileSync(AI_CLIENT_PATH, "utf8");
+  const orchestrator = readFileSync(ORCHESTRATOR_PATH, "utf8");
+
+  it("VOD mask 模型的早退分支必须排除框选重绘", () => {
+    const code = stripComments(backend);
+    expect(
+      code,
+      "少了 regionSelectEdit 判断 = 所有 vod-* 模型都跳过贴回，选区外被整图重绘"
+    ).toContain("if (isVodMaskModel && input.regionSelectEdit !== true)");
+    expect(
+      countOf(code, "if (isVodMaskModel) {"),
+      "无条件早退必须已经不存在，否则框选链路仍会绕过贴回"
+    ).toBe(0);
+  });
+
+  it("框选重绘贴回必须用前端那张羽化蒙版，而不是 OG 的膨胀蒙版", () => {
+    const code = stripComments(backend);
+    expect(
+      code,
+      "膨胀蒙版是给「凭空加物体」留余量的，用在框选上等于悄悄把用户框的区域放大"
+    ).toContain("input.regionSelectEdit === true ? maskImageData.buffer : ogCompositeMaskBuffer");
+  });
+
+  it("regionSelectEdit 必须声明在后端入参类型里（否则 tsc 放行但字段被丢）", () => {
+    expect(stripComments(backend)).toContain("regionSelectEdit?: boolean;");
+  });
+
+  it("客户端 editImageWithPrompt 的两个出口都要转发 regionSelectEdit", () => {
+    const code = stripComments(aiClient);
+    expect(
+      countOf(code, "regionSelectEdit,"),
+      "该函数是显式解构逐字段转发：解构 1 + 后台任务出口 1 + orchestrate 出口 1 = 3。" +
+        "少一处就静默丢字段（tsc 不报错）"
+    ).toBe(3);
+    expect(code).toContain("regionSelectEdit?: boolean;");
+  });
+
+  it("orchestrator 必须把 regionSelectEdit 真的传给 editImageWithPrompt", () => {
+    const code = stripComments(orchestrator);
+    expect(code).toContain("regionSelectEdit?: boolean;");
+    expect(
+      code,
+      "只在类型里声明而不在调用处传 = 经典「透传≠被消费」，字段走到一半消失"
+    ).toContain("regionSelectEdit: input.regionSelectEdit,");
+  });
+
+  it("画布三个出口在有选区时都要带上 regionSelectEdit", () => {
+    const code = stripComments(source);
+    expect(
+      countOf(code, "regionSelectEdit: true"),
+      "占位 backgroundTaskInput / 前台 runSingleEdit / 真实 backgroundTaskInput 各一处；" +
+        "漏掉占位那处会被任务恢复守护器用错载荷抢先起任务"
+    ).toBe(3);
+  });
+});

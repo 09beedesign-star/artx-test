@@ -27,6 +27,11 @@ export type OrchestrateRequest = {
    * ⚠️ 透传 ≠ 被消费：下方 editImageWithPrompt 调用处必须真的把它传下去。
    */
   preserveSourceSize?: boolean;
+  /**
+   * 画布框选式局部重绘：后端据此强制做蒙版贴回（2026-09-23）。
+   * ⚠️ 透传 ≠ 被消费：下方 editImageWithPrompt 调用处必须真的把它传下去。
+   */
+  regionSelectEdit?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   top?: number;
@@ -244,6 +249,7 @@ export class AIOrchestrator {
         images: resolveImageEditReferences(input, images),
         preserveSource: input.preserveSource,
         preserveSourceSize: input.preserveSourceSize,
+        regionSelectEdit: input.regionSelectEdit,
         textRegions: input.textRegions,
         editedText: input.editedText,
         textApplyMode: input.textApplyMode,

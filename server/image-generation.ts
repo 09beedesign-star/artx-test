@@ -151,6 +151,20 @@ type EditImageInput = {
    * 📌 判据：一个布尔同时控两种语义时，新需求必须另开字段。
    */
   preserveSourceSize?: boolean;
+  /**
+   * 「这是画布框选式局部重绘」的显式信号（2026-09-23）。
+   *
+   * ⚠️⚠️⚠️ 存在的唯一理由：`editSmartAnnotationImage` 里 `isVodMaskModel` 分支
+   * 会**直接 return、跳过蒙版贴回**，理由写的是「VOD 服务端已保证蒙版外保持原图」。
+   * 该前提对涂鸦式智能注释成立（贴回会擦掉超出涂鸦点的生成内容，如眼镜只剩一半），
+   * 但对框选式局部重绘**不成立** —— 2026-09-23 线上实测：OG 出图带外改动率 16.27%
+   * （白字区 51%、右下角 74%、maxDelta 239），即上游压根没真守蒙版，且零报错。
+   *
+   * 📌⭐⭐⭐ 判据：「上游承诺了约束」永远不能替代「自己再贴回一次」。
+   *    两条链路对同一个 early-return 的正确性要求相反时，必须靠显式字段分流，
+   *    不能复用 preserveSource（智能注释也传它，复用等于把两条链路一起改掉）。
+   */
+  regionSelectEdit?: boolean;
   targetWidth?: number;
   targetHeight?: number;
   images?: Array<{ src: string; title?: string }>;
@@ -4869,16 +4883,39 @@ async function editSmartAnnotationImage(input: EditImageInput): Promise<{ images
                   { src: editGuideDataUrl, title: "annotation editable area guide" },
                 ],
         });
-        // VOD mask 模型（vod-og 等）本身通过 ReferenceType: "mask" 做了局部编辑，
-        // VOD 服务端已经保证蒙版外保持原图；后端再做一次 source-preserving 合成
-        // 反而会擦掉超出原始涂鸦点的生成内容（如眼镜跨双眼时只保留了一半）。
-        // 因此直接返回 VOD 结果并归一化尺寸即可。
-        if (isVodMaskModel) {
+        // VOD mask 模型（vod-og 等）本身通过 ReferenceType: "mask" 做了局部编辑。
+        //
+        // ⚠️⚠️⚠️ 这里有两条**要求相反**的链路，必须分流，不能共用同一个早退：
+        //
+        //   · 涂鸦式智能注释（regionSelectEdit 未置位）：保持直接返回。
+        //     贴回会擦掉超出原始涂鸦点的生成内容（如眼镜跨双眼时只保留了一半），
+        //     这是 2026-09-13 实测过的真实回归，不能动。
+        //
+        //   · 画布框选式局部重绘（regionSelectEdit === true）：必须贴回。
+        //     2026-09-23 线上实测：同一条 OG 链路出图，选区**外**改动率 16.27%
+        //     （白字区 51%、右下角 74%、maxDelta 239）——「VOD 保证蒙版外不变」
+        //     这个前提在框选场景下是假的，且零报错。用户的硬要求是「边缘要和整图
+        //     完全融合、不要割裂」，唯一可靠解就是本地按羽化 alpha 贴回。
+        //
+        // 📌⭐⭐⭐ 判据：上游的承诺不能替代自己再验/再还原一次；承诺失效时没有任何
+        //    报错，只是给你另一张图。两条链路对同一分支的正确性要求相反时，靠显式
+        //    字段分流，不要试图找一个"两边都对"的统一行为。
+        if (isVodMaskModel && input.regionSelectEdit !== true) {
           const normalized = await __testNormalizeGeneratedImagesToTargetAspect(result.images.slice(0, 1), targetWidth, targetHeight);
           return { images: normalized };
         }
-        // 非 mask 模型（chat/GEM 等）需要自己用扩展蒙版做 source-preserving 合成。
-        return finalizeAnnotationImages(result.images, ogCompositeMaskBuffer);
+        /**
+         * 非 mask 模型（chat/GEM 等）需要自己用扩展蒙版做 source-preserving 合成。
+         *
+         * ⚠️⚠️ 框选式局部重绘要用**前端那张羽化蒙版原件**，不能用 OG 的膨胀蒙版：
+         * 膨胀是为「凭空加物体」留余量的，框选场景下它会把贴回范围向外撑开，
+         * 等于悄悄放大用户框的区域；而羽化 alpha 本身就是"边缘融合"的实现手段，
+         * 换成膨胀蒙版会让过渡带失真。零报错，只是框大了一圈。
+         */
+        return finalizeAnnotationImages(
+          result.images,
+          input.regionSelectEdit === true ? maskImageData.buffer : ogCompositeMaskBuffer,
+        );
       } catch (error) {
         lastError = error;
         console.log("[智能注释] model FAIL:", fallbackModel, "->", error instanceof Error ? error.message : String(error));

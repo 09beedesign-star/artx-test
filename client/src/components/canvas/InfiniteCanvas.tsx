@@ -524,6 +524,7 @@ import {
   resolveImageRatio,
 } from "@shared/image-ratios";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+import { computeFrameAutoArrange } from "@shared/frame-auto-arrange";
 import { resolveOutputSizeFromPromptAndSelector } from "@shared/prompt-size-intent";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
@@ -3380,7 +3381,17 @@ function AssetFloatingToolbar({
     { icon: <Shirt size={15} />, label: "多平台封面", action: "mockup" },
     { icon: <Download size={15} />, label: "下载", action: "download" },
   ];
+  /**
+   * 画板（canvasFrame）命令条。
+   *
+   * 2026-09-23 新增「一键规整」：把画板里的图片节点自动排成工整网格。
+   * ⚠️ 这里只是入口，真正的坐标计算在 shared/frame-auto-arrange.ts，
+   * 分发在 handleSingleImageToolbarAction 的 isCanvasFrame 分支。
+   * 加新按钮时记住：**不在那个分支里加 case，按钮点了会掉进"暂不支持"的兜底提示**。
+   */
   const frameTools: FloatingToolItem[] = [
+    { icon: <LayoutGrid size={15} />, label: "一键规整", action: "arrange-frame" },
+    { type: "divider" as const, key: "frame-after-arrange" },
     { icon: <Download size={15} />, label: "导出画板", action: "download" },
   ];
   const tools = mode === "canvasFrame" ? frameTools : assetTools;
@@ -35261,7 +35272,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                  */
                 operation: regionMaskSrc ? "annotation_edit" : "edit",
                 ...(regionMaskSrc
-                  ? { maskSrc: regionMaskSrc, preserveSource: true }
+                  ? {
+                      maskSrc: regionMaskSrc,
+                      preserveSource: true,
+                      regionSelectEdit: true,
+                    }
                   : {}),
                 imageSrc: latestImageSrc,
                 prompt: placeholderPrompt,
@@ -35327,6 +35342,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   maskSrc: regionMaskSrc,
                   operation: "annotation_edit",
                   preserveSource: true,
+                  /*
+                   * ⚠️⚠️⚠️ 少了这个字段，后端 editSmartAnnotationImage 的
+                   * isVodMaskModel 分支会直接 return、跳过蒙版贴回 ——
+                   * 2026-09-23 线上实测那条路的选区外改动率 16.27%，
+                   * 用户要的「边缘完全融合」会静默落空。
+                   */
+                  regionSelectEdit: true,
                 }
               : {}),
             targetWidth: sourceSize.width,
@@ -35354,7 +35376,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   // 与上方占位 payload 保持同一套字段，缺一个就会被守护器错判
                   operation: regionMaskSrc ? "annotation_edit" : "edit",
                   ...(regionMaskSrc
-                    ? { maskSrc: regionMaskSrc, preserveSource: true }
+                    ? {
+                        maskSrc: regionMaskSrc,
+                        preserveSource: true,
+                        regionSelectEdit: true,
+                      }
                     : {}),
                   imageSrc: latestImageSrc,
                   prompt: finalPrompt,
@@ -35520,6 +35546,92 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        * 图片加入对话的能力本身没有消失 —— 仍可直接把图拖进右下角输入框。
        */
       if (isCanvasFrame) {
+        /**
+         * 「一键规整」（2026-09-23 新增）：把画板里的图片节点自动排成工整网格。
+         *
+         * 几条刻意的实现选择：
+         *  1. 坐标计算全部在 shared/frame-auto-arrange.ts —— 这里只负责取节点、写回，
+         *     不许在这儿再写第二套排布规则。
+         *  2. 写回**同时**更新 position 和 imgW/imgH：节点的显示尺寸事实源是
+         *     data.imgW/imgH（见 getCanvasNodeSize），只改 style 会被下一次
+         *     normalizeAssetNodeSize 按 imgW/imgH 覆盖回去，表现是"规整了一下又弹回原样"。
+         *  3. 规整会改变节点在画板内的相对位置 → frameClipInsets（越界裁剪）必须一起失效，
+         *     否则刚才越界的那张图挪回画板里了，clipPath 还挂着，看起来就是"图被切了一角"。
+         *     算法保证结果一定在画板内，所以这里直接清掉裁剪状态。
+         *  4. 先 pushHistory 再改，用户 Ctrl+Z 能一步退回原来的随手摆放。
+         */
+        if (action === "arrange-frame") {
+          const frameNode = targetNode;
+          if (!frameNode) return;
+          const frameData = frameNode.data as Record<string, unknown>;
+          const embedded = nodesRef.current.filter(
+            n =>
+              n.type === "asset" &&
+              (n.data as Record<string, unknown>).embeddedInFrame ===
+                frameNode.id
+          );
+          if (embedded.length === 0) {
+            toast("画板内没有图片", {
+              description: "把图片拖进画板后再使用一键规整",
+            });
+            return;
+          }
+          const arranged = computeFrameAutoArrange(
+            {
+              x: frameNode.position.x,
+              y: frameNode.position.y,
+              width: (frameData.width as number) || 800,
+              height: (frameData.height as number) || 600,
+            },
+            embedded.map(n => {
+              const size = getCanvasNodeSize(n);
+              return {
+                id: n.id,
+                x: n.position.x,
+                y: n.position.y,
+                width: size.width,
+                height: size.height,
+              };
+            })
+          );
+          if (arranged.items.length === 0) {
+            toast("一键规整未生效", {
+              description: "画板内的图片暂时没有可用尺寸，请稍后重试",
+            });
+            return;
+          }
+          const layoutById = new Map(
+            arranged.items.map(item => [item.id, item])
+          );
+          pushHistory(nodesRef.current, edgesRef.current);
+          setNodes(nds =>
+            nds.map(n => {
+              const layout = layoutById.get(n.id);
+              if (!layout) return n;
+              const data = n.data as Record<string, unknown>;
+              return {
+                ...n,
+                position: { x: layout.x, y: layout.y },
+                style: {
+                  ...n.style,
+                  width: layout.width,
+                  height: layout.height,
+                },
+                data: {
+                  ...data,
+                  imgW: layout.width,
+                  imgH: layout.height,
+                  frameClipActive: false,
+                  frameClipInsets: undefined,
+                },
+              };
+            })
+          );
+          toast("画板已规整", {
+            description: `${arranged.items.length} 张图片已按 ${arranged.columns} 列 × ${arranged.rows} 行排布`,
+          });
+          return;
+        }
         if (
           [
             "quick-edit",
@@ -36357,6 +36469,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       addReferencedAsset,
       clearAssetCommandState,
       clearInactiveAssetCommands,
+      edgesRef,
       getVisibleAssetImageSource,
       handleNodeAction,
       nodesRef,
