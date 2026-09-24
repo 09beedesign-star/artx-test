@@ -318,16 +318,26 @@ jobs:
 
       - name: Verify deployment metadata
         run: |
-          metadata="$(curl -fsS https://backstage.artxsd.com/deployment.json)"
+          # ⚠️ 断言对齐 PUBLIC_URL 这个唯一事实源，不要再硬编码域名。
+          # 之前这里写死 backstage.artxsd.com，域名切到 www 后本步骤会失败，
+          # 表象是「部署失败」，实际产物早已正确 —— 断言守着被推翻的旧契约。
+          # -L 跟随 301：老入口仍可达，但产物里的规范地址必须是新域名。
+          metadata="$(curl -fsSL "${PUBLIC_URL}/deployment.json")"
           echo "${metadata}"
-          printf '%s' "${metadata}" | node -e '
+          printf '%s' "${metadata}" | EXPECTED_URL="${PUBLIC_URL}" node -e '
             let input = "";
             process.stdin.on("data", d => input += d);
             process.stdin.on("end", () => {
               const data = JSON.parse(input);
-              if (data.backendUrl !== "https://backstage.artxsd.com") {
-                console.error(`Unexpected backendUrl: ${data.backendUrl}`);
+              const expected = process.env.EXPECTED_URL;
+              if (data.backendUrl !== expected) {
+                console.error(`Unexpected backendUrl: ${data.backendUrl} (expected ${expected})`);
                 process.exit(1);
               }
+              if (data.environment !== "production") {
+                console.error(`Unexpected environment: ${data.environment} (expected production)`);
+                process.exit(1);
+              }
+              console.log(`OK: environment=${data.environment} backendUrl=${data.backendUrl}`);
             });
           '
