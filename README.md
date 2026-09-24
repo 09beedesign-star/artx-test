@@ -109,21 +109,10 @@ Bake motion taste in from the first line of code. Snappy, physically intuitive i
 
 Before implementing UI features, check if these components already exist:
 
-Maps:
-- `client/src/components/Map.tsx` - Google Maps integration with proxy authentication. Provides MapView component with onMapReady callback for initializing Google Maps services (Places, Geocoder, Directions, Drawing, etc.). All map functionality works directly in the browser.
-
-When implementing features that match these categories, MUST evaluate the component first to decide whether to use or customize it.
-
----
-
-## 🗺️ Maps Integration
-
-**CRITICAL: The Manus proxy provides FULL access to ALL Google Maps features** - including advanced drawing, heatmaps, Street View, all layers, Places API, etc. Do NOT ask users for Google Map API keys - authentication is automatic.
-
-**Implementation:**
-- Frontend: Import MapView from `client/src/components/Map.tsx` and initialize ANY Google Maps service (geocoding, directions, places, drawing, visualization, geometry, etc.) in the onMapReady callback. ALL Google Maps JavaScript API features work directly in the browser.
-
-NEVER use external map libraries or request API keys from users - the Manus proxy handles everything automatically with no feature limitations.
+（当前无预置的第三方集成组件。原 `client/src/components/Map.tsx`（Google Maps）已于
+2026-09-24 删除：脚手架残留、全仓零引用、线上 bundle 零命中，且其中的
+`VITE_FRONTEND_FORGE_API_KEY` 属于会被打进客户端产物的 `VITE_` 前缀变量，
+留着只会诱导后来者往里填真 key。地图需求重新出现时请另行评估方案。）
 
 ---
 

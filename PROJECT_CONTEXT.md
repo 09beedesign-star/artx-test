@@ -81,7 +81,6 @@
 │       │   │   └── CanvasNodes.tsx       # 旧版节点系统（已被 InfiniteCanvas 内联替代）
 │       │   ├── ErrorBoundary.tsx         # 全局错误边界（App.tsx 根层包裹）
 │       │   ├── ManusDialog.tsx           # Manus OAuth 登录弹窗（当前未使用）
-│       │   ├── Map.tsx                   # Google Maps 组件（当前未使用）
 │       │   └── ui/                       # shadcn/ui 组件库（完整安装）
 │       ├── contexts/
 │       │   └── ThemeContext.tsx          # 暗/亮主题 Context（见第六节）
