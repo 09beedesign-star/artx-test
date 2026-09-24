@@ -27,7 +27,7 @@ type StoreImagesOptions = {
 };
 
 // 落盘体积硬上限 20MB。这是产品级约束，不是可以随便抬高的调优项：
-// 单张超过 20MB 的图在前端画布加载、CDN 回源、10 天保留期的磁盘占用上都会出问题。
+// 单张超过 20MB 的图在前端画布加载、CDN 回源、保留期内的磁盘占用上都会出问题。
 // 因此 ARTX_LOCAL_IMAGE_MAX_BYTES 只允许「调小」，配大了会被夹回 20MB——
 // 否则运维一行环境变量就能把这条底线绕过去，等于没设。
 const MAX_IMAGE_BYTES_HARD_CAP = 20 * 1024 * 1024;
@@ -50,9 +50,15 @@ function buildTooLargeMessage(actualBytes: number, limitBytes: number) {
 
 const PUBLIC_IMAGE_BASE_PATH = "/uploads/images";
 const PUBLIC_FEEDBACK_BASE_PATH = "/uploads/feedback";
-const DEFAULT_UPLOAD_RETENTION_DAYS = 10;
-const DEFAULT_FEEDBACK_RETENTION_DAYS = 10;
+const DEFAULT_UPLOAD_RETENTION_DAYS = 15;
+const DEFAULT_FEEDBACK_RETENTION_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// 提醒窗口：图片进入「最后 N 天」时前端开始显示倒计时。
+// ⚠️ 这里是保留期与提醒期的唯一事实源，前端通过 /api/uploads/expiry 读取，
+// 不允许在前端再写一份 15 / 5 的字面量——两处各写一份，改了一处就会出现
+// 「后端 15 天删、前端按 10 天倒计时」这种零报错的错位。
+const DEFAULT_EXPIRY_WARNING_DAYS = 5;
 
 export function getUploadsRoot() {
   return process.env.ARTX_UPLOADS_DIR || path.join(process.env.ARTX_DATA_DIR || "/var/lib/artx", "uploads");
@@ -69,9 +75,19 @@ export function getUploadRetentionDays() {
 }
 
 // 反馈附件是用户提交的问题证据，运营排查窗口可能需要比生成图更长，
-// 因此给它独立的保留期开关；不配置时与生成图一致，同为 10 天。
+// 因此给它独立的保留期开关；不配置时与生成图一致，同为 15 天。
 export function getFeedbackRetentionDays() {
   return resolveRetentionDays(process.env.ARTX_FEEDBACK_RETENTION_DAYS, DEFAULT_FEEDBACK_RETENTION_DAYS);
+}
+
+export function getExpiryWarningDays() {
+  const retentionDays = getUploadRetentionDays();
+  const configured = resolveRetentionDays(
+    process.env.ARTX_UPLOAD_WARNING_DAYS,
+    DEFAULT_EXPIRY_WARNING_DAYS,
+  );
+  // 提醒窗口不能大于保留期本身，否则图一落盘就进入倒计时，提醒失去意义。
+  return Math.min(configured, retentionDays);
 }
 
 async function pathExists(directory: string) {
@@ -166,6 +182,80 @@ export async function cleanupExpiredUploads(options: { now?: Date } = {}) {
     deletedFiles,
     removedDirectories,
   };
+}
+
+export type UploadExpiryEntry = {
+  src: string;
+  daysLeft: number;
+  expiresAt: string;
+  isWarning: boolean;
+};
+
+/**
+ * 列出某个用户已进入「即将过期」窗口的图片。
+ *
+ * 设计要点：
+ * 1. **时间源必须与清理逻辑完全一致**——清理用的是 mtime（见
+ *    cleanupExpiredFilesInDirectory），这里也必须用 mtime。若这里改用 birthtime，
+ *    就会出现「提示还剩 3 天但今晚就被删了」的错位，且两边都不报错。
+ * 2. **只返回进入提醒窗口的图**。全量返回在用户图多时是无谓的载荷，
+ *    而前端唯一要做的判断就是「要不要提醒」。
+ * 3. 用户目录名走与写入侧相同的 sanitizePathSegment，否则含特殊字符的用户名
+ *    会查到空目录，表现为「有图但从不提醒」——静默失效。
+ */
+export async function listExpiringUploadsForUser(
+  username: string,
+  options: { now?: Date } = {},
+): Promise<{
+  retentionDays: number;
+  warningDays: number;
+  entries: UploadExpiryEntry[];
+}> {
+  const retentionDays = getUploadRetentionDays();
+  const warningDays = getExpiryWarningDays();
+  const now = options.now || new Date();
+  const userDirectoryName = sanitizePathSegment(username, "user");
+  const imageDirectory = path.join(getUploadsRoot(), "images", userDirectoryName);
+
+  const entries: UploadExpiryEntry[] = [];
+  if (!(await pathExists(imageDirectory))) {
+    return { retentionDays, warningDays, entries };
+  }
+
+  let dirEntries;
+  try {
+    dirEntries = await fs.readdir(imageDirectory, { withFileTypes: true });
+  } catch {
+    // 读不到目录时返回空列表而不是抛错：提醒功能失效应当是「不提醒」，
+    // 绝不能让它把整个画布接口拖垮。
+    return { retentionDays, warningDays, entries };
+  }
+
+  for (const entry of dirEntries) {
+    if (!entry.isFile()) continue;
+    const filePath = path.join(imageDirectory, entry.name);
+    try {
+      const fileStat = await fs.stat(filePath);
+      const expiresAtMs = fileStat.mtime.getTime() + retentionDays * DAY_MS;
+      const msLeft = expiresAtMs - now.getTime();
+      // 向上取整：还剩 0.3 天要显示「1 天」而不是「0 天」，
+      // 因为这张图此刻确实还能下载，说 0 会让用户误以为已经没了。
+      const daysLeft = Math.max(0, Math.ceil(msLeft / DAY_MS));
+      if (daysLeft > warningDays) continue;
+      entries.push({
+        src: `${PUBLIC_IMAGE_BASE_PATH}/${encodeURIComponent(userDirectoryName)}/${encodeURIComponent(entry.name)}`,
+        daysLeft,
+        expiresAt: new Date(expiresAtMs).toISOString(),
+        isWarning: true,
+      });
+    } catch {
+      // 单个文件读不到就跳过，不影响其余图片的提醒。
+    }
+  }
+
+  // 最紧急的排前面，前端直接取 entries[0] 就是最该提醒的那张。
+  entries.sort((a, b) => a.daysLeft - b.daysLeft);
+  return { retentionDays, warningDays, entries };
 }
 
 function sanitizePathSegment(value: string, fallback: string) {

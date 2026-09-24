@@ -176,18 +176,22 @@ describe("cleanupExpiredUploads", () => {
     await writeFile(oldFeedback, "old-feedback");
     await writeFile(freshFeedback, "fresh-feedback");
 
+    // ⚠️ 夹具的天数必须跟着保留期一起改（2026-09-24：10 天 → 15 天）。
+    //    只改断言里的 retentionDays 而不动 utimes，会让「过期文件」变成
+    //    11 天前——在 15 天窗口内根本不该被删，测试会红在 deletedFiles 上，
+    //    很容易被误当成清理逻辑回归。
     const now = new Date("2026-07-09T00:00:00.000Z");
-    const olderThanTenDays = new Date(now.getTime() - 11 * 24 * 60 * 60 * 1000);
-    const withinTenDays = new Date(now.getTime() - 9 * 24 * 60 * 60 * 1000);
-    await utimes(oldGenerated, olderThanTenDays, olderThanTenDays);
-    await utimes(oldFeedback, olderThanTenDays, olderThanTenDays);
-    await utimes(freshGenerated, withinTenDays, withinTenDays);
-    await utimes(freshFeedback, withinTenDays, withinTenDays);
+    const beyondRetention = new Date(now.getTime() - 16 * 24 * 60 * 60 * 1000);
+    const withinRetention = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    await utimes(oldGenerated, beyondRetention, beyondRetention);
+    await utimes(oldFeedback, beyondRetention, beyondRetention);
+    await utimes(freshGenerated, withinRetention, withinRetention);
+    await utimes(freshFeedback, withinRetention, withinRetention);
 
     const result = await cleanupExpiredUploads({ now });
 
-    expect(result.retentionDays).toBe(10);
-    expect(result.feedbackRetentionDays).toBe(10);
+    expect(result.retentionDays).toBe(15);
+    expect(result.feedbackRetentionDays).toBe(15);
     // 反馈附件此前不参与清理，会无限增长；现已与生成图一同受保留期约束。
     expect(result.deletedFiles).toBe(2);
     await expect(stat(oldGenerated)).rejects.toMatchObject({ code: "ENOENT" });

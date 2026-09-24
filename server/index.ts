@@ -25,7 +25,7 @@ import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isVodModelId } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
-import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, storeGeneratedImagesForUser } from "./local-image-storage";
+import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
@@ -2068,6 +2068,35 @@ async function startServer() {
       res.json({ document });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Workspace sync failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 查询当前用户「即将过期」的生成图。
+   *
+   * 为什么需要它：图片落盘后没有任何元数据记录创建时间，前端手里只有
+   * 一个 /uploads/... 的 URL 字符串，算不出这张图还能活多久。服务端读
+   * mtime 是目前唯一的时间来源，也正是清理逻辑判定过期用的同一个字段 ——
+   * 两边必须同源，否则会出现「提示还剩 3 天、今晚就被删」的错位。
+   *
+   * ⚠️ 只返回当前会话用户自己的图：用户名来自会话而不是 query 参数，
+   *    否则任何人都能靠猜用户名枚举别人的文件列表。
+   */
+  app.get("/api/uploads/expiry", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const { retentionDays, warningDays, entries } = await listExpiringUploadsForUser(user.username);
+      res.json({
+        retentionDays,
+        warningDays,
+        entries,
+        warningCount: entries.length,
+        minDaysLeft: entries.length > 0 ? entries[0].daysLeft : null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload expiry query failed";
       res.status(500).json({ error: message });
     }
   });

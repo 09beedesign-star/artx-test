@@ -53,6 +53,18 @@ import {
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT, VOD_IMAGE_EXPANSION_MODEL } from "../../../../shared/image-expansion";
 import {
+  formatDaysLeft,
+  formatDaysLeftBadge,
+  getExpiryUrgency,
+} from "../../../../shared/upload-retention";
+import {
+  buildUploadExpiryIndex,
+  fetchUploadExpiry,
+  lookupUploadExpiry,
+  EMPTY_UPLOAD_EXPIRY,
+  type UploadExpiryResponse,
+} from "../../lib/upload-expiry";
+import {
   copyPanelScreenScale,
   defaultPanelLeft,
   nextPanelPosition,
@@ -155,6 +167,7 @@ import {
   MessageCirclePlus,
   History,
   Undo2,
+  Clock,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -691,8 +704,14 @@ const CANVAS_CROSS_PROJECT_CLIPBOARD_KEY =
 const CLOUD_RETENTION_LAST_SHOWN_KEY = "artx:cloud-retention-last-shown";
 const CLOUD_RETENTION_OPT_OUT_KEY = "artx:cloud-retention-opt-out";
 const CLOUD_RETENTION_INTERVAL_DAYS = 15;
-const CLOUD_RETENTION_STORAGE_DAYS = 10;
-const CLOUD_RETENTION_DIALOG_TITLE = "图片将保存 10 天";
+// ⚠️⚠️ 这个数字必须与服务端 DEFAULT_UPLOAD_RETENTION_DAYS 保持一致
+//    （server/local-image-storage.ts）。它是**兜底展示值**，用于用户还没
+//    登录 / 接口还没返回时的泛化告知；真正的倒计时一律以 /api/uploads/expiry
+//    下发的 retentionDays 为准（见 UploadExpirySummaryDialog）。
+//    见 shared/upload-retention.ts 顶部：这个数曾散落在 4 个出口，改一处
+//    不报错，只会让界面自相矛盾。
+const CLOUD_RETENTION_STORAGE_DAYS = 15;
+const CLOUD_RETENTION_DIALOG_TITLE = `图片将保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天`;
 const CLOUD_RETENTION_DIALOG_COPY =
   `生成的图片会在云服务器保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天，到期后自动清除。请及时下载到本地，以免丢失。`;
 const GROUP_MERGE_HOVER_MS = 500;
@@ -836,6 +855,39 @@ function markCloudRetentionOptOut() {
     window.localStorage.setItem(CLOUD_RETENTION_OPT_OUT_KEY, "1");
   } catch {
     // Ignore storage failures.
+  }
+}
+
+// ── 图片清理倒计时汇总弹窗的频次门控 ──────────────────────────────
+//
+// 与上面那个「每 15 天一次的泛化告知」是两件不同的事，刻意不共用 key：
+//   · CLOUD_RETENTION_* 说的是「这个平台会保存 N 天」，是一次性的规则告知；
+//   · 这里说的是「你有 3 张图这周就要没了」，是**有时效的具体待办**。
+// 共用 key 会让用户点过一次「不再提醒」之后，连真正要丢图的警告也收不到。
+//
+// ⚠️ 频次定为「每天最多一次」：剩余天数一天变一次，一天提醒一次刚好；
+//    每次进画布都弹会让人条件反射地点掉，反而失去提醒作用。
+const EXPIRY_SUMMARY_LAST_SHOWN_KEY = "artx:upload-expiry-summary-last-shown";
+
+function shouldShowExpirySummary() {
+  if (typeof window === "undefined") return false;
+  try {
+    const last = window.localStorage.getItem(EXPIRY_SUMMARY_LAST_SHOWN_KEY);
+    if (!last) return true;
+    // 存的是本地日期键（YYYY-MM-DD）而不是时间戳：用户关心的是"今天提醒过没有"，
+    // 用 24 小时滚动窗会出现「昨天 23:50 提醒过，今天 9:00 不提醒」的怪异行为。
+    return last !== getLocalDateKey();
+  } catch {
+    return false;
+  }
+}
+
+function markExpirySummaryShown() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(EXPIRY_SUMMARY_LAST_SHOWN_KEY, getLocalDateKey());
+  } catch {
+    // Ignore storage failures; the reminder is helpful but not critical.
   }
 }
 
@@ -6619,7 +6671,7 @@ function AssetNodeComponent({
   /*
    * 图片 URL 失效标记。
    *
-   * 生成图只在服务端保留 ARTX_UPLOAD_RETENTION_DAYS 天（默认 10，见
+   * 生成图只在服务端保留 ARTX_UPLOAD_RETENTION_DAYS 天（默认 15，见
    * server/local-image-storage.ts），过期清理后画布里存的还是那条 /uploads/... URL，
    * 于是浏览器拿到 404 —— 用户看到的是一个破图图例，且全程零提示。
    * 这里用 onError 兜住，把节点改渲染成「该图片已过期」。
@@ -7066,6 +7118,37 @@ function AssetNodeComponent({
   const rotation = (data.rotation as number) || 0;
   const flipX = Boolean(data.flipX);
   const stableUiScale = 1 / Math.max(0.2, viewport.zoom || 1);
+  /*
+   * 云端清理倒计时角标的展示数据。
+   *
+   * ⚠️ 这里**只做格式化，不做判断**：要不要提醒、还剩几天，全部由服务端
+   *    /api/uploads/expiry 判定后经 displayNodesBase 注入 data.uploadExpiry。
+   *    前端一旦自己按 15/5 再算一遍，就会在运维改了 ARTX_UPLOAD_RETENTION_DAYS
+   *    之后出现「界面说还剩 3 天、后台今晚就删」的零报错错位。
+   *
+   * ⚠️ data.uploadExpiry 不存在是**正常情况**（图还没进提醒窗口 / 未登录 /
+   *    接口失败），此时整个角标不渲染，不要弹任何错误。
+   */
+  const uploadExpiryBadge = (() => {
+    const raw = (data as { uploadExpiry?: { daysLeft?: number; expiresAt?: string } })
+      .uploadExpiry;
+    if (!raw || typeof raw.daysLeft !== "number" || !Number.isFinite(raw.daysLeft)) {
+      return null;
+    }
+    const daysLeft = Math.max(0, Math.round(raw.daysLeft));
+    const expiresAtLabel = (() => {
+      if (!raw.expiresAt) return formatDaysLeft(daysLeft);
+      const parsed = new Date(raw.expiresAt);
+      if (Number.isNaN(parsed.getTime())) return formatDaysLeft(daysLeft);
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    })();
+    return {
+      daysLeft,
+      label: formatDaysLeftBadge(daysLeft),
+      urgency: getExpiryUrgency(daysLeft),
+      expiresAtLabel,
+    };
+  })();
   const assetAdjustments = normalizeAssetAdjustments(
     (data.assetAdjustmentPreview as AssetAdjustmentValues | undefined) ||
       data.assetAdjustments
@@ -9038,6 +9121,63 @@ function AssetNodeComponent({
                这里**不能只改 height** —— 只改高度会让字挤成一条、图标溢出，
                视觉上不是"变小"而是"被压扁"。等比缩的是整套度量。
           */}
+          {/*
+            ── 云端清理倒计时角标 ──────────────────────────────────────
+            图片进入服务端提醒窗口（默认最后 5 天）后，右上角常驻一个
+            「还剩 N 天」的小标，让用户在画布上就能看到哪几张快没了。
+
+            ⚠️ 剩余天数**不在这里计算**：唯一事实源是服务端 /api/uploads/expiry
+               下发的 daysLeft，经 displayNodesBase 注入到 data.uploadExpiry。
+               前端自己拿 mtime 再算一次必然和后端清理口径漂移。
+
+            ⚠️ pointerEvents:none —— 角标只是信息，不能抢走图片本身的点击，
+               否则用户点图右上角会"点不中"且毫无提示。
+
+            ⚠️ 反缩放用 stableUiScale：画布缩小到 0.2 倍时角标若跟着缩，
+               就成了看不清的小点，等于没提醒。
+          */}
+          {uploadExpiryBadge && !isAiProcessingImage && !isImageExpired && (
+            <div
+              className="absolute nodrag nopan flex items-center"
+              style={{
+                top: 8,
+                right: 8,
+                zIndex: 114,
+                pointerEvents: "none",
+                transform: `scale(${stableUiScale})`,
+                transformOrigin: "top right",
+              }}
+              title={`该图片将于 ${uploadExpiryBadge.expiresAtLabel} 被自动清除，请及时下载保存`}
+            >
+              <div
+                className="flex items-center"
+                style={{
+                  height: 16,
+                  gap: 3,
+                  padding: "0 6px",
+                  borderRadius: 4,
+                  background:
+                    uploadExpiryBadge.urgency === "critical"
+                      ? "rgba(214,54,54,0.92)"
+                      : "rgba(16,16,20,0.76)",
+                  color:
+                    uploadExpiryBadge.urgency === "critical"
+                      ? "#fff"
+                      : "rgba(255,255,255,0.94)",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  backdropFilter: "blur(6px)",
+                  boxShadow: "0 6px 15px rgba(0,0,0,0.34)",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Clock size={9} strokeWidth={2.4} />
+                {uploadExpiryBadge.label}
+              </div>
+            </div>
+          )}
           {canUndoInPlaceRepaint && !isAiProcessingImage && (
             <div
               className="absolute nodrag nopan flex items-center"
@@ -26744,6 +26884,60 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // 云端留存提醒弹窗：阻断式，必须点「我知道了」或「不再提醒」才关闭。
   const [cloudRetentionDialogOpen, setCloudRetentionDialogOpen] =
     useState(false);
+  /*
+   * ── 图片清理倒计时 ─────────────────────────────────────────────
+   * 服务端保留期内、进入最后 N 天的图片清单。两处消费：
+   *   · 画布上每张图右上角的「还剩 N 天」角标；
+   *   · 进入画布时的一次性汇总弹窗。
+   *
+   * ⚠️ 天数和窗口全部来自服务端下发，前端不写死 —— 见 shared/upload-retention.ts
+   *    顶部说明，这个数字曾经散落在 4 个出口。
+   */
+  const [uploadExpiry, setUploadExpiry] = useState<UploadExpiryResponse>(
+    EMPTY_UPLOAD_EXPIRY
+  );
+  const [expirySummaryOpen, setExpirySummaryOpen] = useState(false);
+  /*
+   * 进画布时拉一次过期清单。
+   *
+   * ⚠️ 依赖数组刻意为空：这是「进场提醒」，不是实时看板。挂到 nodes 上会在
+   *    每次拖动节点后重新请求，几十次/分钟地打后端，而剩余天数一天才变一次。
+   *
+   * ⚠️ 用 cancelled 标志而不是只靠 AbortController：组件卸载后 setState 会
+   *    在 React 里刷一条无害但吵人的警告，且这里失败本来就该静默。
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const controller = new AbortController();
+    void (async () => {
+      const result = await fetchUploadExpiry({
+        apiBaseUrl: getCanvasApiBaseUrl(),
+        signal: controller.signal,
+      });
+      if (cancelled) return;
+      setUploadExpiry(result);
+      // 汇总弹窗只在**确实有图快过期**时才弹。没有待清理图片却弹一个
+      // 「0 张图片即将清除」的框，是纯粹的打扰。
+      if (result.warningCount > 0 && shouldShowExpirySummary()) {
+        markExpirySummaryShown();
+        setExpirySummaryOpen(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+  /*
+   * src -> 过期状态 的索引。
+   * ⚠️ 依赖只有 uploadExpiry.entries：挂到整个 uploadExpiry 上会因为对象每次
+   *    新建而让 useMemo 失效，退化成每渲染重建一次 Map。
+   */
+  const uploadExpiryIndex = useMemo(
+    () => buildUploadExpiryIndex(uploadExpiry.entries),
+    [uploadExpiry.entries]
+  );
   const restoredCanvasState = useMemo(
     () => safeReadCanvasState(projectId),
     [projectId]
@@ -36823,6 +37017,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           return { top, right, bottom, left };
         })()
       : undefined;
+    /*
+     * 清理倒计时注入。
+     *
+     * ⚠️ 刻意放在**渲染派生层**而不是写回 nodes 状态：data 会被 workspace-sync
+     *    持久化，把「还剩几天」这种每天都变的派生数据落库，就会在别的设备上
+     *    读到一个过时的天数，并且再也不会自动纠正（同 6627 行 isImageExpired
+     *    的既定原则，以及 MEMORY 里「派生数据存库即错」那条）。
+     *
+     * ⚠️ 匹配口径统一走 lookupUploadExpiry：它内部用与建索引完全相同的归一
+     *    函数。若这里自己写一套字符串比较，就会重演「筛选归一与展示格式化
+     *    不同口径」那个零报错缺陷。
+     */
+    const uploadExpiryEntry =
+      n.type === "asset"
+        ? lookupUploadExpiry(uploadExpiryIndex, getAssetNodeImageSource(n))
+        : null;
     const data = {
       ...n.data,
       multiSelectionActive:
@@ -36830,6 +37040,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         multiImageSelectionActive &&
         selectedImageNodeIds.includes(n.id),
       frameClipInsets,
+      uploadExpiry: uploadExpiryEntry || undefined,
     };
     return n.type === "asset" && editAsset && n.id === editAsset.nodeId
       ? { ...n, data: { ...data, isEditing: true } }
@@ -39478,6 +39689,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setCloudRetentionDialogOpen(false);
         }}
       />
+
+      {/* 图片清理倒计时汇总 — 非阻断，点遮罩 / Esc 可关 */}
+      <UploadExpirySummaryDialog
+        open={expirySummaryOpen}
+        isDark={isDark}
+        data={uploadExpiry}
+        apiBaseUrl={getCanvasApiBaseUrl()}
+        onClose={() => setExpirySummaryOpen(false)}
+      />
     </div>
   );
 }
@@ -39559,6 +39779,200 @@ function CloudRetentionDialog({
             onClick={onAcknowledge}
           >
             我知道了
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ── 图片清理倒计时汇总弹窗 ──────────────────────────────────────
+//
+// 与上面的 CloudRetentionDialog 在**交互性质上刻意相反**：
+//   · CloudRetentionDialog 是规则告知，用户必须表态 → 阻断式；
+//   · 本弹窗是待办提醒，用户可能正要干活 → 非阻断，点遮罩 / Esc 都能关。
+// ⚠️ 如果这里也做成阻断式，用户每天进画布第一件事就是被拦一下，
+//    很快就会形成「闭眼点掉」的肌肉记忆，提醒等于失效。
+//
+// ⚠️ 批量下载走 fetch + blob 而不是给 <a download> 直接挂 URL：
+//    download 属性在**跨源**响应上会被浏览器静默忽略，表现为「点了在新标签
+//    打开图片」而不是下载 —— 不报错，只是没下成。开发机 :3000 → :3002
+//    正好就是跨源，本地一定会撞上。
+const EXPIRY_SUMMARY_MAX_ROWS = 4;
+
+function UploadExpirySummaryDialog({
+  open,
+  isDark,
+  data,
+  apiBaseUrl,
+  onClose,
+}: {
+  open: boolean;
+  isDark: boolean;
+  data: UploadExpiryResponse;
+  apiBaseUrl: string;
+  onClose: () => void;
+}) {
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open || typeof document === "undefined") return null;
+  if (data.warningCount <= 0) return null;
+
+  const panelBg = isDark ? "rgba(24,24,32,0.98)" : "rgba(255,255,255,0.99)";
+  const borderColor = isDark
+    ? "rgba(255,255,255,0.14)"
+    : "rgba(0,0,0,0.10)";
+  const titleColor = isDark ? "rgba(255,255,255,0.94)" : "rgba(20,20,28,0.92)";
+  const bodyColor = isDark ? "rgba(255,255,255,0.70)" : "rgba(28,28,40,0.68)";
+  const ghostColor = isDark ? "rgba(255,255,255,0.52)" : "rgba(28,28,40,0.50)";
+  const rowBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.035)";
+
+  const rows = data.entries.slice(0, EXPIRY_SUMMARY_MAX_ROWS);
+  const restCount = data.warningCount - rows.length;
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const toAbsolute = (src: string) =>
+    /^https?:\/\//i.test(src) ? src : `${base}${src}`;
+
+  const handleDownloadAll = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    let succeeded = 0;
+    let failed = 0;
+    for (const entry of data.entries) {
+      try {
+        const response = await fetch(toAbsolute(entry.src), {
+          credentials: "include",
+        });
+        // ⚠️ 先判 status 再碰 body：404 也会返回一个能被 blob() 解析的
+        //    HTML 错误页，直接下载会得到一个「看起来成功」的坏文件。
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download =
+          decodeURIComponent(entry.src.split("/").pop() || "").trim() ||
+          `artx-${Date.now()}.png`;
+        anchor.click();
+        URL.revokeObjectURL(objectUrl);
+        succeeded += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setDownloading(false);
+    if (succeeded > 0) {
+      toast(`已下载 ${succeeded} 张图片`, {
+        description:
+          failed > 0
+            ? `另有 ${failed} 张下载失败，可在画布上单独下载`
+            : "文件已保存到浏览器的下载目录",
+      });
+      onClose();
+    } else {
+      toast("下载失败", { description: "请在画布上逐张下载，或稍后重试" });
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-end justify-center sm:items-center"
+      style={{
+        zIndex: 3990,
+        background: "rgba(8,8,12,0.34)",
+        backdropFilter: "blur(1px)",
+      }}
+      onMouseDown={event => event.stopPropagation()}
+      onClick={() => onClose()}
+    >
+      <div
+        role="dialog"
+        aria-label="图片清理提醒"
+        className="mb-6 flex w-[min(380px,calc(100vw-40px))] flex-col rounded-lg px-5 pb-4 pt-5 sm:mb-0"
+        style={{
+          background: panelBg,
+          border: `1px solid ${borderColor}`,
+          boxShadow: "0 20px 56px rgba(0,0,0,0.30)",
+        }}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-2">
+          <Clock size={13} strokeWidth={2.4} style={{ color: "#d63636" }} />
+          <div className="text-[13px] font-semibold" style={{ color: titleColor }}>
+            {data.warningCount} 张图片即将被清除
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] leading-[18px]" style={{ color: bodyColor }}>
+          上传的图片在云服务器保存 {data.retentionDays} 天，到期后自动清除。
+          {data.minDaysLeft !== null
+            ? `最快的一张${formatDaysLeft(data.minDaysLeft)}，请及时下载保存。`
+            : "请及时下载保存。"}
+        </p>
+        <div className="mt-3 flex flex-col gap-1.5">
+          {rows.map(entry => (
+            <div
+              key={entry.src}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5"
+              style={{ background: rowBg }}
+            >
+              <img
+                src={toAbsolute(entry.src)}
+                alt=""
+                className="h-7 w-7 shrink-0 rounded object-cover"
+                style={{ border: `1px solid ${borderColor}` }}
+              />
+              <div
+                className="min-w-0 flex-1 truncate text-[10px]"
+                style={{ color: bodyColor }}
+              >
+                {decodeURIComponent(entry.src.split("/").pop() || entry.src)}
+              </div>
+              <div
+                className="shrink-0 text-[10px] font-semibold"
+                style={{
+                  color:
+                    getExpiryUrgency(entry.daysLeft) === "critical"
+                      ? "#d63636"
+                      : bodyColor,
+                }}
+              >
+                {formatDaysLeft(entry.daysLeft)}
+              </div>
+            </div>
+          ))}
+          {restCount > 0 && (
+            <div className="px-2 text-[10px]" style={{ color: ghostColor }}>
+              还有 {restCount} 张未列出
+            </div>
+          )}
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            className="text-[11px] underline-offset-2 hover:underline"
+            style={{ color: ghostColor }}
+            onClick={() => onClose()}
+          >
+            稍后处理
+          </button>
+          <button
+            type="button"
+            disabled={downloading}
+            className="h-8 rounded-md px-4 text-[11px] font-semibold disabled:opacity-60"
+            style={{ color: "#172000", background: "var(--accent-lime, #d7f25c)" }}
+            onClick={() => void handleDownloadAll()}
+          >
+            {downloading ? "下载中…" : `全部下载（${data.warningCount}）`}
           </button>
         </div>
       </div>

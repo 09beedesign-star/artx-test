@@ -852,9 +852,16 @@ describe("InfiniteCanvas prompt controls", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     // 留存时长与提示间隔是产品定的数字，改动必须是有意识的。
+    // 2026-09-24：保留期从 10 天调整为 15 天，服务端权威值在
+    // server/local-image-storage.ts 的 DEFAULT_UPLOAD_RETENTION_DAYS。
     expect(source).toContain("const CLOUD_RETENTION_INTERVAL_DAYS = 15");
-    expect(source).toContain("const CLOUD_RETENTION_STORAGE_DAYS = 10");
+    expect(source).toContain("const CLOUD_RETENTION_STORAGE_DAYS = 15");
+    // 标题与正文都必须从常量插值，不允许再出现天数字面量 —— 否则改一处
+    // 会留下「标题 10 天 / 正文 15 天」的自相矛盾界面。
     expect(source).toContain("云服务器保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天");
+    expect(source).toContain(
+      "const CLOUD_RETENTION_DIALOG_TITLE = `图片将保存 ${CLOUD_RETENTION_STORAGE_DAYS} 天`"
+    );
 
     // 「不再提醒」必须是终态：读取侧先查 opt-out 再谈间隔。
     expect(source).toContain('const CLOUD_RETENTION_OPT_OUT_KEY = "artx:cloud-retention-opt-out"');
@@ -886,6 +893,64 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).not.toContain("cloudRetentionToastVisible");
     expect(source).not.toContain("artx:cloud-retention-toast-date");
     expect(source).not.toContain("图片会在云服务器当中存储一周时间");
+  });
+
+  it("shows a non-blocking expiry summary that never hardcodes the retention window", () => {
+    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+
+    const dialog =
+      source.match(
+        /function UploadExpirySummaryDialog\(\{[\s\S]*?document\.body\s*\);/
+      )?.[0] ?? "";
+    expect(dialog).toBeTruthy();
+
+    // ── 非阻断是本弹窗与 CloudRetentionDialog 的核心差异 ──
+    // 点遮罩能关、Esc 能关。做成阻断式会让用户形成「闭眼点掉」的肌肉记忆。
+    expect(dialog).toContain('event.key === "Escape"');
+    // ⚠️ 必须把断言锁到**遮罩自身的开标签**上。只在整个组件里找
+    //    "onClick={() => onClose()}" 会被「稍后处理」按钮满足 ——
+    //    把遮罩改成 stopPropagation（即退化成阻断式）断言依然全绿。
+    //    2026-09-24 变异测试实测踩到，别再放宽。
+    const backdrop =
+      dialog.match(/createPortal\(\s*<div[\s\S]*?\n {4}>/)?.[0] ?? "";
+    expect(backdrop).toBeTruthy();
+    expect(backdrop).toContain("onClick={() => onClose()}");
+    expect(backdrop).not.toContain("onClick={event => event.stopPropagation()}");
+    // 内层面板必须阻止冒泡，否则点面板自己也会触发遮罩的关闭。
+    expect(dialog).toContain("onClick={event => event.stopPropagation()}");
+    // 阻断式的 aria 语义不能出现在这里。
+    expect(dialog).not.toContain('aria-modal="true"');
+
+    // ── 天数一律来自服务端下发，前端不得写死 ──
+    expect(dialog).toContain("data.retentionDays");
+    expect(dialog).toContain("formatDaysLeft(data.minDaysLeft)");
+    expect(dialog).not.toMatch(/保存 \d+ 天/);
+
+    // ── 下载必须先判 status 再读 body ──
+    // 404 会返回一个能被 blob() 解析的 HTML 错误页，直接存盘会得到
+    // 「看起来成功」的坏文件，且全程零报错。
+    const download =
+      dialog.match(/const handleDownloadAll[\s\S]*?\n  \};/)?.[0] ?? "";
+    expect(download).toBeTruthy();
+    expect(download).toContain("if (!response.ok) throw new Error");
+    expect(download.indexOf("response.ok")).toBeLessThan(
+      download.indexOf("response.blob()")
+    );
+    // 跨源响应会让 <a download> 被静默忽略（变成新标签打开），必须走 blob。
+    expect(download).toContain("URL.createObjectURL(blob)");
+
+    // ── 频次门控不得与 CloudRetentionDialog 共用 key ──
+    // 共用会让点过「不再提醒」的用户连真正要丢图的警告也收不到。
+    expect(source).toContain(
+      'const EXPIRY_SUMMARY_LAST_SHOWN_KEY = "artx:upload-expiry-summary-last-shown"'
+    );
+    const gate = source.match(/function shouldShowExpirySummary\(\)[\s\S]*?\n}/)?.[0] ?? "";
+    expect(gate).toBeTruthy();
+    expect(gate).not.toContain("CLOUD_RETENTION");
+
+    // ── 没有待清理图片时绝不弹窗 ──
+    expect(source).toContain("result.warningCount > 0 && shouldShowExpirySummary()");
+    expect(dialog).toContain("if (data.warningCount <= 0) return null;");
   });
 
   it("uses the dynamic image model catalog in the bottom assistant selector", () => {
