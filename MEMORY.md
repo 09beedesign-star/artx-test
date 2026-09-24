@@ -8,6 +8,15 @@
 
 ## Working Notes
 
+- ⚠️⚠️⚠️ 发布口令（2026-09-24 ericbi 拍板，**优先级高于本文件下方一切历史发布/环境条目**）：
+  - 「推送到分支」= 只 `git push origin main`，**不触发任何部署**，线上不变、用户看不到。
+  - 「推送到正式环境」= 推 main + **手动触发** `Deploy Tencent Cloud Test` 工作流 → `www.artxsd.com`。
+  - 「提交到测试环境」**暂不绑定**：`backstage.artxsd.com` 与 www 是同一台机器/同一进程/同一数据库，
+    且已 301 收口到 www，推它就是推正式站。听到这句先向用户确认意图。
+  - `deploy-tencent-cloud.yml` / `sync-main-to-test-framework.yml` 的 `push:` 触发器已刻意移除，
+    **加回去 = 每次存档代码都直发真实用户**，恢复前必须先问用户。
+  - 下方所有把 `backstage.artxsd.com` 当作「灰度/测试站」、把 `feature/interaction-framework`
+    当作发布分支的条目，均已被本条取代，仅作历史参考。
 - Follow `AGENTS.md` for ArtX test release workflow before any test environment publishing.
 - Single-branch change isolation rule: frontend and backend share `feature/interaction-framework`, so every task must be scoped to the user's explicit request. Check branch and `git status` before editing, preserve unrelated dirty files, never stage `.env`/backup/temp/build artifacts, avoid unrelated refactors or formatting, and commit only task-required files plus focused tests. Final status should state changed files, unrelated/sensitive areas left untouched, commit hash if any, and which online environments are updated.
 - Model selector display rule: user-facing model selectors should show the real model version IDs available to the current configured provider key, such as `gpt-image-2`, `gpt-image-2-4k`, or `gemini-3.1-flash-image`; do not hide them behind product-level names when the user needs precise model control.
