@@ -8,7 +8,9 @@ RELEASE_DIR="${RELEASE_DIR:-output/tencent-cloud}"
 RELEASE_NAME="${RELEASE_NAME:-artx-backstage-$(date +%Y%m%d-%H%M%S)}"
 RELEASE_ROOT="${RELEASE_DIR}/${RELEASE_NAME}"
 TARBALL="${RELEASE_ROOT}.tar.gz"
-GRAY_PUBLIC_URL="${GRAY_PUBLIC_URL:-https://backstage.artxsd.com}"
+# 正式对外域名。backstage.artxsd.com 是老入口，线上已 301 收口到 www，
+# 兜底值必须是 www，否则本地手动打包又会把老域名写回产物。
+GRAY_PUBLIC_URL="${GRAY_PUBLIC_URL:-https://www.artxsd.com}"
 GRAY_ADMIN_HOST="${VITE_ADMIN_HOST:-}"
 GRAY_ADMIN_HOST="${GRAY_ADMIN_HOST%%/*}"
 

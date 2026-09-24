@@ -38,7 +38,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PUBLIC_URL: https://backstage.artxsd.com
+  # 正式对外域名。backstage.artxsd.com 是老入口，线上已 301 收口到 www，
+  # 产物里的规范地址必须写 www，否则 deployment.json 会继续对外宣称老域名。
+  PUBLIC_URL: https://www.artxsd.com
   SERVER_HOST: 43.161.241.133
   SERVER_PORT: "22"
   SERVER_USER: root
