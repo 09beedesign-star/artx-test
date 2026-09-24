@@ -208,10 +208,20 @@ async function storeBrowserPasswordCredential(username: string, password: string
   }
 }
 
+/**
+ * 「首屏是否还看得见」的唯一阈值：滚动量 ≤ 首屏高度 × 该比例即视为仍在第一屏。
+ *
+ * ⚠️ 必须由登录入口分流（requestLoginByScrollPosition）和滚动复位
+ * （handleMainScroll）**共用同一个常量**。两处各写一个字面量 0.15，
+ * 日后只改其中一处，就会出现「面板已复位成 prelogin、点击却按已滚走处理」
+ * 这种自相矛盾的状态，且零报错。
+ */
+const HOME_HERO_VISIBLE_RATIO = 0.15;
+
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { openBilling } = useBillingDialog();
-  const { isAuthenticated, login, register } = useAuth();
+  const { isAuthenticated, login, register, openLoginModal } = useAuth();
   const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
   const [prompt, setPrompt] = useState(HOME_PROMPT);
   const [promptTouched, setPromptTouched] = useState(false);
@@ -444,6 +454,13 @@ export default function HomePage() {
     // 停留在首页时触发的 artx:login-required 不会有任何反应（面板不切换），
     // 用户会觉得"点了没反应"。AuthContext 在首页把全局弹窗换成了本事件，
     // 这里是它唯一的落点，删掉即等于首页登录入口失灵。
+    //
+    // 📌 已知行为差异（2026-09-24，产品仅要求先改「开始体验」）：
+    // 本路径（lib/ai.ts / BillingPage 在 401 时派发）无论用户滚到哪里，
+    // 都会 scrollIntoView 把他拽回第一屏用内嵌面板；而「开始体验」按钮
+    // 已改为「滚出首屏就弹居中小弹窗」（requestLoginByScrollPosition）。
+    // 若后续要统一，改这里即可——但注意不能直接删 scrollIntoView，
+    // 否则在已滚走的场景会退化成「点了没反应」。
     window.addEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
     return () => window.removeEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
   }, [isAuthenticated]);
@@ -516,7 +533,7 @@ export default function HomePage() {
       hasReachedInspirationRef.current = true;
     }
 
-    if (!isAuthenticated && hasReachedInspirationRef.current && scrollTop <= homeHeight * 0.15) {
+    if (!isAuthenticated && hasReachedInspirationRef.current && scrollTop <= homeHeight * HOME_HERO_VISIBLE_RATIO) {
       setPanelMode("prelogin");
       hasReachedInspirationRef.current = false;
     }
@@ -723,12 +740,46 @@ export default function HomePage() {
     homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  /*
+    未登录入口的唯一分流规则（产品定稿 2026-09-24）：
+
+      还在第一屏  → 右侧内嵌面板切成登录态（用户正看着它，锚点归位）
+      已滚出第一屏 → 弹全站通用的居中小弹窗（LoginRegisterDialog）
+
+    ⚠️⚠️⚠️ 为什么必须分流，而不是一律用内嵌面板：
+    内嵌面板固定在第一屏右侧。用户滚到灵感推荐区再点登录，面板确实切换了，
+    但它在几屏之外——用户什么都看不到，**表现为「点了没反应」且零报错**。
+
+    ⚠️⚠️⚠️ 滚动真值只能取 mainRef.current.scrollTop：
+    首页装在 <main class="overflow-y-auto"> 这个内部滚动容器里，
+    `window.scrollY` / `document.documentElement.scrollTop` 恒为 0，
+    用它判断会永远走「在第一屏」分支——同样零报错，只是规则彻底失效。
+
+    ⚠️ 阈值与 handleMainScroll 的 0.15 对齐：那里把「滚回 0.15 以内」
+    视为回到首屏并复位面板。两处用同一个口径，才不会出现
+    「面板已被复位成 prelogin，点击却还按已滚走处理」的错位。
+  */
+  const isHomeHeroVisible = () => {
+    const homeHeight = homeRef.current?.offsetHeight || window.innerHeight;
+    const scrollTop = mainRef.current?.scrollTop ?? 0;
+    return scrollTop <= homeHeight * HOME_HERO_VISIBLE_RATIO;
+  };
+
+  /** 未登录时按当前浏览位置选择登录入口形态。已登录的跳转由各调用方自理。 */
+  const requestLoginByScrollPosition = () => {
+    if (isHomeHeroVisible()) {
+      setPanelMode("login");
+      return;
+    }
+    openLoginModal();
+  };
+
   const handleStartExperience = () => {
     if (isAuthenticated) {
       navigate("/workspace");
       return;
     }
-    setPanelMode("login");
+    requestLoginByScrollPosition();
   };
 
   /*
