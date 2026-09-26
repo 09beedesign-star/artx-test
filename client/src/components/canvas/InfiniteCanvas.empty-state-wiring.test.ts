@@ -155,6 +155,26 @@ describe("canvas empty state wiring", () => {
     );
   });
 
+  it("cancels the queued initial fitView before inserting the draft node", () => {
+    /*
+     * ⚠️ 空画布上 <ReactFlow fitView> 一直排队，草稿节点一插入就被 fit 到铺满画布：
+     *    节点钻到助手面板底下、内部控件被挤成两行、「生成」竖排（2026-09-26 用户截图）。
+     *    必须在 setNodes 之前撤掉排队。
+     */
+    expect(generateBlock).toContain("reactFlowStore.setState({ fitViewQueued: false });");
+    expect(generateBlock.indexOf("fitViewQueued: false")).toBeLessThan(
+      generateBlock.indexOf("setNodes(")
+    );
+  });
+
+  it("scales the inner panel instead of reflowing it when the node is small", () => {
+    // 节点小于设计尺寸时整体 scale，而不是让固定像素的控件换行
+    expect(draftNodeBlock).toContain("Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE");
+    expect(draftNodeBlock).toContain("transform: contentScale < 1 ? `scale(${contentScale})` : undefined");
+    // 「生成」按钮不允许被挤成竖排
+    expect(draftNodeBlock).toContain("shrink-0 whitespace-nowrap");
+  });
+
   it("gives the draft node a close button in its top-right corner", () => {
     expect(draftNodeBlock).toContain('aria-label="关闭图片生成节点"');
     // 右上角：两个类名都得在，只写一个会贴错边

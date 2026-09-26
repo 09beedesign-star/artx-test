@@ -38,6 +38,7 @@ import {
   Handle,
   Position,
   useReactFlow,
+  useStoreApi,
   useViewport,
   type Viewport,
   ReactFlowProvider,
@@ -13031,8 +13032,19 @@ function DraftImageNodeComponent({
     Array<{ id: string; title: string; src: string }>
   >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const width = (data.width as number) || 520;
-  const height = (data.height as number) || 520;
+  const width = (data.width as number) || DRAFT_NODE_DESIGN_SIZE;
+  const height = (data.height as number) || DRAFT_NODE_DESIGN_SIZE;
+  /*
+   * ⚠️⚠️ 节点尺寸是 flow 坐标（= 屏幕 70% ÷ 当前缩放），画布放大到 1.6x 时
+   * 节点只有 ~260 flow-px；而内部面板是固定像素（控制条一行就要 ~400px），
+   * 于是被挤成：控件换两行、「生成」竖排、面板把 LOGO 和说明文案盖住 —— 零报错。
+   * ✅ 小于设计尺寸时，内部按 520 设计稿排版再整体 scale 缩进节点；
+   *    大于设计尺寸时 scale=1，面板保持原生大小、上方画框区自然变大。
+   */
+  const contentScale = Math.min(
+    1,
+    Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE
+  );
   const projectId = (data.projectId as string) || "p1";
 
   // 与 ImageGeneratorPopover 同源的配色变量，保证「复用现成样式」。
@@ -13187,7 +13199,7 @@ function DraftImageNodeComponent({
         ⚠️ overflow-hidden 会裁掉溢出边框的内容，所以 ✕ 必须完全落在容器内
            （用 top-2 right-2，不要用负偏移把它挂到边框外）。
       */
-      className="relative flex flex-col overflow-hidden rounded-[var(--radius-xl-design)]"
+      className="relative overflow-hidden rounded-[var(--radius-xl-design)]"
       style={{
         width,
         height,
@@ -13196,6 +13208,16 @@ function DraftImageNodeComponent({
         backdropFilter: "blur(12px)",
       }}
     >
+      <div
+        data-testid="canvas-draft-image-node-content"
+        className="relative flex flex-col"
+        style={{
+          width: `${100 / contentScale}%`,
+          height: `${100 / contentScale}%`,
+          transform: contentScale < 1 ? `scale(${contentScale})` : undefined,
+          transformOrigin: "top left",
+        }}
+      >
       {/*
         右上角关闭按钮。
         ⚠️ nodrag nopan + stopPropagation 三件套缺一不可：
@@ -13360,10 +13382,12 @@ function DraftImageNodeComponent({
             className="mt-2 flex items-center justify-between"
             style={{ color: sub }}
           >
-            <span className="type-caption">Enter 生成 · Shift+Enter 换行</span>
+            <span className="min-w-0 truncate type-caption">
+              Enter 生成 · Shift+Enter 换行
+            </span>
             <button
               type="button"
-              className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="shrink-0 whitespace-nowrap rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ background: "oklch(0.64 0.22 285)", color: "white" }}
               disabled={!prompt.trim()}
               onClick={e => {
@@ -13376,9 +13400,16 @@ function DraftImageNodeComponent({
           </div>
         </div>
       </div>
+      </div>
     </div>
   );
 }
+
+/**
+ * 草稿节点内部面板的设计稿边长：控制条单行（实测约 360px）+ 上方画框区都放得下的最小尺寸。
+ * 节点比它小才整体缩放；取得越大，常见屏幕上缩得越狠、字越小。
+ */
+const DRAFT_NODE_DESIGN_SIZE = 440;
 
 /**
  * 空白画布的暗纹引导层。
@@ -26880,6 +26911,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setViewport,
     setCenter,
   } = useReactFlow();
+  const reactFlowStore = useStoreApi();
   const viewport = useViewport();
   // 云端留存提醒弹窗：阻断式，必须点「我知道了」或「不再提醒」才关闭。
   const [cloudRetentionDialogOpen, setCloudRetentionDialogOpen] =
@@ -28753,6 +28785,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     const flowHeight = Math.max(160, Math.round(bottomRight.y - topLeft.y));
     // 正方形：换算后取较小边，避免非等比缩放把它拉成长方形。
     const side = Math.min(flowWidth, flowHeight);
+    /*
+     * ⚠️⚠️⚠️ <ReactFlow fitView> 在空画布上「首屏自适应」一直排队没执行
+     * （没有节点可 fit，fitViewQueued 恒为 true）。草稿节点一插入它就立刻触发，
+     * 把节点放大到铺满整个画布 —— 盖到右侧助手面板底下、70% 的尺寸算了白算，
+     * 小屏下 flow 尺寸偏小的节点被放大后内部控件换行、「生成」竖排，零报错。
+     * ✅ 插入前把排队的 fitView 撤掉，节点就停在上面按屏幕算好的位置和大小。
+     */
+    reactFlowStore.setState({ fitViewQueued: false });
     pushHistory();
     setNodes(nds => [
       ...nds,
@@ -28769,6 +28809,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     isAssistantCollapsed,
     projectId,
     pushHistory,
+    reactFlowStore,
     screenToFlowPosition,
     setNodes,
   ]);
