@@ -260,7 +260,8 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
     expect(
       bottomBar.length,
       "切片过宽，可能把组件其它区域也圈进来，断言会恒真"
-    ).toBeLessThan(3500);
+    // 2026-09-29：发送按钮加 data-artx-asset-send / aria-busy（+42 字符），上限放宽到 3700。
+    ).toBeLessThan(3700);
   });
 
   it("外层必须是 justify-between 单行容器，不能是 flex-wrap", () => {
@@ -321,13 +322,18 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
       source,
       "canSendPrompt 没有被定义成唯一事实源"
     ).toContain(
-      "const canSendPrompt = prompt.trim().length > 0 || uploadedRefs.length > 0;"
+      // 2026-09-29：目标图片重绘中也不能发，busy 并入同一个事实源
+      "const hasPromptContent =\n    prompt.trim().length > 0 || uploadedRefs.length > 0;"
+    );
+    expect(source).toContain(
+      "const canSendPrompt = hasPromptContent && !isTargetBusy;"
     );
     expect(bottomBar, "按钮没绑禁用态").toContain("disabled={!canSendPrompt}");
     // handleSend 必须复用同一个变量，而不是另写一遍条件
     const sendFn = (() => {
       const at = source.indexOf("const handleSend = () => {");
-      return at === -1 ? "" : source.slice(at, at + 160);
+      // 2026-09-29：前面加了 busy 早退分支，窗口放宽
+      return at === -1 ? "" : source.slice(at, at + 400);
     })();
     expect(sendFn.length, "handleSend 锚点失效").toBeGreaterThan(50);
     expect(

@@ -195,6 +195,7 @@ import {
   isLocalRepaintPayload,
   resolveRepaintCompareBeforeSrc,
 } from "./repaint-compare";
+import { getAssetBusyState, type AssetBusyState } from "./asset-busy-state";
 import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
 import {
@@ -17445,12 +17446,19 @@ function AssetEditPromptBar({
   isDark,
   canvasRightInset,
   anchor,
+  busyState,
   onClose,
   onSubmit,
 }: {
   asset: { id: string; title: string; src: string };
   isDark: boolean;
   canvasRightInset: number;
+  /**
+   * 目标图片是否正在被 AI 处理（2026-09-29）。由调用方用 getAssetBusyState
+   * 从**节点实时数据**算好传入；busy 时面板顶部显示提示条、发送按钮与回车都锁住，
+   * 直到生成结束（成功或失败）自动解锁。不传 = 空闲。
+   */
+  busyState?: AssetBusyState;
   /**
    * 「吸附到画布节点」模式（2026-09-20 新增）。
    *
@@ -17670,9 +17678,26 @@ function AssetEditPromptBar({
    * ⚠️ 必须与 handleSend 内部的放行条件写成同一个表达式来源，
    *    否则会出现「按钮亮着点了没反应」或「按钮灰着其实能发」。
    */
-  const canSendPrompt = prompt.trim().length > 0 || uploadedRefs.length > 0;
+  const isTargetBusy = Boolean(busyState?.busy);
+  const hasPromptContent =
+    prompt.trim().length > 0 || uploadedRefs.length > 0;
+  /*
+   * 【2026-09-29】目标图片正在重绘/生成时一律不能发（按钮 + 回车同一个条件）。
+   * 用户原话：「生成按钮必须要等图片生成完成之后才能继续点击，避免重复点击造成 crash」。
+   * ⚠️ 草稿文字**不清**：用户可以边等边写下一条，完成后直接点发送。
+   */
+  const canSendPrompt = hasPromptContent && !isTargetBusy;
+  const sendButtonTitle = isTargetBusy
+    ? busyState?.title || "图片正在处理中"
+    : "发送";
 
   const handleSend = () => {
+    if (isTargetBusy) {
+      toast(busyState?.title || "图片正在处理中", {
+        description: busyState?.description,
+      });
+      return;
+    }
     if (canSendPrompt) {
       const refText =
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
@@ -17884,6 +17909,40 @@ function AssetEditPromptBar({
           "transform 0.35s cubic-bezier(0.23,1,0.32,1), opacity 0.30s ease",
       }}
     >
+      {/*
+        【2026-09-29】目标图片处理中的提示条：放在面板最顶端，
+        用户一眼就知道「这张图正在重绘，现在发不了」，而不是对着灰按钮猜原因。
+      */}
+      {isTargetBusy && (
+        <div
+          data-artx-asset-busy-banner
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 px-3 py-1.5"
+          style={{
+            background: isDark
+              ? "oklch(0.58 0.22 290 / 0.22)"
+              : "oklch(0.58 0.22 290 / 0.10)",
+            color: isDark ? "oklch(0.85 0.14 290)" : "oklch(0.42 0.18 290)",
+            borderBottom: `1px solid ${divider}`,
+          }}
+        >
+          <span
+            aria-hidden
+            className="inline-block shrink-0 animate-spin rounded-full"
+            style={{
+              width: 12,
+              height: 12,
+              border: "2px solid currentColor",
+              borderTopColor: "transparent",
+            }}
+          />
+          <span className="type-caption font-medium">{busyState?.title}</span>
+          <span className="type-caption truncate" style={{ opacity: 0.75 }}>
+            {busyState?.description}
+          </span>
+        </div>
+      )}
       {/* Header: asset chip + close */}
       <div
         className="flex items-center gap-2 px-3 pt-2.5 pb-2"
@@ -18192,9 +18251,11 @@ function AssetEditPromptBar({
           <button
             type="button"
             disabled={!canSendPrompt}
+            data-artx-asset-send
             onClick={handleSend}
-            title="发送"
+            title={sendButtonTitle}
             aria-label="发送"
+            aria-busy={isTargetBusy || undefined}
             className="h-8 w-8 shrink-0 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
             style={{
               // 2026-09-21 用户点名：紫色底 + 白色图标（原先对齐全局的绿）。
@@ -35540,6 +35601,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    * 多张并发合并、后台任务分流、失败态回写四套规则，
    * 复制出第二份必然很快漂移（本项目已在"多个出口"上栽过十二次）。
    */
+  /** 正在提交中的图片节点 id（同步锁，防连点；见 handleAssetEditSubmit 内注释） */
+  const assetEditInFlightRef = useRef<Set<string>>(new Set());
   const handleAssetEditSubmit = useCallback(
     async (
       payload: {
@@ -35561,6 +35624,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         n => n.id === target.nodeId && n.type === "asset"
       );
       if (!sourceNode) return;
+      /*
+       * 【2026-09-29】提交链路自己的兜底闸门：UI 已锁按钮，但回车、旧面板实例、
+       * 其它入口仍可能调进来。目标图还在重绘时直接拒绝 —— 否则两次就地重绘
+       * 抢同一个节点（generationId 被覆盖、撤销快照错乱），用户侧表现为 crash。
+       * 判定与面板提示条同源：getAssetBusyState。
+       */
+      const busy = getAssetBusyState(sourceNode.data);
+      if (busy.busy || assetEditInFlightRef.current.has(target.nodeId)) {
+        toast(busy.title || "图片正在局部重绘中", {
+          description: busy.description || "完成后才能继续生成，请勿重复提交",
+        });
+        return;
+      }
+      /*
+       * ⚠️ 节点数据里的 isGeneratingImage 要等下面 await 蒙版生成 → dispatch 占位
+       *    → React 重渲染后才出现；这段窗口里连点两下，上面的判定两次都是「空闲」。
+       *    所以再加一把**同步**的进行中锁，在 finally / 早退处释放。
+       */
+      assetEditInFlightRef.current.add(target.nodeId);
+      const releaseInFlight = () =>
+        assetEditInFlightRef.current.delete(target.nodeId);
       const latestImageSrc =
         (await getVisibleAssetImageSource(target.nodeId)) || target.src;
       const sourceSize = getCanvasNodeSize(sourceNode);
@@ -35606,6 +35690,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ? maskError.message
               : "无法生成框选区域的蒙版，请重新框选后再试"
           );
+          releaseInFlight();
           return;
         }
       }
@@ -35844,6 +35929,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           projectId
         );
         notifyAiFailure("快捷编辑失败", message);
+      } finally {
+        releaseInFlight();
       }
     },
     [
@@ -37840,6 +37927,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             isDark={isDark}
             canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
             anchor={attachedNodeComposerAnchor}
+            busyState={getAssetBusyState(selectedImageNode.data)}
             onSubmit={payload => {
               void handleNodeComposerSubmit(selectedImageNode.id, payload);
             }}
@@ -38297,6 +38385,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           asset={editAsset}
           isDark={isDark}
           canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+          busyState={getAssetBusyState(
+            nodes.find(n => n.id === editAsset.nodeId)?.data
+          )}
           onSubmit={payload => {
             void handleAssetEditSubmit(payload);
           }}
