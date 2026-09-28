@@ -533,7 +533,122 @@ export const INVITE_REWARD_CONFIG = {
   refundRateAlertThreshold: 0.4,
   /** 计算退款率所需的最小已奖励邀请数，低于此数不做判定（避免小样本误报）。 */
   refundRateMinSamples: 3,
+  /**
+   * 配置版本号 —— 口径与 SIGNUP_INITIAL_CREDITS.configVersion 完全相同：
+   * **改上面任何一个后台可编辑的默认值，都必须把它 +1**，否则生产库里的旧快照
+   * 会一直顶着你的新代码值，全程零报错。
+   *   库值版本 >= 代码版本 → 用库值（后台改的生效）
+   *   库值版本 <  代码版本 → 丢弃库值用代码值
+   */
+  configVersion: 1,
 } as const;
+
+/**
+ * 后台可编辑的邀请奖励字段。
+ *
+ * ⚠️ 退款率阈值 / 最小样本数**刻意不开放**：它们命中即自动封号，
+ * 调低一格就可能批量误封真实用户，属于风控参数而不是运营参数。
+ */
+export const INVITE_REWARD_EDITABLE_KEYS = [
+  "inviterCredits",
+  "inviteeCredits",
+  "maxRewardedInvitesPerUser",
+  "bindingValidDays",
+  "rewardCreditValidDays",
+  "minPaidAmountHkd",
+] as const;
+
+export type InviteRewardEditableKey = (typeof INVITE_REWARD_EDITABLE_KEYS)[number];
+
+/** 运行时生效的邀请奖励配置（代码默认值 或 后台保存值）。 */
+export type InviteRewardRuntimeConfig = {
+  inviterCredits: number;
+  inviteeCredits: number;
+  maxRewardedInvitesPerUser: number;
+  bindingValidDays: number;
+  rewardCreditValidDays: number;
+  minPaidAmountHkd: number;
+  refundRateAlertThreshold: number;
+  refundRateMinSamples: number;
+};
+
+/**
+ * 邀请奖励的**经济性硬约束** —— 后台保存时逐条校验，不满足直接拒绝。
+ *
+ * 这些数原本只写在 invite-reward-economics.test.ts 里守着代码常量；
+ * 一旦额度能在后台改，测试就守不住了（测试只看代码值，看不到库里的值），
+ * 所以必须把同一组约束搬到服务端保存路径上。
+ */
+export const INVITE_REWARD_CONFIG_LIMITS = {
+  /** 单对奖励成本占付费门槛的上限 */
+  maxPairCostRatio: 0.2,
+  /** 单个邀请人最多可领走的钱（HKD），防「额度不变、上限放到 1000」 */
+  maxInviterExposureHkd: 60,
+  /** 绑定关系最长有效天数 */
+  maxBindingValidDays: 90,
+  /** 单人奖励人数上限的绝对天花板 */
+  maxRewardedInvitesPerUser: 100,
+} as const;
+
+/** 用户自己掏钱能买到的最差汇率 —— 用它估奖励成本是偏保守的。 */
+export function getWorstRechargeCreditsPerHkd(): number {
+  return Math.min(...CREDIT_RECHARGE_TIERS.map((tier) => tier.creditsPerHkd));
+}
+
+/** 最便宜的在售会员月卡价（HKD），作为付费门槛的下限。 */
+export function getCheapestMonthlyPlanPrice(): number {
+  return Math.min(
+    ...MEMBERSHIP_PLANS.filter((plan) => plan.monthlyPrice > 0).map((plan) => plan.monthlyPrice)
+  );
+}
+
+/**
+ * 校验一份邀请奖励配置，返回全部违规项（空数组 = 合法）。
+ * 前后端共用：后台面板用它做实时提示，服务端保存路由用它做最终闸门。
+ */
+export function validateInviteRewardConfig(config: InviteRewardRuntimeConfig): string[] {
+  const errors: string[] = [];
+  for (const key of INVITE_REWARD_EDITABLE_KEYS) {
+    const value = config[key];
+    if (!Number.isInteger(value) || value <= 0) {
+      errors.push(`${key} 必须是正整数`);
+    }
+  }
+  if (errors.length) return errors;
+
+  const rate = getWorstRechargeCreditsPerHkd();
+  const pairCostHkd = (config.inviterCredits + config.inviteeCredits) / rate;
+  const pairRatio = pairCostHkd / config.minPaidAmountHkd;
+  if (pairRatio > INVITE_REWARD_CONFIG_LIMITS.maxPairCostRatio) {
+    const maxPair = Math.floor(INVITE_REWARD_CONFIG_LIMITS.maxPairCostRatio * config.minPaidAmountHkd * rate);
+    errors.push(
+      `双方奖励合计 ${config.inviterCredits + config.inviteeCredits} 分 ≈ ${pairCostHkd.toFixed(2)} HKD，占门槛 ${config.minPaidAmountHkd} HKD 的 ${(pairRatio * 100).toFixed(0)}%，超过 ${INVITE_REWARD_CONFIG_LIMITS.maxPairCostRatio * 100}%（当前门槛下合计最多 ${maxPair} 分）`
+    );
+  }
+  const exposureHkd = (config.inviterCredits * config.maxRewardedInvitesPerUser) / rate;
+  if (exposureHkd > INVITE_REWARD_CONFIG_LIMITS.maxInviterExposureHkd) {
+    errors.push(
+      `单个邀请人最多可领 ${config.inviterCredits * config.maxRewardedInvitesPerUser} 分 ≈ ${exposureHkd.toFixed(0)} HKD，超过 ${INVITE_REWARD_CONFIG_LIMITS.maxInviterExposureHkd} HKD 敞口上限`
+    );
+  }
+  if (config.maxRewardedInvitesPerUser > INVITE_REWARD_CONFIG_LIMITS.maxRewardedInvitesPerUser) {
+    errors.push(`单人奖励人数上限不能超过 ${INVITE_REWARD_CONFIG_LIMITS.maxRewardedInvitesPerUser}`);
+  }
+  if (config.inviterCredits < config.inviteeCredits) {
+    errors.push("邀请人奖励不得低于被邀请人奖励（否则鼓励小号自邀）");
+  }
+  const cheapest = getCheapestMonthlyPlanPrice();
+  if (config.minPaidAmountHkd < cheapest) {
+    errors.push(`首付门槛不得低于最便宜月卡 ${cheapest} HKD`);
+  }
+  if (config.rewardCreditValidDays > CREDIT_EXPIRY_RULES.gift.days) {
+    errors.push(`奖励积分有效期不得超过赠送积分的 ${CREDIT_EXPIRY_RULES.gift.days} 天`);
+  }
+  if (config.bindingValidDays > INVITE_REWARD_CONFIG_LIMITS.maxBindingValidDays) {
+    errors.push(`绑定有效期不得超过 ${INVITE_REWARD_CONFIG_LIMITS.maxBindingValidDays} 天`);
+  }
+  return errors;
+}
 
 /** 邀请码长度（去除易混淆字符后的随机串） */
 export const INVITE_CODE_LENGTH = 8;

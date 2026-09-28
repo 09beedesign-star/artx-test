@@ -14,6 +14,12 @@ import {
   quoteCreditRecharge,
   FIRST_RECHARGE_BONUS,
   INVITE_REWARD_CONFIG,
+  INVITE_REWARD_CONFIG_LIMITS,
+  INVITE_REWARD_EDITABLE_KEYS,
+  validateInviteRewardConfig,
+  getWorstRechargeCreditsPerHkd,
+  getCheapestMonthlyPlanPrice,
+  type InviteRewardRuntimeConfig,
   SIGNUP_INITIAL_CREDITS,
   SIGNUP_INITIAL_CREDITS_LIMITS,
   SIGNUP_IP_RATE_LIMIT,
@@ -24,12 +30,14 @@ import {
   isHighRiskCreditAdjustment,
   isHighRiskCreditGift,
 } from "../shared/admin-risk-policy";
-import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, type PublicAuthUser, revokeFirstPaymentForInvite, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
+import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, listInviteRelationsForAdmin, type PublicAuthUser, revokeFirstPaymentForInvite, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
 import {
   buildInviteIdempotencyKey,
   buildInviteRewardReason,
   evaluateInviteRefundRate,
   INVITE_SOURCE_PREFIX,
+  isBindingExpired,
+  registerInviteRewardConfigProvider,
   resolveInviteClawbackAmount,
 } from "./invite-rewards";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
@@ -508,7 +516,14 @@ type AdminData = {
    * 那两个是派生数据（无条件重算），这个是带版本号的可编辑配置。
    */
   signupInitialCredits?: SignupInitialCreditsConfig;
+  /**
+   * 邀请奖励配置（后台可编辑、带版本号），规则同 signupInitialCredits。
+   * 读取一律走 resolveInviteRewardConfig(data.inviteRewardConfig)。
+   */
+  inviteRewardConfig?: StoredInviteRewardConfig;
 };
+
+type StoredInviteRewardConfig = InviteRewardRuntimeConfig & { configVersion: number };
 
 type SignupInitialCreditsConfig = {
   enabled: boolean;
@@ -1162,6 +1177,19 @@ function getRemainingCreditBatchBalanceByUserSource(data: AdminData, userId: str
   return (data.creditBatches || [])
     .filter((batch) => batch.userId === userId && batch.source === source && batch.remainingCredits > 0)
     .reduce((sum, batch) => sum + batch.remainingCredits, 0);
+}
+
+/**
+ * 某用户在某 source 下**当初实际发放**的积分总额（initialCredits 之和）。
+ *
+ * ⚠️ 邀请奖励额度可在后台改之后，退款扣回必须按「当时发了多少」扣，
+ * 不能按「现在配置是多少」扣：否则 300 发出、后台改成 500，退款时会记
+ * 一笔 200 的假短缺；反向改小则会少扣。
+ */
+function getGrantedCreditsByUserSource(data: AdminData, userId: string, source: string) {
+  return (data.creditBatches || [])
+    .filter((batch) => batch.userId === userId && batch.source === source)
+    .reduce((sum, batch) => sum + Math.max(0, Number(batch.initialCredits) || 0), 0);
 }
 
 /**
@@ -2753,6 +2781,7 @@ async function seedAdminData(): Promise<AdminData> {
      * 也无法据此判断版本，直到某次写操作偶然补上 —— 典型的偶发不一致。
      */
     signupInitialCredits: resolveSignupInitialCreditsConfig(undefined),
+    inviteRewardConfig: resolveInviteRewardConfig(undefined),
   };
 }
 
@@ -2854,8 +2883,56 @@ async function normalizeDataAsync(value: Partial<AdminData>): Promise<AdminData>
     aiBillingPolicies: AI_CREDIT_POLICIES,
     aiPlanDiscounts: AI_PLAN_DISCOUNTS,
     signupInitialCredits: resolveSignupInitialCreditsConfig(value.signupInitialCredits),
+    inviteRewardConfig: resolveInviteRewardConfig(value.inviteRewardConfig),
   });
 }
+
+/**
+ * 邀请奖励配置的版本化补齐，口径与 resolveSignupInitialCreditsConfig 相同：
+ *   库里没有 / 库值版本 < 代码版本 → 用代码值
+ *   库值版本 >= 代码版本            → 用库值（逐字段兜底）
+ *
+ * ⚠️ 额外一步：库值整体必须再过一次 validateInviteRewardConfig。
+ * 库里的值可能是被手改的、或是旧版约束下合法的；只要现在不合法，
+ * 一律回落代码值 —— 宁可按默认额度发，也不能按一份越界配置发钱。
+ *
+ * 退款率阈值 / 最小样本**永远取代码值**，不开放后台编辑（命中即封号，属风控参数）。
+ */
+export function resolveInviteRewardConfig(stored: unknown): StoredInviteRewardConfig {
+  const fallback: StoredInviteRewardConfig = {
+    inviterCredits: INVITE_REWARD_CONFIG.inviterCredits,
+    inviteeCredits: INVITE_REWARD_CONFIG.inviteeCredits,
+    maxRewardedInvitesPerUser: INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser,
+    bindingValidDays: INVITE_REWARD_CONFIG.bindingValidDays,
+    rewardCreditValidDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+    minPaidAmountHkd: INVITE_REWARD_CONFIG.minPaidAmountHkd,
+    refundRateAlertThreshold: INVITE_REWARD_CONFIG.refundRateAlertThreshold,
+    refundRateMinSamples: INVITE_REWARD_CONFIG.refundRateMinSamples,
+    configVersion: INVITE_REWARD_CONFIG.configVersion,
+  };
+  if (!stored || typeof stored !== "object") return fallback;
+  const value = stored as Partial<StoredInviteRewardConfig>;
+  const storedVersion = Number(value.configVersion);
+  if (!Number.isFinite(storedVersion) || storedVersion < INVITE_REWARD_CONFIG.configVersion) {
+    return fallback;
+  }
+  const merged: StoredInviteRewardConfig = { ...fallback, configVersion: storedVersion };
+  for (const key of INVITE_REWARD_EDITABLE_KEYS) {
+    const n = Number(value[key]);
+    if (Number.isInteger(n) && n > 0) merged[key] = n;
+  }
+  if (validateInviteRewardConfig(merged).length > 0) return fallback;
+  return merged;
+}
+
+/**
+ * 把后台配置注册给 invite-rewards，让 auth-store（注册绑定 / 邀请面板）也读到它。
+ * 见 invite-rewards.ts registerInviteRewardConfigProvider 的循环依赖说明。
+ */
+registerInviteRewardConfigProvider(async () => {
+  const stored = await adminDataRepository.load();
+  return resolveInviteRewardConfig((stored as Partial<AdminData> | null)?.inviteRewardConfig);
+});
 
 /**
  * 注册初始额度配置的**版本化补齐** —— 本文件里唯一「库值可以赢过代码值」的字段。
@@ -3402,6 +3479,13 @@ function dashboard(data: AdminData) {
      */
     signupInitialCredits: data.signupInitialCredits,
     signupInitialCreditsLimits: SIGNUP_INITIAL_CREDITS_LIMITS,
+    inviteRewardConfig: resolveInviteRewardConfig(data.inviteRewardConfig),
+    inviteRewardConfigLimits: {
+      ...INVITE_REWARD_CONFIG_LIMITS,
+      worstCreditsPerHkd: getWorstRechargeCreditsPerHkd(),
+      cheapestMonthlyPlanHkd: getCheapestMonthlyPlanPrice(),
+      maxRewardCreditValidDays: 30,
+    },
     signupIpRateLimit: SIGNUP_IP_RATE_LIMIT,
     /**
      * 支付订单的订阅/充值分类统计。
@@ -3797,6 +3881,155 @@ function buildAccountDetail(data: AdminData, userId: string) {
     notes,
     timeline,
   };
+}
+
+type InviteRelationRow = {
+  id: string;
+  username: string;
+  createdAt?: string;
+  status?: string;
+  inviteCode: string;
+  invitedBy: string;
+  invitedAt: string;
+  hasPaid: boolean;
+  inviteAcceptDisabled: boolean;
+};
+
+/**
+ * 后台「邀请管理」报表：邀请人 → 其**直接**邀请的账号名单。
+ *
+ * 🔒🔒🔒 合规红线：**只统计一层**。
+ * 《禁止传销条例》第七条把「以下线的销售业绩为依据计算和给付上线报酬」
+ * （团队计酬）列为传销；多级（常说的「三级及以上」）分成是典型形态。
+ * 本报表只按 `invitee.invitedBy === inviter.id` 做一次分组，
+ * **绝不递归**去找「被邀请人又邀请了谁」，也不把下线的下线计入任何数字。
+ * 被邀请人自己再去邀请别人时，他是一个**独立的邀请人**，单独成行，
+ * 与他的上线之间没有任何金额或人数上的传递。
+ * invite-relations-report.test.ts 专门锁住这条（改成递归会被打挂）。
+ *
+ * 分成依据字段：每个被邀请人的 `netPaidHkd`（已付 - 已退），
+ * 汇总为邀请人的 `directNetPaidHkd`。奖励积分取 creditBatches 上的实际发放额，
+ * 而非「人数 × 当前额度」（后台改过额度后后者会算错历史）。
+ */
+export function buildInviteRelationsReport(data: AdminData, relations: InviteRelationRow[], now = new Date()) {
+  const config = resolveInviteRewardConfig(data.inviteRewardConfig);
+  const byId = new Map(relations.map((row) => [row.id, row]));
+
+  const netPaidByUser = new Map<string, { paid: number; refunded: number; orders: number }>();
+  for (const order of data.orders || []) {
+    if (order.status !== "paid" && order.status !== "refunded") continue;
+    const entry = netPaidByUser.get(order.userId) || { paid: 0, refunded: 0, orders: 0 };
+    entry.paid += Number(order.amount) || 0;
+    entry.refunded += Number(order.refundAmount) || 0;
+    entry.orders += 1;
+    netPaidByUser.set(order.userId, entry);
+  }
+
+  const inviteBatches = (data.creditBatches || []).filter((batch) =>
+    batch.source.startsWith(`${INVITE_SOURCE_PREFIX}/`)
+  );
+  // key = `${userId}|${inviteeId}`
+  const rewardByUserInvitee = new Map<string, { granted: number; refunded: boolean }>();
+  for (const batch of inviteBatches) {
+    const inviteeId = batch.source.slice(INVITE_SOURCE_PREFIX.length + 1);
+    const key = `${batch.userId}|${inviteeId}`;
+    const entry = rewardByUserInvitee.get(key) || { granted: 0, refunded: false };
+    entry.granted += Math.max(0, Number(batch.initialCredits) || 0);
+    if (batch.status === "refunded") entry.refunded = true;
+    rewardByUserInvitee.set(key, entry);
+  }
+
+  const groups = new Map<string, InviteRelationRow[]>();
+  for (const row of relations) {
+    // 只看直接上线这一个字段，单层分组。
+    if (!row.invitedBy) continue;
+    const list = groups.get(row.invitedBy) || [];
+    list.push(row);
+    groups.set(row.invitedBy, list);  }
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const inviters = Array.from(groups.entries()).map(([inviterId, invitees]) => {
+    const inviter = byId.get(inviterId);
+    const rows = invitees
+      .map((invitee) => {
+        const pay = netPaidByUser.get(invitee.id) || { paid: 0, refunded: 0, orders: 0 };
+        const inviterReward = rewardByUserInvitee.get(`${inviterId}|${invitee.id}`);
+        const inviteeReward = rewardByUserInvitee.get(`${invitee.id}|${invitee.id}`);
+        const rewarded = Boolean(inviterReward && inviterReward.granted > 0);
+        const state = rewarded
+          ? (inviterReward!.refunded ? "refunded" : "rewarded")
+          : invitee.hasPaid
+            ? "paid_no_reward"
+            : isBindingExpired({ id: invitee.id, username: invitee.username, invitedAt: invitee.invitedAt }, now, config)
+              ? "expired"
+              : "pending";
+        return {
+          id: invitee.id,
+          username: invitee.username,
+          registeredAt: invitee.createdAt || "",
+          invitedAt: invitee.invitedAt,
+          status: invitee.status || "active",
+          hasPaid: invitee.hasPaid,
+          state,
+          paidOrders: pay.orders,
+          paidHkd: round2(pay.paid),
+          refundedHkd: round2(pay.refunded),
+          netPaidHkd: round2(Math.max(0, pay.paid - pay.refunded)),
+          inviterRewardCredits: inviterReward?.granted || 0,
+          inviteeRewardCredits: inviteeReward?.granted || 0,
+        };
+      })
+      .sort((a, b) => String(b.invitedAt).localeCompare(String(a.invitedAt)));
+
+    const rewardedCount = rows.filter((row) => row.state === "rewarded").length;
+    return {
+      inviterId,
+      inviterName: inviter?.username || inviterId,
+      inviteCode: inviter?.inviteCode || "",
+      inviterStatus: inviter?.status || "unknown",
+      acceptDisabled: inviter?.inviteAcceptDisabled === true,
+      /** 直接邀请注册成功的账号数（分成计数口径） */
+      directInviteCount: rows.length,
+      paidInviteCount: rows.filter((row) => row.netPaidHkd > 0).length,
+      rewardedCount,
+      pendingCount: rows.filter((row) => row.state === "pending").length,
+      remainingQuota: Math.max(0, config.maxRewardedInvitesPerUser - rewardedCount),
+      /** 直接邀请用户的净付费合计（分成金额的计算基数） */
+      directNetPaidHkd: round2(rows.reduce((sum, row) => sum + row.netPaidHkd, 0)),
+      earnedRewardCredits: rows.reduce((sum, row) => sum + (row.state === "rewarded" ? row.inviterRewardCredits : 0), 0),
+      invitees: rows,
+    };
+  }).sort((a, b) => b.directInviteCount - a.directInviteCount || b.directNetPaidHkd - a.directNetPaidHkd);
+
+  return {
+    /** 标注给前端：本报表只含一层关系 */
+    levels: 1 as const,
+    config,
+    totals: {
+      inviterCount: inviters.length,
+      inviteeCount: inviters.reduce((sum, row) => sum + row.directInviteCount, 0),
+      paidInviteeCount: inviters.reduce((sum, row) => sum + row.paidInviteCount, 0),
+      netPaidHkd: round2(inviters.reduce((sum, row) => sum + row.directNetPaidHkd, 0)),
+      rewardCreditsGranted: inviteBatches
+        .filter((batch) => batch.status !== "refunded")
+        .reduce((sum, batch) => sum + Math.max(0, Number(batch.initialCredits) || 0), 0),
+    },
+    inviters,
+  };
+}
+
+/** 某用户作为**邀请人**实际到账、且未被退款扣回的邀请奖励总额。 */
+export async function getInviteEarnedCreditsForUser(userId: string): Promise<number> {
+  const data = await loadAdminData();
+  return (data.creditBatches || [])
+    .filter((batch) =>
+      batch.userId === userId
+      && batch.status !== "refunded"
+      && batch.source.startsWith(`${INVITE_SOURCE_PREFIX}/`)
+      // 排除自己作为被邀请人拿到的那份（source 末段 = 自己的 id）
+      && batch.source !== `${INVITE_SOURCE_PREFIX}/${userId}`)
+    .reduce((sum, batch) => sum + Math.max(0, Number(batch.initialCredits) || 0), 0);
 }
 
 export async function handleAdminApiRequest(
@@ -4487,12 +4720,14 @@ export async function handleAdminApiRequest(
      * 用户完全可能把订单积分花光（订单侧扣不到）却还留着奖励积分，
      * 放进去会让这种情况下的奖励一分都收不回来。
      */
-    const inviteeClawback = resolveInviteClawbackAmount(
-      INVITE_REWARD_CONFIG.inviteeCredits,
-      inviteeRewardRemaining
-    );
+    // 按批次上记录的**实际发放额**扣回，而不是当前配置（后台可能已改过额度）。
+    const inviteeGranted = getGrantedCreditsByUserSource(data, user.id, inviteRewardSource);
+    const inviterGranted = inviterBatch
+      ? getGrantedCreditsByUserSource(data, inviterBatch.userId, inviteRewardSource)
+      : 0;
+    const inviteeClawback = resolveInviteClawbackAmount(inviteeGranted, inviteeRewardRemaining);
     const inviterClawback = inviterBatch
-      ? resolveInviteClawbackAmount(INVITE_REWARD_CONFIG.inviterCredits, inviterRewardRemaining)
+      ? resolveInviteClawbackAmount(inviterGranted, inviterRewardRemaining)
       : 0;
     if (inviteeClawback > 0 || inviterClawback > 0) {
       const inviteEntries: CreditLedgerEntry[] = [];
@@ -4573,7 +4808,7 @@ export async function handleAdminApiRequest(
       const verdict = evaluateInviteRefundRate({
         rewardedInvites: inviterRewardBatches.length,
         refundedInvites: refundedCount,
-      });
+      }, resolveInviteRewardConfig(data.inviteRewardConfig));
       if (verdict.abnormal) {
         /*
          * 命中即自动封禁邀请人（用户决策 09-13，此前是只告警）。
@@ -4635,7 +4870,7 @@ export async function handleAdminApiRequest(
           {
             id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
             title: banOutcome === "banned" ? "邀请渠道退款率异常（已自动封禁）" : "邀请渠道退款率异常（封禁未生效）",
-            detail: `邀请人 ${inviterBatch.user}（${inviterBatch.userId}）已获奖励 ${inviterRewardBatches.length} 次，其中 ${refundedCount} 次因退款被扣回，退款率 ${(verdict.rate * 100).toFixed(0)}%，达到 ${(INVITE_REWARD_CONFIG.refundRateAlertThreshold * 100).toFixed(0)}% 阈值。${banSuffix}`,
+            detail: `邀请人 ${inviterBatch.user}（${inviterBatch.userId}）已获奖励 ${inviterRewardBatches.length} 次，其中 ${refundedCount} 次因退款被扣回，退款率 ${(verdict.rate * 100).toFixed(0)}%，达到 ${(resolveInviteRewardConfig(data.inviteRewardConfig).refundRateAlertThreshold * 100).toFixed(0)}% 阈值。${banSuffix}`,
             status: "open",
             severity: "high",
             target: inviterBatch.userId,
@@ -4652,15 +4887,15 @@ export async function handleAdminApiRequest(
       }
     }
     const inviteClawbackShortfall =
-      Math.max(0, INVITE_REWARD_CONFIG.inviteeCredits - inviteeClawback) +
-      (inviterBatch ? Math.max(0, INVITE_REWARD_CONFIG.inviterCredits - inviterClawback) : 0);
+      Math.max(0, inviteeGranted - inviteeClawback) +
+      (inviterBatch ? Math.max(0, inviterGranted - inviterClawback) : 0);
     if (inviteRevokeNote || (inviteClawbackShortfall > 0 && (inviteeClawback > 0 || inviterClawback > 0))) {
       data.riskEvents = [
         {
           id: `risk_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`,
           title: inviteRevokeNote ? "邀请付费标记复位失败" : "邀请奖励扣回短缺",
           detail: inviteRevokeNote
-            || `${order.id} 退款应扣回邀请奖励 ${INVITE_REWARD_CONFIG.inviteeCredits + (inviterBatch ? INVITE_REWARD_CONFIG.inviterCredits : 0)} 积分，实际扣回 ${inviteeClawback + inviterClawback} 积分，短缺 ${inviteClawbackShortfall} 积分（奖励已被消费，按规则不扣成负数）。`,
+            || `${order.id} 退款应扣回邀请奖励 ${inviteeGranted + inviterGranted} 积分，实际扣回 ${inviteeClawback + inviterClawback} 积分，短缺 ${inviteClawbackShortfall} 积分（奖励已被消费，按规则不扣成负数）。`,
           status: "open",
           severity: "medium",
           target: order.id,
@@ -5001,6 +5236,45 @@ export async function handleAdminApiRequest(
         policyCount: data.aiBillingPolicies.length,
         discountCount: data.aiPlanDiscounts.length,
       },
+    });
+    await saveAdminData(data);
+    return { status: 200, body: fullPayload(data) };
+  }
+
+  if (method === "GET" && route === "invites") {
+    const relations = await listInviteRelationsForAdmin();
+    return { status: 200, body: buildInviteRelationsReport(data, relations) };
+  }
+
+  if (method === "POST" && route === "invite-reward-config/save") {
+    /**
+     * 邀请奖励配置保存。校验三道：二次确认 → 经济性硬约束 → 审计留痕。
+     * 经济性约束与 invite-reward-economics.test.ts 同源（validateInviteRewardConfig），
+     * 测试只能守代码常量，库里的值只能靠这里守。
+     */
+    if (!hasConfirmation(body, "CONFIRM_INVITE_REWARD_CONFIG")) {
+      return jsonError(409, "更新邀请奖励配置需要二次确认");
+    }
+    const before = resolveInviteRewardConfig(data.inviteRewardConfig);
+    const next: StoredInviteRewardConfig = {
+      ...before,
+      // 保存时对齐代码当前版本，理由同 signup-initial-credits/save。
+      configVersion: INVITE_REWARD_CONFIG.configVersion,
+    };
+    for (const key of INVITE_REWARD_EDITABLE_KEYS) {
+      if (body[key] === undefined || body[key] === "") continue;
+      next[key] = Number(body[key]);
+    }
+    const errors = validateInviteRewardConfig(next);
+    if (errors.length > 0) {
+      return jsonError(400, `邀请奖励配置不合规：${errors.join("；")}`);
+    }
+    data.inviteRewardConfig = next;
+    appendAuditLog(data, actor, {
+      action: "更新邀请奖励配置",
+      target: "invite-reward-config",
+      before,
+      after: next,
     });
     await saveAdminData(data);
     return { status: 200, body: fullPayload(data) };
@@ -5458,11 +5732,15 @@ export async function markBillingOrderPaid(params: {
      */
     let inviteRewardCredits = 0;
     let inviteRewardNote: string | undefined;
+    // 后台配置的额度 —— 判定（auth 侧）与发放（这里）必须用**同一份**，否则会出现
+    // 「按新门槛判定通过、按旧额度发放」这类两端不一致。
+    const inviteConfig = resolveInviteRewardConfig(data.inviteRewardConfig);
     try {
       const settlement = await settleFirstPaymentForInvite({
         userId: user.id,
         paidAmountHkd: order.amount,
         now: new Date(paidAt),
+        config: inviteConfig,
       });
       if (settlement.reward) {
         const { inviterId, inviterName, inviteeId, inviteeName } = settlement.reward;
@@ -5470,29 +5748,29 @@ export async function markBillingOrderPaid(params: {
         const inviterUser = ensureBillingUser(data, { userId: inviterId, username: inviterName });
         const inviterResult = grantCredits(data, {
           user: inviterUser,
-          amount: INVITE_REWARD_CONFIG.inviterCredits,
+          amount: inviteConfig.inviterCredits,
           reason: buildInviteRewardReason("inviter", inviteeName),
           source: `${INVITE_SOURCE_PREFIX}/${inviteeId}`,
           operator: "系统",
           createdAt: paidAt,
-          expiryDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+          expiryDays: inviteConfig.rewardCreditValidDays,
           idempotencyKey: buildInviteIdempotencyKey(inviteeId, "inviter"),
         });
         const inviteeResult = grantCredits(data, {
           user,
-          amount: INVITE_REWARD_CONFIG.inviteeCredits,
+          amount: inviteConfig.inviteeCredits,
           reason: buildInviteRewardReason("invitee", inviterName),
           source: `${INVITE_SOURCE_PREFIX}/${inviteeId}`,
           operator: "系统",
           createdAt: paidAt,
-          expiryDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+          expiryDays: inviteConfig.rewardCreditValidDays,
           idempotencyKey: buildInviteIdempotencyKey(inviteeId, "invitee"),
         });
         if (inviterResult.success) {
-          inviteRewardCredits += INVITE_REWARD_CONFIG.inviterCredits;
+          inviteRewardCredits += inviteConfig.inviterCredits;
         }
         if (inviteeResult.success) {
-          inviteRewardCredits += INVITE_REWARD_CONFIG.inviteeCredits;
+          inviteRewardCredits += inviteConfig.inviteeCredits;
         }
         if (!inviterResult.success || !inviteeResult.success) {
           inviteRewardNote = [

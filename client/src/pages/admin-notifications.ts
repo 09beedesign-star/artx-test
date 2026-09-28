@@ -3,6 +3,7 @@ export type AdminNotificationSection =
   | "users"
   | "orders"
   | "credits"
+  | "invites"
   | "feedback"
   | "integrations"
   | "risk"

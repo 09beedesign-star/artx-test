@@ -59,12 +59,15 @@ import { filterAdminOrders, filterAdminUsers } from "./admin-list-filters";
 import { buildOrderExportFileName, exportOrdersToCsv } from "./admin-order-export";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
+import { InviteManagementPanel } from "./InviteManagementPanel";
+import type { InviteRewardConfigView } from "./invite-admin-report";
 
 type AdminSection =
   | "overview"
   | "users"
   | "orders"
   | "credits"
+  | "invites"
   | "feedback"
   | "integrations"
   | "risk"
@@ -421,6 +424,16 @@ type OverviewData = {
     maxCredits: number;
     maxExpiryDays: number;
   };
+  inviteRewardConfig?: InviteRewardConfigView;
+  inviteRewardConfigLimits?: {
+    maxPairCostRatio: number;
+    maxInviterExposureHkd: number;
+    maxBindingValidDays: number;
+    maxRewardedInvitesPerUser: number;
+    worstCreditsPerHkd: number;
+    cheapestMonthlyPlanHkd: number;
+    maxRewardCreditValidDays: number;
+  };
   signupIpRateLimit?: {
     maxPerWindow: number;
     maxPerSubnetWindow: number;
@@ -488,6 +501,7 @@ const sections: Array<{
   { id: "users", label: "账户管理", description: "用户、状态、权限", icon: Users },
   { id: "orders", label: "支付订单", description: "支付、退款、对账", icon: CreditCard },
   { id: "credits", label: "积分管理", description: "积分、流水、调整", icon: WalletCards },
+  { id: "invites", label: "邀请管理", description: "邀请名单、奖励、分成", icon: Gift },
   { id: "feedback", label: "用户反馈", description: "意见、工单、回复", icon: MessageSquareText },
   { id: "integrations", label: "第三方接口", description: "支付、模型、密钥", icon: KeyRound },
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
@@ -2172,6 +2186,19 @@ function AdminPrototypePage() {
       );
     }
 
+    if (activeSection === "invites") {
+      return (
+        <InviteManagementPanel
+          token={readAdminToken()}
+          config={adminData.overview?.inviteRewardConfig}
+          limits={adminData.overview?.inviteRewardConfigLimits}
+          onSaveConfig={(payload) =>
+            adminPost("/api/admin/invite-reward-config/save", payload, "邀请奖励配置已保存，对之后的首次付费生效。")
+          }
+        />
+      );
+    }
+
     if (activeSection === "feedback") {
       return (
         <div className="space-y-3">
@@ -2816,7 +2843,7 @@ function SectionTabs({
 }) {
   return (
     <div className="flex gap-1 overflow-x-auto border-b border-white/10 p-2">
-      {sections.slice(0, 6).map((section) => (
+      {sections.slice(0, 7).map((section) => (
         <button
           key={section.id}
           className={cn(

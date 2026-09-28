@@ -24,7 +24,51 @@ import {
   INVITE_REWARD_CONFIG,
   INVITE_CODE_ALPHABET,
   INVITE_CODE_LENGTH,
+  type InviteRewardRuntimeConfig,
 } from "../shared/billing-config";
+
+export type { InviteRewardRuntimeConfig };
+
+/**
+ * 代码默认配置。所有函数的 `config` 参数都默认取它 ——
+ * 生产路径应由调用方传入 admin-store 里 resolve 出来的后台配置，
+ * 否则后台改了额度，这里仍按代码常量判定（多出口事故）。
+ */
+export const DEFAULT_INVITE_REWARD_RUNTIME_CONFIG: InviteRewardRuntimeConfig = {
+  inviterCredits: INVITE_REWARD_CONFIG.inviterCredits,
+  inviteeCredits: INVITE_REWARD_CONFIG.inviteeCredits,
+  maxRewardedInvitesPerUser: INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser,
+  bindingValidDays: INVITE_REWARD_CONFIG.bindingValidDays,
+  rewardCreditValidDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
+  minPaidAmountHkd: INVITE_REWARD_CONFIG.minPaidAmountHkd,
+  refundRateAlertThreshold: INVITE_REWARD_CONFIG.refundRateAlertThreshold,
+  refundRateMinSamples: INVITE_REWARD_CONFIG.refundRateMinSamples,
+};
+
+/**
+ * 运行时配置提供者 —— 解决 auth-store ↔ admin-store 的循环依赖。
+ *
+ * 后台保存的邀请奖励配置存在 admin 库，但注册绑定、邀请面板在 auth-store 里跑，
+ * 而 admin-store 本身 import 了 auth-store，反向 import 会成环。
+ * 所以由 admin-store 在加载时注册一个只读提供者，auth-store 通过这里取值。
+ *
+ * ⚠️ 没注册（例如单测只加载了 auth-store）时回落代码默认值，
+ * 这是刻意的：宁可按默认值判，也不能因为读不到后台配置就放行。
+ */
+let inviteRewardConfigProvider: (() => Promise<InviteRewardRuntimeConfig>) | null = null;
+
+export function registerInviteRewardConfigProvider(provider: (() => Promise<InviteRewardRuntimeConfig>) | null) {
+  inviteRewardConfigProvider = provider;
+}
+
+export async function getActiveInviteRewardConfig(): Promise<InviteRewardRuntimeConfig> {
+  if (!inviteRewardConfigProvider) return DEFAULT_INVITE_REWARD_RUNTIME_CONFIG;
+  try {
+    return await inviteRewardConfigProvider();
+  } catch {
+    return DEFAULT_INVITE_REWARD_RUNTIME_CONFIG;
+  }
+}
 
 /** 风控判定所需的用户最小形状，与 auth-store 的 StoredUser 结构兼容。 */
 export type InviteUserLike = {
@@ -122,8 +166,10 @@ export function evaluateBindingEligibility(params: {
   inviteeIp?: string;
   allUsers: InviteUserLike[];
   now?: Date;
+  config?: InviteRewardRuntimeConfig;
 }): InviteEligibility {
   const { inviter, inviteeIdentityKey, inviteeIp, allUsers } = params;
+  const config = params.config || DEFAULT_INVITE_REWARD_RUNTIME_CONFIG;
 
   if (!inviter) {
     return { eligible: false, reason: "no_binding", detail: "邀请码无效" };
@@ -163,11 +209,11 @@ export function evaluateBindingEligibility(params: {
   // 配额预检：已经拿满奖励的邀请人不再接受新绑定，避免用户白白建立一条
   // 永远不会兑现的关系（体验上比「绑定成功但付费后才告诉你没奖」好得多）。
   const rewardedCount = countRewardedInvites(allUsers, inviter.id);
-  if (rewardedCount >= INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser) {
+  if (rewardedCount >= config.maxRewardedInvitesPerUser) {
     return {
       eligible: false,
       reason: "inviter_quota_exceeded",
-      detail: `邀请人已达奖励上限（${INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser} 人）`,
+      detail: `邀请人已达奖励上限（${config.maxRewardedInvitesPerUser} 人）`,
     };
   }
 
@@ -180,16 +226,25 @@ export function countRewardedInvites(users: InviteUserLike[], inviterId: string)
 }
 
 /** 统计某个邀请人已绑定但尚未付费的人数（前端展示「待转化」用）。 */
-export function countPendingInvites(users: InviteUserLike[], inviterId: string, now = new Date()): number {
+export function countPendingInvites(
+  users: InviteUserLike[],
+  inviterId: string,
+  now = new Date(),
+  config: InviteRewardRuntimeConfig = DEFAULT_INVITE_REWARD_RUNTIME_CONFIG
+): number {
   return users.filter((user) => {
     if (user.invitedBy !== inviterId || user.hasPaid === true) {
       return false;
     }
-    return !isBindingExpired(user, now);
+    return !isBindingExpired(user, now, config);
   }).length;
 }
 
-export function isBindingExpired(invitee: InviteUserLike, now = new Date()): boolean {
+export function isBindingExpired(
+  invitee: InviteUserLike,
+  now = new Date(),
+  config: InviteRewardRuntimeConfig = DEFAULT_INVITE_REWARD_RUNTIME_CONFIG
+): boolean {
   if (!invitee.invitedAt) {
     return false;
   }
@@ -200,7 +255,7 @@ export function isBindingExpired(invitee: InviteUserLike, now = new Date()): boo
     return false;
   }
   const ageMs = now.getTime() - bound;
-  return ageMs > INVITE_REWARD_CONFIG.bindingValidDays * 24 * 60 * 60 * 1000;
+  return ageMs > config.bindingValidDays * 24 * 60 * 60 * 1000;
 }
 
 /**
@@ -215,9 +270,11 @@ export function evaluateRewardEligibility(params: {
   allUsers: InviteUserLike[];
   paidAmountHkd: number;
   now?: Date;
+  config?: InviteRewardRuntimeConfig;
 }): InviteEligibility {
   const { invitee, inviter, allUsers, paidAmountHkd } = params;
   const now = params.now || new Date();
+  const config = params.config || DEFAULT_INVITE_REWARD_RUNTIME_CONFIG;
 
   if (!invitee.invitedBy || !inviter) {
     return { eligible: false, reason: "no_binding", detail: "该用户没有有效的邀请关系" };
@@ -237,19 +294,19 @@ export function evaluateRewardEligibility(params: {
     return { eligible: false, reason: "already_rewarded", detail: "该用户的邀请奖励已发放" };
   }
 
-  if (paidAmountHkd < INVITE_REWARD_CONFIG.minPaidAmountHkd) {
+  if (paidAmountHkd < config.minPaidAmountHkd) {
     return {
       eligible: false,
       reason: "amount_below_threshold",
-      detail: `首次付费需满 ${INVITE_REWARD_CONFIG.minPaidAmountHkd} 港币才触发邀请奖励`,
+      detail: `首次付费需满 ${config.minPaidAmountHkd} 港币才触发邀请奖励`,
     };
   }
 
-  if (isBindingExpired(invitee, now)) {
+  if (isBindingExpired(invitee, now, config)) {
     return {
       eligible: false,
       reason: "binding_expired",
-      detail: `邀请关系已超过 ${INVITE_REWARD_CONFIG.bindingValidDays} 天有效期`,
+      detail: `邀请关系已超过 ${config.bindingValidDays} 天有效期`,
     };
   }
 
@@ -264,11 +321,11 @@ export function evaluateRewardEligibility(params: {
   }
 
   const rewardedCount = countRewardedInvites(allUsers, inviter.id);
-  if (rewardedCount >= INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser) {
+  if (rewardedCount >= config.maxRewardedInvitesPerUser) {
     return {
       eligible: false,
       reason: "inviter_quota_exceeded",
-      detail: `邀请人已达奖励上限（${INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser} 人）`,
+      detail: `邀请人已达奖励上限（${config.maxRewardedInvitesPerUser} 人）`,
     };
   }
 
@@ -317,17 +374,20 @@ export function resolveInviteClawbackAmount(granted: number, available: number):
  *
  * 返回 rate 供调用方写进告警详情，让人工一眼看到是 3/5 还是 9/10。
  */
-export function evaluateInviteRefundRate(input: {
-  rewardedInvites: number;
-  refundedInvites: number;
-}): { abnormal: boolean; rate: number } {
+export function evaluateInviteRefundRate(
+  input: {
+    rewardedInvites: number;
+    refundedInvites: number;
+  },
+  config: InviteRewardRuntimeConfig = DEFAULT_INVITE_REWARD_RUNTIME_CONFIG
+): { abnormal: boolean; rate: number } {
   const rewarded = Math.max(0, Math.round(input.rewardedInvites));
   const refunded = Math.max(0, Math.round(input.refundedInvites));
   if (rewarded <= 0) return { abnormal: false, rate: 0 };
   const rate = Math.min(1, refunded / rewarded);
   const abnormal =
-    rewarded >= INVITE_REWARD_CONFIG.refundRateMinSamples
-    && rate >= INVITE_REWARD_CONFIG.refundRateAlertThreshold;
+    rewarded >= config.refundRateMinSamples
+    && rate >= config.refundRateAlertThreshold;
   return { abnormal, rate };
 }
 
@@ -339,22 +399,31 @@ export function buildInviteRewardReason(role: "inviter" | "invitee", counterpart
 }
 
 /** 前端邀请面板所需的聚合数据。 */
-export function buildInviteSummary(user: InviteUserLike, allUsers: InviteUserLike[], now = new Date()) {
+export function buildInviteSummary(
+  user: InviteUserLike,
+  allUsers: InviteUserLike[],
+  now = new Date(),
+  config: InviteRewardRuntimeConfig = DEFAULT_INVITE_REWARD_RUNTIME_CONFIG,
+  /** 实际已到账的邀请奖励。传了就用它 —— 额度改过之后「人数 × 当前额度」会算错历史。 */
+  actualEarnedCredits?: number
+) {
   const rewarded = countRewardedInvites(allUsers, user.id);
-  const pending = countPendingInvites(allUsers, user.id, now);
+  const pending = countPendingInvites(allUsers, user.id, now, config);
   return {
     inviteCode: user.inviteCode || "",
     // 显式转布尔：字段是后加的，历史账号里不存在，undefined 必须呈现为「未暂停」。
     acceptDisabled: user.inviteAcceptDisabled === true,
     rewardedCount: rewarded,
     pendingCount: pending,
-    remainingQuota: Math.max(0, INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser - rewarded),
-    maxQuota: INVITE_REWARD_CONFIG.maxRewardedInvitesPerUser,
-    earnedCredits: rewarded * INVITE_REWARD_CONFIG.inviterCredits,
-    inviterCredits: INVITE_REWARD_CONFIG.inviterCredits,
-    inviteeCredits: INVITE_REWARD_CONFIG.inviteeCredits,
-    bindingValidDays: INVITE_REWARD_CONFIG.bindingValidDays,
-    rewardCreditValidDays: INVITE_REWARD_CONFIG.rewardCreditValidDays,
-    minPaidAmountHkd: INVITE_REWARD_CONFIG.minPaidAmountHkd,
+    remainingQuota: Math.max(0, config.maxRewardedInvitesPerUser - rewarded),
+    maxQuota: config.maxRewardedInvitesPerUser,
+    earnedCredits: typeof actualEarnedCredits === "number" && Number.isFinite(actualEarnedCredits)
+      ? actualEarnedCredits
+      : rewarded * config.inviterCredits,
+    inviterCredits: config.inviterCredits,
+    inviteeCredits: config.inviteeCredits,
+    bindingValidDays: config.bindingValidDays,
+    rewardCreditValidDays: config.rewardCreditValidDays,
+    minPaidAmountHkd: config.minPaidAmountHkd,
   };
 }

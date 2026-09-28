@@ -11,6 +11,8 @@ import {
   evaluateRewardEligibility,
   findUserByInviteCode,
   generateUniqueInviteCode,
+  getActiveInviteRewardConfig,
+  type InviteRewardRuntimeConfig,
 } from "./invite-rewards";
 import { SIGNUP_IP_RATE_LIMIT } from "../shared/billing-config";
 
@@ -838,7 +840,7 @@ export async function listAuthUsers() {
  *
  * ⚠️ 不落盘：调用方所在分支后续都会 saveDatabase，这里重复存盘只会多一次 IO。
  */
-function bindInviteRelationIfEligible(params: {
+async function bindInviteRelationIfEligible(params: {
   db: AuthDatabase;
   user: StoredUser;
   isNewUser: boolean;
@@ -858,6 +860,7 @@ function bindInviteRelationIfEligible(params: {
     inviteeIdentityKey: identityKeyOf(user.username),
     inviteeIp: params.ip,
     allUsers: db.users,
+    config: await getActiveInviteRewardConfig(),
   });
   if (verdict.eligible) {
     // eligible 为真时 inviter 必然存在（找不到邀请人时 evaluateBindingEligibility
@@ -897,6 +900,8 @@ export async function settleFirstPaymentForInvite(input: {
   userId: string;
   paidAmountHkd: number;
   now?: Date;
+  /** 由 admin-store 传入后台生效配置；不传则走注册的提供者/代码默认值。 */
+  config?: InviteRewardRuntimeConfig;
 }): Promise<{
   reward: null | {
     inviterId: string;
@@ -923,6 +928,7 @@ export async function settleFirstPaymentForInvite(input: {
     allUsers: db.users,
     paidAmountHkd: input.paidAmountHkd,
     now: input.now,
+    config: input.config || await getActiveInviteRewardConfig(),
   });
 
   if (!alreadyPaid) {
@@ -978,7 +984,7 @@ export async function revokeFirstPaymentForInvite(userId: string): Promise<{
 }
 
 /** 读取某位用户的邀请面板数据（邀请码、已获奖人数、剩余配额等）。 */
-export async function getInviteSummaryForUser(userId: string) {
+export async function getInviteSummaryForUser(userId: string, options: { actualEarnedCredits?: number } = {}) {
   const db = await loadDatabase();
   const user = db.users.find((item) => item.id === userId);
   if (!user) {
@@ -990,7 +996,7 @@ export async function getInviteSummaryForUser(userId: string) {
     user.inviteCode = generateUniqueInviteCode(db.users);
     await saveDatabase(db);
   }
-  return buildInviteSummary(user, db.users);
+  return buildInviteSummary(user, db.users, new Date(), await getActiveInviteRewardConfig(), options.actualEarnedCredits);
 }
 
 /**
@@ -1017,7 +1023,30 @@ export async function setInviteAcceptDisabled(userId: string, disabled: boolean)
     meta: { inviteCode: user.inviteCode || "" },
   });
   await saveDatabase(db);
-  return buildInviteSummary(user, db.users);
+  return buildInviteSummary(user, db.users, new Date(), await getActiveInviteRewardConfig());
+}
+
+/**
+ * 后台「邀请管理」所需的邀请关系原始数据。
+ *
+ * ⚠️⚠️ 只返回**一层**关系（invitedBy = 直接邀请人），刻意不提供任何
+ * 「下线的下线」查询。分成只能按直接邀请计算 —— 按多层下线计酬属于
+ * 《禁止传销条例》定义的「团队计酬」，是本功能的法律红线。
+ * 不给多层数据，就从源头上杜绝了有人在后台拼出多级分成。
+ */
+export async function listInviteRelationsForAdmin() {
+  const db = await loadDatabase();
+  return db.users.map((user) => ({
+    id: user.id,
+    username: user.username,
+    createdAt: user.createdAt,
+    status: user.status,
+    inviteCode: user.inviteCode || "",
+    invitedBy: user.invitedBy || "",
+    invitedAt: user.invitedAt || "",
+    hasPaid: user.hasPaid === true,
+    inviteAcceptDisabled: user.inviteAcceptDisabled === true,
+  }));
 }
 
 export async function createAuthUserForAdmin(input: {
@@ -1295,7 +1324,7 @@ export async function handleAuthAction(
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastLoginAt = new Date().toISOString();
-    bindInviteRelationIfEligible({
+    await bindInviteRelationIfEligible({
       db,
       user,
       isNewUser,
@@ -1423,7 +1452,7 @@ export async function handleAuthAction(
     user.failedLoginCount = 0;
     user.lockedUntil = undefined;
     user.lastLoginAt = new Date().toISOString();
-    bindInviteRelationIfEligible({
+    await bindInviteRelationIfEligible({
       db,
       user,
       isNewUser,
@@ -1481,7 +1510,7 @@ export async function handleAuthAction(
     // 发奖统一推迟到被邀请人首次付费时（见 server/invite-rewards.ts 顶部说明）。
     // 注册奖励与邀请奖励是两回事：前者是固定的体验额度（有限频兜底），
     // 后者挂在「被邀请人首次付费」上，绝不能挪到注册链路。
-    bindInviteRelationIfEligible({
+    await bindInviteRelationIfEligible({
       db,
       user,
       isNewUser: true,

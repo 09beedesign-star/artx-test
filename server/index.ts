@@ -30,11 +30,10 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
-import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail } from "./admin-store";
+import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail, getInviteEarnedCreditsForUser } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
-import { INVITE_REWARD_CONFIG } from "../shared/billing-config";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { InMemoryRateLimiter, readRuleFromEnv, resolveClientIp } from "./ai-rate-limit";
 import { assertUserCanUseSelectableModel } from "./user-model-access";
@@ -2457,7 +2456,9 @@ async function startServer() {
     try {
       const user = await requireSessionUser(req, res);
       if (!user) return;
-      const summary = await getInviteSummaryForUser(user.id);
+      // 已获积分取实际到账额（后台改过额度后「人数 × 当前额度」会算错）。
+      const actualEarnedCredits = await getInviteEarnedCreditsForUser(user.id);
+      const summary = await getInviteSummaryForUser(user.id, { actualEarnedCredits });
       if (!summary) {
         res.status(404).json({ error: "用户不存在" });
         return;
@@ -2554,8 +2555,9 @@ async function startServer() {
       const emailHtml = buildInviteEmailHtml({
         inviterName: user.username || "好友",
         inviteLink,
-        inviterCredits: INVITE_REWARD_CONFIG.inviterCredits,
-        inviteeCredits: INVITE_REWARD_CONFIG.inviteeCredits,
+        // 取 summary 里的值（= 后台生效配置），与正文 text 同源，避免 HTML 写死代码常量。
+        inviterCredits: summary.inviterCredits,
+        inviteeCredits: summary.inviteeCredits,
       });
 
       const emailResult = await sendUserEmailNotification({
