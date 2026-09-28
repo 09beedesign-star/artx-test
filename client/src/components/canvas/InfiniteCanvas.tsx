@@ -9277,7 +9277,9 @@ function AssetNodeComponent({
                       key={tag}
                       className="absolute"
                       style={{
-                        bottom: 8,
+                        // 左下角可能有 30px 高的「撤销重绘」按钮（bottom 10），A/B 标签统一抬到它上方，
+                        // 左右对称；不在这里引用撤销条件，避免破坏该锚点「源码唯一」的约束测试。
+                        bottom: 48,
                         ...(tag === "A" ? { left: 8 } : { right: 8 }),
                         padding: "2px 5px",
                         borderRadius: 4,
@@ -9373,6 +9375,10 @@ function AssetNodeComponent({
                高 30→15、字号 11→8、内边距 11→6、图标 13→9、圆角同步收紧。
                这里**不能只改 height** —— 只改高度会让字挤成一条、图标溢出，
                视觉上不是"变小"而是"被压扁"。等比缩的是整套度量。
+
+            【2026-09-29】用户反馈「字体太小」，要求**整体放大 2 倍**：
+               高 15→30、字号 8→16、内边距 6→12、图标 9→18、间距 3→6、圆角 4→8。
+               同样是整套度量一起乘 2，不能只改字号（字会顶破 15px 高的按钮）。
           */}
           {/*
             ── 云端清理倒计时角标 ──────────────────────────────────────
@@ -9442,16 +9448,16 @@ function AssetNodeComponent({
                 title="回到本次局部重绘之前的效果"
                 className="flex items-center justify-center transition-all duration-150 hover:brightness-110"
                 style={{
-                  height: 15,
-                  gap: 3,
-                  padding: "0 6px",
-                  borderRadius: 4,
+                  height: 30,
+                  gap: 6,
+                  padding: "0 12px",
+                  borderRadius: 8,
                   background: "rgba(16,16,20,0.76)",
                   color: "rgba(255,255,255,0.94)",
                   border: "1px solid rgba(255,255,255,0.22)",
                   backdropFilter: "blur(6px)",
                   boxShadow: "0 6px 15px rgba(0,0,0,0.34)",
-                  fontSize: 8,
+                  fontSize: 16,
                   fontWeight: 700,
                   lineHeight: 1,
                   whiteSpace: "nowrap",
@@ -9466,7 +9472,7 @@ function AssetNodeComponent({
                   );
                 }}
               >
-                <Undo2 size={9} strokeWidth={2.4} />
+                <Undo2 size={18} strokeWidth={2.4} />
                 撤销重绘
               </button>
             </div>

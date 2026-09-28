@@ -163,38 +163,39 @@ describe("【2026-09-24】「确认修改」按钮已按用户要求移除", () 
   });
 });
 
-describe("【2026-09-24】撤销按钮尺寸缩小一倍", () => {
+describe("【2026-09-29】撤销按钮整体放大 2 倍", () => {
   /**
-   * 用户要求：「撤销重绘的按钮尺寸缩小一倍。」
+   * 用户要求：「撤销重绘的按钮，字体太小了。整体放大 2 倍。」
    *
-   * ⚠️⚠️⚠️ 判据不能只看 height。只把高度砍半、字号图标不动，
-   *   视觉上是「被压扁」而不是「变小」，而且字会溢出按钮 —— 零报错。
-   *   所以这里逐项锁住**整套等比缩小后的度量**。
+   * ⚠️⚠️⚠️ 判据不能只看 fontSize。只把字号翻倍、高度不动，
+   *   16px 的字会顶破 15px 高的按钮 —— 零报错。所以逐项锁住**整套放大后的度量**。
    *
-   * 基线（缩小前）：height 30 / fontSize 11 / padding 0 11px / icon 13。
-   * 目标（缩小后）：height 15 / fontSize 8  / padding 0 6px  / icon 9。
+   * 基线（放大前，2026-09-24 缩过一次）：height 15 / fontSize 8 / padding 0 6px / icon 9 / gap 3 / radius 4。
+   * 目标（×2）：                        height 30 / fontSize 16 / padding 0 12px / icon 18 / gap 6 / radius 8。
    */
   const undoButton = sliceBetween(
     'aria-label="撤销局部重绘"',
     "</button>"
   );
 
-  it("高度减半：30 → 15", () => {
-    expect(undoButton, "按钮高度没缩小").toContain("height: 15,");
-    expect(undoButton, "还残留着旧的 30px 高度").not.toContain("height: 30,");
+  it("高度翻倍：15 → 30", () => {
+    expect(undoButton, "按钮高度没放大").toContain("height: 30,");
+    expect(undoButton, "还残留着旧的 15px 高度").not.toContain("height: 15,");
   });
 
-  it("字号同步缩小：11 → 8（只改高度会让字溢出）", () => {
-    expect(undoButton, "字号没跟着缩").toContain("fontSize: 8,");
-    expect(undoButton, "还残留着旧字号").not.toContain("fontSize: 11,");
+  it("字号翻倍：8 → 16", () => {
+    expect(undoButton, "字号没放大").toContain("fontSize: 16,");
+    expect(undoButton, "还残留着旧字号").not.toContain("fontSize: 8,");
   });
 
-  it("内边距同步收紧：11px → 6px", () => {
-    expect(undoButton, "左右内边距没收紧").toContain('padding: "0 6px"');
+  it("内边距、间距、圆角同步翻倍", () => {
+    expect(undoButton, "左右内边距没放大").toContain('padding: "0 12px"');
+    expect(undoButton, "图标与文字间距没放大").toContain("gap: 6,");
+    expect(undoButton, "圆角没放大").toContain("borderRadius: 8,");
   });
 
-  it("图标同步缩小：13 → 9", () => {
-    expect(undoButton, "图标没缩小，会顶破按钮").toContain("size={9}");
-    expect(undoButton, "还残留着旧图标尺寸").not.toContain("size={13}");
+  it("图标翻倍：9 → 18", () => {
+    expect(undoButton, "图标没放大，和字不成比例").toContain("size={18}");
+    expect(undoButton, "还残留着旧图标尺寸").not.toContain("size={9}");
   });
 });
