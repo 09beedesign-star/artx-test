@@ -37327,10 +37327,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    *    就是这么被吃掉的，Playwright 真实点击直接超时）。
    *    下限计算已收口到 floating-panel-layer.ts 的 minNodeToolbarTop，
    *    不要在这里再写第二套数字。
+   *
+   * 2026-09-29：用户要求命令条可上移到「距顶部工具盘 20px」处
+   *    （工具盘 y ∈ [68,114]，命令条顶边停在 y=134）。
+   * ⚠️ imageToolbarScreenHeight 必须等于命令条**真实高度**，否则可见间距会偏：
+   *    按钮 w-8 h-8(32) + 外层 padding 4×2 + 边框 1×2 = 42（旧值 44 是估算，会多出 2px）。
    */
   const imageToolbarGap = 8;
   const imageToolbarViewportPadding = 8;
-  const imageToolbarScreenHeight = 44;
+  const imageToolbarScreenHeight = 42;
   const attachedImageToolbarPosition = selectedImageBounds
     ? (() => {
         const screenTop = selectedImageBounds.y * viewport.zoom + viewport.y;

@@ -23,7 +23,6 @@ import {
   CANVAS_TOOL_PALETTE_HEIGHT,
   CANVAS_TOOL_PALETTE_TOP,
   minNodeToolbarTop,
-  NODE_TOOLBAR_TOP_EXTRA_OFFSET,
   overlapsToolPalette,
   TOOLBAR_PALETTE_CLEARANCE,
 } from "./floating-panel-layer";
@@ -356,7 +355,7 @@ describe("接线断言：portal + 点击置前必须真的接上", () => {
  * 📌⭐⭐ 判据：两个浮层写同一个 zIndex = 把层级交给 DOM 顺序，等于没定层级。
  */
 describe("命令条不能被顶部工具盘吃掉点击", () => {
-  const BAR_H = 44;
+  const BAR_H = 42; // 命令条真实高度：h-8(32) + padding 4×2 + 边框 1×2
   const PAD = 8;
 
   it("⭐ 核心：贴顶夹取后的位置必须与工具盘零重叠", () => {
@@ -377,16 +376,33 @@ describe("命令条不能被顶部工具盘吃掉点击", () => {
     );
   });
 
-  it("【2026-09-29】贴顶上限比原来多下压 120px（命令条顶边 120 → 240）", () => {
-    expect(NODE_TOOLBAR_TOP_EXTRA_OFFSET).toBe(120);
+  it("【2026-09-29】贴顶时命令条顶边与工具盘下沿恰好相距 20px（顶边 y=134）", () => {
+    expect(TOOLBAR_PALETTE_CLEARANCE).toBe(20);
     const top = minNodeToolbarTop(BAR_H, PAD);
-    expect(top - BAR_H).toBe(
-      CANVAS_TOOL_PALETTE_TOP +
-        CANVAS_TOOL_PALETTE_HEIGHT +
-        TOOLBAR_PALETTE_CLEARANCE +
-        120
+    const barTop = top - BAR_H;
+    const paletteBottom = CANVAS_TOOL_PALETTE_TOP + CANVAS_TOOL_PALETTE_HEIGHT;
+    expect(barTop - paletteBottom).toBe(20);
+    expect(barTop).toBe(134);
+  });
+
+  it("工具盘高度常量必须与主工具栏真实尺寸一致（py-1 + h-9 + 1px 边框 = 46）", () => {
+    const source = readFileSync(canvasPath, "utf8");
+    const bar = source.slice(source.indexOf("{/* 主工具栏 */}"));
+    expect(bar).toContain('className="flex w-max items-center rounded-[var(--radius-lg-design)] px-2 py-1 shadow-lg"');
+    expect(bar).toContain("border: `1px solid ${border}`");
+    expect(bar).toContain("relative flex h-9 w-9 items-center justify-center");
+    expect(CANVAS_TOOL_PALETTE_HEIGHT).toBe(4 * 2 + 36 + 1 * 2);
+  });
+
+  it("命令条高度常量必须与真实尺寸一致（h-8 + padding 4px + 1px 边框 = 42），否则可见间距≠20", () => {
+    const source = readFileSync(canvasPath, "utf8");
+    expect(source).toContain(
+      '"relative w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"'
     );
-    expect(top - BAR_H).toBe(240);
+    expect(source).toContain("border: `1px solid ${toolBorder}`");
+    expect(source).toContain('padding: "4px",');
+    expect(source).toContain("const imageToolbarScreenHeight = 42;");
+    expect(BAR_H).toBe(32 + 4 * 2 + 1 * 2);
   });
 
   it("视口下限仍然生效 —— 不能为了避让工具盘把命令条推出视口，也不能反过来丢掉视口保护", () => {

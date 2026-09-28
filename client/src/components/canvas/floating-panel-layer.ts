@@ -260,20 +260,22 @@ export function copyPanelScreenScale(zoom: number): number {
 /** 顶部工具盘的上边缘（与 InfiniteCanvas 里 `top: 68` 必须一致）。 */
 export const CANVAS_TOOL_PALETTE_TOP = 68;
 
-/** 顶部工具盘的高度估值（含内边距，按实测 40 + 边框余量取 44）。 */
-export const CANVAS_TOOL_PALETTE_HEIGHT = 44;
-
-/** 命令条与工具盘之间至少留的间距。 */
-export const TOOLBAR_PALETTE_CLEARANCE = 8;
+/**
+ * 顶部工具盘的真实高度（2026-09-29 按源码核算，不再用估值）：
+ * 主工具栏 `py-1`（上下各 4）+ 按钮 `h-9`（36）+ 上下边框各 1 = **46**。
+ * ⚠️ 原先写的 44 是估值，比实际矮 2px —— 用户要求「精确 20px 间距」时
+ *    这 2px 会直接变成 18px，所以必须用真实高度。改工具栏按钮尺寸时同步改这里。
+ */
+export const CANVAS_TOOL_PALETTE_HEIGHT = 46;
 
 /**
- * 命令条随图片上移时，贴顶上限额外下压的距离（2026-09-29 用户要求：
- * 「随图片移至顶部的上限高度，可以比现在增加 120px」）。
+ * 命令条随图片上移到顶部时，与顶部工具盘之间保持的距离。
  *
- * 原先上限 = 工具盘下沿 + 8，命令条顶边停在 y=120；现在停在 y=240，
- * 与工具盘之间留出更宽松的空档。只改这一个常量即可整体调节。
+ * 2026-09-29 用户最终口径：「向上移动，移动位置至保持在与顶部命令面板保持 20px 距离处」。
+ * （此前试过「下压 120px」→ 顶边停在 y=240，用户否决，已删除那个常量。）
+ * 命令条顶边贴顶停位 = 68 + 46 + 20 = **134**。
  */
-export const NODE_TOOLBAR_TOP_EXTRA_OFFSET = 120;
+export const TOOLBAR_PALETTE_CLEARANCE = 20;
 
 /**
  * 节点命令条被夹到视口顶部时允许的最小 `top`（屏幕坐标）。
@@ -299,7 +301,6 @@ export function minNodeToolbarTop(
     CANVAS_TOOL_PALETTE_TOP +
     CANVAS_TOOL_PALETTE_HEIGHT +
     TOOLBAR_PALETTE_CLEARANCE +
-    NODE_TOOLBAR_TOP_EXTRA_OFFSET +
     toolbarHeight;
   return Math.max(viewportFloor, paletteFloor);
 }
