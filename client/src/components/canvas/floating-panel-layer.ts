@@ -267,6 +267,15 @@ export const CANVAS_TOOL_PALETTE_HEIGHT = 44;
 export const TOOLBAR_PALETTE_CLEARANCE = 8;
 
 /**
+ * 命令条随图片上移时，贴顶上限额外下压的距离（2026-09-29 用户要求：
+ * 「随图片移至顶部的上限高度，可以比现在增加 120px」）。
+ *
+ * 原先上限 = 工具盘下沿 + 8，命令条顶边停在 y=120；现在停在 y=240，
+ * 与工具盘之间留出更宽松的空档。只改这一个常量即可整体调节。
+ */
+export const NODE_TOOLBAR_TOP_EXTRA_OFFSET = 120;
+
+/**
  * 节点命令条被夹到视口顶部时允许的最小 `top`（屏幕坐标）。
  *
  * 语义：命令条用 `translateY(-100%)` 定位，所以它的**底边**就是这个 top 值；
@@ -290,6 +299,7 @@ export function minNodeToolbarTop(
     CANVAS_TOOL_PALETTE_TOP +
     CANVAS_TOOL_PALETTE_HEIGHT +
     TOOLBAR_PALETTE_CLEARANCE +
+    NODE_TOOLBAR_TOP_EXTRA_OFFSET +
     toolbarHeight;
   return Math.max(viewportFloor, paletteFloor);
 }

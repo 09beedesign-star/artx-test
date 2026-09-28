@@ -23,6 +23,7 @@ import {
   CANVAS_TOOL_PALETTE_HEIGHT,
   CANVAS_TOOL_PALETTE_TOP,
   minNodeToolbarTop,
+  NODE_TOOLBAR_TOP_EXTRA_OFFSET,
   overlapsToolPalette,
   TOOLBAR_PALETTE_CLEARANCE,
 } from "./floating-panel-layer";
@@ -374,6 +375,18 @@ describe("命令条不能被顶部工具盘吃掉点击", () => {
     expect(barTop).toBeGreaterThanOrEqual(
       CANVAS_TOOL_PALETTE_TOP + CANVAS_TOOL_PALETTE_HEIGHT + TOOLBAR_PALETTE_CLEARANCE
     );
+  });
+
+  it("【2026-09-29】贴顶上限比原来多下压 120px（命令条顶边 120 → 240）", () => {
+    expect(NODE_TOOLBAR_TOP_EXTRA_OFFSET).toBe(120);
+    const top = minNodeToolbarTop(BAR_H, PAD);
+    expect(top - BAR_H).toBe(
+      CANVAS_TOOL_PALETTE_TOP +
+        CANVAS_TOOL_PALETTE_HEIGHT +
+        TOOLBAR_PALETTE_CLEARANCE +
+        120
+    );
+    expect(top - BAR_H).toBe(240);
   });
 
   it("视口下限仍然生效 —— 不能为了避让工具盘把命令条推出视口，也不能反过来丢掉视口保护", () => {
