@@ -184,6 +184,17 @@ import {
 // 【2026-09-24】「确认修改」按钮已移除，只剩撤销仍需要这个判据。
 // 其余导出（确认事件名 / 文案 / 补丁构造）已无调用方，故不再导入。
 import { isRepaintSnapshotLive } from "./in-place-repaint-confirm";
+import {
+  DEFAULT_REPAINT_COMPARE_POSITION,
+  LOCAL_REPAINT_RESULT_FLAG,
+  REPAINT_COMPARE_TOGGLE_LABEL,
+  REPAINT_COMPARE_TOGGLE_TITLE_OFF,
+  REPAINT_COMPARE_TOGGLE_TITLE_ON,
+  buildBeforeLayerClipPath,
+  comparePositionFromPointer,
+  isLocalRepaintPayload,
+  resolveRepaintCompareBeforeSrc,
+} from "./repaint-compare";
 import { getTextNodeExportLayout } from "./text-node-export";
 import { AnnotationMaskPreviewDialog } from "./AnnotationMaskPreviewDialog";
 import {
@@ -6852,6 +6863,31 @@ function AssetNodeComponent({
   const canUndoInPlaceRepaint = isRepaintSnapshotLive(
     data as { localSrc?: unknown; inPlaceRepaintUndo?: unknown }
   );
+  /*
+   * ── A|B 对比滑杆（2026-09-28，纯函数在 repaint-compare.ts） ──────────────
+   * ⚠️ 开关与位置都是**组件内 state**，刻意不写进节点 data：
+   *    节点 data 会被持久化、下载、引用；这里只是看一眼的 UI，
+   *    写进去 = 保存/同步时带上对比状态，且「关闭后默认显示重绘后」不再成立。
+   */
+  const repaintCompareBeforeSrcRaw = resolveRepaintCompareBeforeSrc(
+    data as Record<string, unknown>,
+    asset?.src
+  );
+  const repaintCompareBeforeSrc = repaintCompareBeforeSrcRaw
+    ? getCanvasRenderableImageSrc(repaintCompareBeforeSrcRaw)
+    : "";
+  const [isRepaintCompareOpen, setIsRepaintCompareOpen] = useState(false);
+  const [repaintComparePosition, setRepaintComparePosition] = useState(
+    DEFAULT_REPAINT_COMPARE_POSITION
+  );
+  const repaintCompareDragRef = useRef<{
+    pointerId: number;
+    rect: { left: number; width: number };
+  } | null>(null);
+  // 可对比的前图消失（撤销 / 换图）时，滑杆必须跟着收起，不能对着一张不存在的 A 图。
+  useEffect(() => {
+    if (!repaintCompareBeforeSrc) setIsRepaintCompareOpen(false);
+  }, [repaintCompareBeforeSrc]);
   const isEditing = !!(data as { isEditing?: boolean }).isEditing;
   const isCropping = !!(data as { isCropping?: boolean }).isCropping;
   const isErasing = !!(data as { isErasing?: boolean }).isErasing;
@@ -9102,6 +9138,222 @@ function AssetNodeComponent({
               图片未保存，请重新上传
             </div>
           )}
+          {/*
+            ── A|B 对比滑杆（2026-09-28） ────────────────────────────────
+            A = 重绘前（滑杆左侧），B = 重绘后（节点本身的像素，右侧）。
+            ⚠️ 只叠一层「重绘前」在上面、用 clip-path 露出左半边；
+               下面那张就是节点原本的 <img>，所以关闭后看到的、下载保存的
+               天然都是重绘后 —— 不需要任何「关闭时切回 B」的代码。
+            ⚠️ 前图层与主图共用 imgCropStyle / 翻转旋转 / 调色滤镜，
+               否则裁剪或调色过的图一打开对比，两边会错位或色差，被误读成「重绘改了颜色」。
+          */}
+          {isRepaintCompareOpen &&
+            repaintCompareBeforeSrc &&
+            displaySrc &&
+            !isImageExpired &&
+            !isAiProcessingImage && (
+              <>
+                <div
+                  aria-hidden="true"
+                  data-artx-repaint-compare-before
+                  className="absolute inset-0"
+                  style={{
+                    zIndex: 2,
+                    overflow: "hidden",
+                    borderRadius: ASSET_NODE_INNER_RADIUS,
+                    clipPath: buildBeforeLayerClipPath(repaintComparePosition),
+                    pointerEvents: "none",
+                  }}
+                >
+                  <img
+                    src={repaintCompareBeforeSrc}
+                    alt=""
+                    draggable={false}
+                    style={{
+                      ...frameClipStyle,
+                      ...imgCropStyle,
+                      display: "block",
+                      borderRadius: ASSET_NODE_IMAGE_RADIUS,
+                      objectFit: "contain",
+                      pointerEvents: "none",
+                      transform: `scaleX(${flipX ? -1 : 1}) rotate(${rotation}deg)`,
+                      filter: assetAdjustmentFilter,
+                      position: imgCropStyle.position || "relative",
+                    }}
+                  />
+                </div>
+                <div
+                  className="absolute inset-0"
+                  style={{ zIndex: 3, pointerEvents: "none" }}
+                >
+                  <div
+                    role="slider"
+                    aria-label="拖动对比重绘前后"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(repaintComparePosition)}
+                    data-artx-repaint-compare-handle
+                    className="absolute nodrag nopan"
+                    style={{
+                      top: 0,
+                      bottom: 0,
+                      left: `${repaintComparePosition}%`,
+                      // 可点区域比可见线宽，画布缩小时也抓得住。
+                      width: 24 * stableUiScale,
+                      transform: "translateX(-50%)",
+                      cursor: "ew-resize",
+                      pointerEvents: "auto",
+                      touchAction: "none",
+                    }}
+                    onPointerDown={event => {
+                      event.stopPropagation();
+                      event.preventDefault();
+                      const host = event.currentTarget.parentElement;
+                      if (!host) return;
+                      const rect = host.getBoundingClientRect();
+                      repaintCompareDragRef.current = {
+                        pointerId: event.pointerId,
+                        rect: { left: rect.left, width: rect.width },
+                      };
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onPointerMove={event => {
+                      const drag = repaintCompareDragRef.current;
+                      if (!drag || drag.pointerId !== event.pointerId) return;
+                      event.stopPropagation();
+                      setRepaintComparePosition(
+                        comparePositionFromPointer(event.clientX, drag.rect)
+                      );
+                    }}
+                    onPointerUp={event => {
+                      if (repaintCompareDragRef.current?.pointerId === event.pointerId)
+                        repaintCompareDragRef.current = null;
+                    }}
+                    onPointerCancel={() => {
+                      repaintCompareDragRef.current = null;
+                    }}
+                    onLostPointerCapture={() => {
+                      // 「开」在 pointerdown、「关」必须兜住所有结束路径，否则拖拽态卡死。
+                      repaintCompareDragRef.current = null;
+                    }}
+                    onClick={event => event.stopPropagation()}
+                    onDoubleClick={event => event.stopPropagation()}
+                  >
+                    <div
+                      className="absolute"
+                      style={{
+                        top: 0,
+                        bottom: 0,
+                        left: "50%",
+                        width: 2 * stableUiScale,
+                        transform: "translateX(-50%)",
+                        background: "rgba(255,255,255,0.96)",
+                        boxShadow: "0 0 0 1px rgba(0,0,0,0.22), 0 0 8px rgba(0,0,0,0.35)",
+                      }}
+                    />
+                    <div
+                      className="absolute flex items-center justify-center"
+                      style={{
+                        top: "50%",
+                        left: "50%",
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        transform: `translate(-50%, -50%) scale(${stableUiScale})`,
+                        background: "rgba(255,255,255,0.98)",
+                        color: "#16161a",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.38)",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        lineHeight: 1,
+                        letterSpacing: -1,
+                      }}
+                    >
+                      ‹›
+                    </div>
+                  </div>
+                  {(["A", "B"] as const).map(tag => (
+                    <div
+                      key={tag}
+                      className="absolute"
+                      style={{
+                        bottom: 8,
+                        ...(tag === "A" ? { left: 8 } : { right: 8 }),
+                        padding: "2px 5px",
+                        borderRadius: 4,
+                        background: "rgba(16,16,20,0.72)",
+                        color: "rgba(255,255,255,0.94)",
+                        fontSize: 9,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        transform: `scale(${stableUiScale})`,
+                        transformOrigin: tag === "A" ? "bottom left" : "bottom right",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {tag === "A" ? "A 重绘前" : "B 重绘后"}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          {repaintCompareBeforeSrc &&
+            displaySrc &&
+            !isImageExpired &&
+            !isAiProcessingImage && (
+              <div
+                className="absolute nodrag nopan"
+                style={{
+                  top: 8,
+                  left: 8,
+                  zIndex: 117,
+                  transform: `scale(${stableUiScale})`,
+                  transformOrigin: "top left",
+                }}
+              >
+                <button
+                  type="button"
+                  data-artx-repaint-compare-toggle
+                  aria-pressed={isRepaintCompareOpen}
+                  aria-label="对比局部重绘前后"
+                  title={
+                    isRepaintCompareOpen
+                      ? REPAINT_COMPARE_TOGGLE_TITLE_ON
+                      : REPAINT_COMPARE_TOGGLE_TITLE_OFF
+                  }
+                  className="flex items-center justify-center transition-all duration-150 hover:brightness-110"
+                  style={{
+                    height: 16,
+                    padding: "0 6px",
+                    borderRadius: 4,
+                    background: isRepaintCompareOpen
+                      ? "rgba(255,255,255,0.96)"
+                      : "rgba(16,16,20,0.76)",
+                    color: isRepaintCompareOpen
+                      ? "#16161a"
+                      : "rgba(255,255,255,0.94)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                    backdropFilter: "blur(6px)",
+                    boxShadow: "0 6px 15px rgba(0,0,0,0.34)",
+                    fontSize: 9,
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    whiteSpace: "nowrap",
+                  }}
+                  onPointerDown={event => event.stopPropagation()}
+                  onDoubleClick={event => event.stopPropagation()}
+                  onClick={event => {
+                    event.stopPropagation();
+                    // 每次打开都回到正中间（需求：打开后默认出现在图片正中间）。
+                    if (!isRepaintCompareOpen)
+                      setRepaintComparePosition(DEFAULT_REPAINT_COMPARE_POSITION);
+                    setIsRepaintCompareOpen(!isRepaintCompareOpen);
+                  }}
+                >
+                  {REPAINT_COMPARE_TOGGLE_LABEL}
+                </button>
+              </div>
+            )}
           {/*
             ── 局部重绘的「撤销」按钮（2026-09-21 / 2026-09-24） ────────────────
             需求：修改直接落在原图上，一旦效果不理想，用户要能一键回到重绘之前。
@@ -13651,6 +13903,8 @@ type ImageGeneratorPayload = {
    * 刷新一次之后这次重绘就退回成「新建一张图」。
    */
   inPlaceRepaintNodeId?: string;
+  /** 调用方显式声明这是一次局部重绘（A|B 对比滑杆用，见 repaint-compare.ts）。 */
+  localRepaint?: boolean;
 };
 
 type ImageRegenerateRequestDetail = {
@@ -14673,6 +14927,12 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
      */
     generationTargetWidth: detail.targetWidth,
     generationTargetHeight: detail.targetHeight,
+    /**
+     * A|B 对比滑杆的开关位（2026-09-28，repaint-compare.ts）。
+     * ⚠️ 收口在这里而不是各个回包分支：completed 有三个落点（占位替换 /
+     *    新建节点 / 刷新后补落），只在一处打标 = 另外两处的图没有滑杆，零报错。
+     */
+    [LOCAL_REPAINT_RESULT_FLAG]: isLocalRepaintPayload(detail),
   };
 }
 
@@ -27858,6 +28118,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       backgroundTaskInput,
       throwOnFailure = false,
       inPlaceRepaintNodeId,
+      localRepaint,
       run,
     }: {
       sourceNode: Node;
@@ -27883,6 +28144,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        * 复制第二份必然漂移（本项目已在「多个出口」上栽过十二次）。
        */
       inPlaceRepaintNodeId?: string;
+      /** 显式声明局部重绘（A|B 对比滑杆，见 repaint-compare.ts）。 */
+      localRepaint?: boolean;
       /**
        * 失败时是否把错误抛给调用方（默认 false = 保持原行为：吞掉并返回 false）。
        *
@@ -27967,6 +28230,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
          *    payload 会被持久化，刷新页面后的续跑与回包都靠它重放。
          */
         inPlaceRepaintNodeId,
+        localRepaint: localRepaint || undefined,
         backgroundTaskInput: backgroundTaskInput
           ? {
               ...backgroundTaskInput,
@@ -35520,6 +35784,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           placement: placeholderPayload.placement,
           generationId,
           inPlaceRepaintNodeId,
+          localRepaint: Boolean(regionMaskSrc),
           // 多张时服务端 image_edit 后台任务只出单图，改走前台并发合并；
           // 单张保持后台任务链路（可离开页面继续跑）。
           backgroundTaskInput:
