@@ -15,6 +15,7 @@ import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { buildTextEditGlobalPrompt, buildTextEditLanguageHint } from "../shared/text-edit-global-prompt";
+import { buildViewpointLockInstruction } from "../shared/viewpoint-lock";
 import { generateText } from "./text-generation";
 import { recordImageProviderFailure } from "./image-provider-failure-log";
 import { buildInpaintMask, measureMaskSurroundingFlatness } from "./inpaint-mask";
@@ -6490,6 +6491,12 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   const cameraViewInstruction = isCameraViewOperation
     ? buildCameraViewEditInstruction(input)
     : "";
+  /**
+   * ⚠️⚠️⚠️ 视角 / 外形轮廓锁（2026-09-29，唯一事实源 shared/viewpoint-lock.ts）。
+   * 两条上游出口（VOD 参考图 generateImages / OpenAI /images/edits）都必须带上，
+   * 只改一条 = 另一半模型照样换视角，零报错（A 类多出口事故）。
+   */
+  const viewpointLockInstruction = buildViewpointLockInstruction(input.operation);
   const finalizeImages = async (images: GeneratedImage[]) => {
     /**
      * ⚠️⚠️⚠️ 第三参数必须是 isSourcePreservingEdit（2026-09-23 裁切错位修复）。
@@ -6726,7 +6733,8 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
             cameraViewInstruction,
             isCameraViewOperation
               ? "Reference image 1 tells you what the scene contains and what everything looks like — it is NOT the target composition. Re-render that entire scene, subject and environment together, from the new camera position described above."
-              : "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, lighting, proportions, and aspect ratio unless the user explicitly asks to change them.",
+              : "Use reference image 1 as the target canvas. Preserve its subject identity, composition, camera angle, perspective, subject outlines, proportions, and aspect ratio exactly; only lighting, color, material, or detail may change when the user explicitly asks for it.",
+            viewpointLockInstruction,
             editGuideDataUrl
               ? "Reference image 2 is a visual edit guide derived from reference image 1. Its translucent orange overlay marks the only area allowed to change; the overlay itself is not content and must not appear in the result. Every unmarked area must remain visually identical to reference image 1."
               : "",
@@ -6948,6 +6956,7 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
       isCameraViewOperation
         ? "For this camera-view operation, the source image is the locked visual content reference. Generate a new coherent camera viewpoint while keeping scene content stable; do not treat it as a masked local edit."
         : "",
+      viewpointLockInstruction,
       aspectInstruction,
       textEditNegativeInstruction,
     ].filter(Boolean).join("\n\n"));

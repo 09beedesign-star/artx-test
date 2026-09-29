@@ -545,6 +545,10 @@ import {
   resolveImageRatio,
 } from "@shared/image-ratios";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+import {
+  VIEWPOINT_LOCK_PROMPT_ZH,
+  VIEWPOINT_LOCK_REWRITE_RULES_ZH,
+} from "@shared/viewpoint-lock";
 import { computeFrameAutoArrange } from "@shared/frame-auto-arrange";
 import { resolveOutputSizeFromPromptAndSelector } from "@shared/prompt-size-intent";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
@@ -35810,8 +35814,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ],
           prompt: [
             "请理解主图和可选参考图，为图片模型生成一段中文生图提示词。",
-            "目标是基于原图内容做快捷编辑，但输出必须是一张新的结果图。",
-            "保留原图主体、构图和关键识别特征，只根据用户要求修改。",
+            ...VIEWPOINT_LOCK_REWRITE_RULES_ZH,
             "只输出可直接给图片模型使用的提示词，不要解释。",
             `用户要求：${payload.prompt || "请智能优化这张图片，保持主体识别一致。"}`,
             ...(skill
@@ -35833,11 +35836,16 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
          * 这段文字承载的是用户那句「边缘要和整图完全融合，不要出现明显的
          * 分割、割裂」—— 与蒙版羽化是两道并行防线，缺一都会露缝。
          */
-        const finalPrompt = regionRect
-          ? [buildRegionEditPromptPrefix(regionRect), `具体修改要求：${optimizedText}`].join(
-              "\n"
-            )
-          : optimizedText;
+        /*
+         * ⚠️⚠️⚠️ 视角 / 外形轮廓锁（2026-09-29）：框选与不框选**都要**加，
+         * 同样必须在增强之后。之前不框选时 finalPrompt = optimizedText，
+         * 没有任何硬约束 → 模型换视角、改轮廓，零报错。
+         */
+        const finalPrompt = [
+          VIEWPOINT_LOCK_PROMPT_ZH,
+          ...(regionRect ? [buildRegionEditPromptPrefix(regionRect)] : []),
+          `具体修改要求：${optimizedText}`,
+        ].join("\n");
         const runSingleEdit = async () =>
           editImageWithPrompt({
             imageSrc: latestImageSrc,
