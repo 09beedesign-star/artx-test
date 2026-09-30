@@ -55,7 +55,7 @@ import {
 } from "./admin-notifications";
 import { getDashboardRiskTarget } from "./admin-dashboard-risk";
 import { formatExactOrderTime } from "./admin-order-time";
-import { filterAdminOrders, filterAdminUsers } from "./admin-list-filters";
+import { filterAdminOrders, filterAdminUsers, type AdminUserPaidFilter, type AdminUserRegisteredSort } from "./admin-list-filters";
 import { buildOrderExportFileName, exportOrdersToCsv } from "./admin-order-export";
 import { classifyHighRiskType } from "./admin-risk";
 import { resolveAdminUploadUrl } from "./admin-upload-url";
@@ -734,6 +734,8 @@ function AdminPrototypePage() {
   const [accountTypeFilter, setAccountTypeFilter] = useState<"all" | "regular" | "test">("all");
   const [registeredFrom, setRegisteredFrom] = useState("");
   const [registeredTo, setRegisteredTo] = useState("");
+  const [paidFilter, setPaidFilter] = useState<AdminUserPaidFilter>("all");
+  const [registeredSort, setRegisteredSort] = useState<AdminUserRegisteredSort>("desc");
   const [userPage, setUserPage] = useState(1);
   const [orderPage, setOrderPage] = useState(1);
   const [orderQuery, setOrderQuery] = useState("");
@@ -817,7 +819,7 @@ function AdminPrototypePage() {
 
   useEffect(() => {
     setUserPage(1);
-  }, [query, statusFilter, accountTypeFilter, registeredFrom, registeredTo]);
+  }, [query, statusFilter, accountTypeFilter, registeredFrom, registeredTo, paidFilter, registeredSort]);
 
   useEffect(() => {
     setOrderPage(1);
@@ -1059,11 +1061,13 @@ function AdminPrototypePage() {
       accountType: accountTypeFilter,
       registeredFrom,
       registeredTo,
+      paid: paidFilter,
+      registeredSort,
     }).filter((user) => {
       const matchesStatus = statusFilter === "all" || user.status === statusFilter;
       return matchesStatus;
     });
-  }, [accountTypeFilter, adminData.users, query, registeredFrom, registeredTo, statusFilter]);
+  }, [accountTypeFilter, adminData.users, paidFilter, query, registeredFrom, registeredSort, registeredTo, statusFilter]);
   const filteredOrders = useMemo(() => filterAdminOrders(adminData.orders, {
     query: orderQuery,
     paidFrom,
@@ -1899,6 +1903,10 @@ function AdminPrototypePage() {
             setRegisteredFrom={setRegisteredFrom}
             registeredTo={registeredTo}
             setRegisteredTo={setRegisteredTo}
+            paidFilter={paidFilter}
+            setPaidFilter={setPaidFilter}
+            registeredSort={registeredSort}
+            setRegisteredSort={setRegisteredSort}
           />
           {canManageTestAccounts && (
             <div className="flex justify-end">
@@ -2068,6 +2076,7 @@ function AdminPrototypePage() {
                             setAccountTypeFilter("all");
                             setRegisteredFrom("");
                             setRegisteredTo("");
+                            setPaidFilter("all");
                             setUserPage(1);
                           }}
                         >
@@ -2871,6 +2880,10 @@ function Toolbar({
   setRegisteredFrom,
   registeredTo,
   setRegisteredTo,
+  paidFilter,
+  setPaidFilter,
+  registeredSort,
+  setRegisteredSort,
 }: {
   query: string;
   setQuery: (query: string) => void;
@@ -2882,7 +2895,18 @@ function Toolbar({
   setRegisteredFrom: (value: string) => void;
   registeredTo: string;
   setRegisteredTo: (value: string) => void;
+  paidFilter: AdminUserPaidFilter;
+  setPaidFilter: (value: AdminUserPaidFilter) => void;
+  registeredSort: AdminUserRegisteredSort;
+  setRegisteredSort: (value: AdminUserRegisteredSort) => void;
 }) {
+  const chipClass = (active: boolean) => cn(
+    "rounded-md border px-3 py-2 text-sm transition",
+    active
+      ? "border-cyan-300 bg-cyan-300 text-slate-950"
+      : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/8"
+  );
+  const groupLabel = "mr-1 self-center text-xs text-slate-500";
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
@@ -2898,45 +2922,55 @@ function Toolbar({
       <label className="grid gap-1 text-xs text-slate-400"><span>注册开始</span><Input type="date" value={registeredFrom} onChange={(event) => setRegisteredFrom(event.target.value)} aria-label="注册开始日期" className="border-white/10 bg-slate-950/40" /></label>
       <label className="grid gap-1 text-xs text-slate-400"><span>注册结束</span><Input type="date" value={registeredTo} onChange={(event) => setRegisteredTo(event.target.value)} aria-label="注册结束日期" className="border-white/10 bg-slate-950/40" /></label>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {[
-          ["all", "全部"],
-          ["normal", "正常"],
-          ["watch", "观察"],
-          ["blocked", "冻结"],
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            className={cn(
-              "rounded-md border px-3 py-2 text-sm transition",
-              statusFilter === value
-                ? "border-cyan-300 bg-cyan-300 text-slate-950"
-                : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/8"
-            )}
-            onClick={() => setStatusFilter(value as "all" | Status)}
-          >
-            {label}
-          </button>
-        ))}
-        {[
-          ["all", "全部类型"],
-          ["test", "测试账号"],
-          ["regular", "普通账号"],
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={cn(
-              "rounded-md border px-3 py-2 text-sm transition",
-              accountTypeFilter === value
-                ? "border-cyan-300 bg-cyan-300 text-slate-950"
-                : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/8"
-            )}
-            onClick={() => setAccountTypeFilter(value as "all" | "regular" | "test")}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="注册时间排序">
+          <span className={groupLabel}>注册时间</span>
+          {([
+            ["desc", "最新在前 ↓"],
+            ["asc", "最早在前 ↑"],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={registeredSort === value} className={chipClass(registeredSort === value)} onClick={() => setRegisteredSort(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="支付状态筛选">
+          <span className={groupLabel}>支付</span>
+          {([
+            ["all", "全部"],
+            ["paid", "已支付"],
+            ["unpaid", "未支付"],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={paidFilter === value} className={chipClass(paidFilter === value)} onClick={() => setPaidFilter(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="账号类型筛选">
+          <span className={groupLabel}>账号类型</span>
+          {([
+            ["all", "全部"],
+            ["regular", "普通账号"],
+            ["test", "测试账号"],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={accountTypeFilter === value} className={chipClass(accountTypeFilter === value)} onClick={() => setAccountTypeFilter(value)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="账号状态筛选">
+          <span className={groupLabel}>状态</span>
+          {([
+            ["all", "全部"],
+            ["normal", "正常"],
+            ["watch", "观察"],
+            ["blocked", "冻结"],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={statusFilter === value} className={chipClass(statusFilter === value)} onClick={() => setStatusFilter(value as "all" | Status)}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

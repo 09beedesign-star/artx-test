@@ -7,6 +7,8 @@ type AccountFilterRecord = {
   organization?: string;
   accountType?: "regular" | "test";
   registeredAt?: string;
+  spent?: number;
+  totalRecharge?: number;
 };
 
 type OrderFilterRecord = {
@@ -54,14 +56,39 @@ function isWithinDateRange(value: string, from: string, to: string) {
   return (!from || value >= from) && (!to || value <= to);
 }
 
+export type AdminUserPaidFilter = "all" | "paid" | "unpaid";
+export type AdminUserRegisteredSort = "desc" | "asc";
+
+/**
+ * 注册时间转成可比较的毫秒数。解析不了（缺字段/脏数据）返回 NaN，
+ * 排序时无论正序倒序都沉到末尾 —— 否则 NaN 参与比较会让 sort 结果不稳定且零报错。
+ */
+function registeredTimestamp(input?: string) {
+  if (!input) return Number.NaN;
+  const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(input);
+  // 无时区的本地串（"2026/07/05 10:01:00"）统一按上海时间解析，避免受运行环境时区影响。
+  const normalized = hasExplicitZone ? input : `${input.replace(/\//g, "-").replace(" ", "T")}${/T|\s/.test(input) ? "" : "T00:00:00"}+08:00`;
+  const value = Date.parse(normalized);
+  return Number.isFinite(value) ? value : Date.parse(input);
+}
+
 export function filterAdminUsers<T extends AccountFilterRecord>(users: T[], input: {
   query: string;
   accountType: "all" | "regular" | "test";
   registeredFrom: string;
   registeredTo: string;
+  /** 已支付 = 累计支付金额 > 0（后端按 status=paid 的订单汇总成 totalRecharge/spent）。 */
+  paid?: AdminUserPaidFilter;
+  /** 按注册时间排序；不传则保持后端原顺序。 */
+  registeredSort?: AdminUserRegisteredSort;
 }) {
   const query = input.query.trim().toLowerCase();
-  return users.filter((user) => {
+  const paidFilter = input.paid || "all";
+  const filtered = users.filter((user) => {
+    const paidAmount = Number(user.spent ?? user.totalRecharge ?? 0);
+    const isPaid = Number.isFinite(paidAmount) && paidAmount > 0;
+    if (paidFilter === "paid" && !isPaid) return false;
+    if (paidFilter === "unpaid" && isPaid) return false;
     // 把登录账号、用户 ID 和组织也纳入匹配：管理员常常是从订单详情或任务
     // 记录里复制一串 ID / 登录账号回来搜，只匹配 name+email 会「搜不到人」，
     // 看起来就像列表没接数据。逐字段 some() 而不是拼成一个大字符串，
@@ -76,6 +103,18 @@ export function filterAdminUsers<T extends AccountFilterRecord>(users: T[], inpu
       && matchesAccountType
       && isWithinDateRange(shanghaiDate(user.registeredAt), input.registeredFrom, input.registeredTo);
   });
+  if (!input.registeredSort) return filtered;
+  const direction = input.registeredSort === "asc" ? 1 : -1;
+  return filtered
+    .map((user, index) => ({ user, index, time: registeredTimestamp(user.registeredAt) }))
+    .sort((left, right) => {
+      const leftValid = Number.isFinite(left.time);
+      const rightValid = Number.isFinite(right.time);
+      if (leftValid !== rightValid) return leftValid ? -1 : 1;
+      if (!leftValid || left.time === right.time) return left.index - right.index;
+      return (left.time - right.time) * direction;
+    })
+    .map((item) => item.user);
 }
 
 export function filterAdminOrders<T extends OrderFilterRecord>(orders: T[], input: {

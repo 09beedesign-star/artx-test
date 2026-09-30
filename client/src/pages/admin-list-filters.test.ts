@@ -47,6 +47,48 @@ describe("admin list filters", () => {
     expect(result).toEqual([]);
   });
 
+  describe("已支付筛选与注册时间排序", () => {
+    const base = { name: "n", email: "e@x.com", plan: "Free" };
+    const users = [
+      { ...base, id: "mid-paid", spent: 99, registeredAt: "2026-07-10T02:00:00.000Z" },
+      { ...base, id: "old-unpaid", spent: 0, registeredAt: "2026/07/01 09:00:00" },
+      { ...base, id: "new-recharge-only", totalRecharge: 19, registeredAt: "2026-07-20" },
+      { ...base, id: "no-date", registeredAt: undefined },
+    ];
+    const run = (paid: "all" | "paid" | "unpaid", registeredSort?: "asc" | "desc") => filterAdminUsers(users, {
+      query: "",
+      accountType: "all",
+      registeredFrom: "",
+      registeredTo: "",
+      paid,
+      registeredSort,
+    }).map((user) => user.id);
+
+    it("已支付 = 累计支付金额 > 0，spent 缺失时回落 totalRecharge", () => {
+      expect(run("paid")).toEqual(["mid-paid", "new-recharge-only"]);
+      expect(run("unpaid")).toEqual(["old-unpaid", "no-date"]);
+      expect(run("all")).toHaveLength(4);
+    });
+
+    it("注册时间倒序/正序，混合格式按真实时间比较，缺日期的始终沉底", () => {
+      expect(run("all", "desc")).toEqual(["new-recharge-only", "mid-paid", "old-unpaid", "no-date"]);
+      expect(run("all", "asc")).toEqual(["old-unpaid", "mid-paid", "new-recharge-only", "no-date"]);
+    });
+
+    it("不传排序时保持原顺序（不偷偷改后端顺序）", () => {
+      expect(run("all")).toEqual(["mid-paid", "old-unpaid", "new-recharge-only", "no-date"]);
+    });
+
+    it("本地串按上海时间解析，与同一时刻的 UTC 串排序一致", () => {
+      // 2026/07/05 07:00（上海）= 2026-07-04T23:00Z，早于 2026-07-05T00:00Z
+      const result = filterAdminUsers([
+        { ...base, id: "utc", registeredAt: "2026-07-05T00:00:00.000Z" },
+        { ...base, id: "local", registeredAt: "2026/07/05 07:00:00" },
+      ], { query: "", accountType: "all", registeredFrom: "", registeredTo: "", registeredSort: "asc" });
+      expect(result.map((user) => user.id)).toEqual(["local", "utc"]);
+    });
+  });
+
   it("filters orders by account, payment date, and inclusive amount range", () => {
     const result = filterAdminOrders([
       { id: "ord-1", user: "Sofa Lab", amount: 99, paidAt: "2026-07-17T01:00:00.000Z" },
