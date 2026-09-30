@@ -32,6 +32,7 @@ const categoryOrder: SkillStoreCategory[] = [
   "product_visual",
   "video_storyboard",
   "image_editing",
+  "photo_art",
   "visual_audit",
 ];
 const skillButtonPurple = "#9058fc";

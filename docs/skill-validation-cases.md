@@ -1,6 +1,6 @@
 # Skill Validation Cases
 
-This document defines the minimum-cost validation prompts for the 40 ArtX skill MD files.
+This document defines the minimum-cost validation prompts for the 28 ArtX skill MD files.
 The validation branch should use these cases to confirm every skill can produce a corresponding result on canvas.
 Text skills (`capability: chat`) return their result as an assistant message in the canvas assistant panel instead of an image.
 
@@ -24,6 +24,16 @@ Text skills (`capability: chat`) return their result as an assistant message in 
 | `cover-image-lab` | 为《2026 城市通勤报告》生成封面，标题要能在 200 像素宽下读清，并预留标题安全区。 | A cover with one focal point, one legible title treatment, and a clean reserved area for title overlay. | The cover still reads at thumbnail size and the reserved title area is visibly clean. |
 | `slide-deck-visual` | 把「Q3 增长复盘」做成 6 页幻灯片视觉，标题写成结论，数据页只放一张图加一句洞察。 | Six slide visuals sharing one master layout, with claim-style titles and one chart plus one insight on the data slide. | Slides share margins and title positions, each slide carries one idea, and titles read as conclusions. |
 | `diagram-flowchart` | 画一张用户注册到首次付费的流程图，决策分支必须带条件标签，连线尽量少交叉。 | A flowchart with one entry, one exit, consistent node shapes, orthogonal connectors, and labeled decision branches. | The diagram is readable at slide width, connectors are mostly crossing-free, and every decision branch is labeled. |
+| `photo-organic-knit` | 把参考照片（一只橘猫坐在窗台）做成毛线针织海报，加一行毛线拼出的标题 SUNNY CAT。 | A warm ivory poster with a centered knitted-wool emblem of the cat, visible stitches and loose yarn ends, plus a yarn-strand title. | The subject reads as handmade yarn craft rather than a filter, with clear negative space around it and no plastic or vector look. |
+| `photo-travel-sketch` | 把参考照片（欧洲小镇街角咖啡馆）画成针管笔旅行速写，只保留咖啡馆和一棵树。 | A loose black-line sketch on off-white paper with sparse dry marker colour and lots of blank paper. | Lines are hand-drawn and open, colour is sparse strokes rather than washes, and at least about half the paper is blank. |
+| `surreal-pop-collage` | 把参考照片（在京都街头的人像）做成超现实波普拼贴，巨物元素用一只巨大的招财猫。 | A black-and-white person cut-out over large flat colour blocks, with one giant lucky cat and small graduated elements with white doodles. | The subject is monochrome, the background is flat colour fields, exactly one giant surreal element appears, and there is no text. |
+| `photo-stamp-archive` | 用参考照片（雪山日出）做一张照片图章档案，标题 ALPINE DAWN。 | A landscape layout with the untouched photo on the left and a warm paper panel on the right holding a ridge-shaped ink stamp and typewriter caption. | The photo half is unchanged, the seam is straight, the stamp echoes the subject shape, and most of the paper panel stays blank. |
+| `washi-tape-collage` | 把参考照片（一束郁金香）做成和纸胶带拼贴。 | Tulips rebuilt from translucent torn washi tape strips on plain paper with visible overlaps and lots of empty paper. | The image reads as physical tape collage with translucent overlaps and negative space, not a painted illustration. |
+| `pulp-print-poster` | 把参考照片（骑摩托车的人）做成高彩印刷电影海报，标题 MIDNIGHT RIDE。 | A 2:3 poster with a flat saturated background, a hard-edged posterised rider, a big golden condensed title and a tiny credit block. | Only 3-4 colours are used, the title is golden condensed uppercase, and no real film or actor names appear. |
+| `halftone-dot-poster` | 把参考照片（一位女生侧脸）做成双色网点印刷海报，小标题 QUIET HOURS。 | A vertical poster where the portrait is rendered from fine halftone dots in one or two inks on warm paper with a small title. | The subject is made of fine dots rather than chunky game pixels, with at most two ink colours and no neon. |
+| `minimal-zine-poster` | 用参考照片（海边的一把空椅子）做一张极简纸刊海报，标题「夏日尾声」。 | A vertical paper-textured poster with a small photo-collage focal element, lots of white space, one accent colour and a delicate title. | Most of the canvas is intentional white space, only one accent colour is used, and the typography looks editorial. |
+| `xiaohei-object-scenes` | 小黑费力地推着一个巨大的咖啡杯往前走，标注「周一早上」。 | A small flat black character pushing a realistic oversized coffee cup on a pure white 16:9 canvas with a short Chinese label. | The character is flat black, the object is realistic, the action is clear, the background is pure white and the label is legible Chinese. |
+| `ip-mascot-logo` | 为一款记账 App 设计 IP 吉祥物 Logo，角色是一只圆滚滚的小仓鼠。 | A 1:1 icon with a simple hamster mascot made of a few big shapes, two character colours on a muted solid background, peeking from a lower corner. | The mascot is readable at icon size, uses two colours plus background, is not centred, and has no text or frame. |
 
 ## Suggested Validation Flow
 
@@ -35,6 +45,7 @@ Text skills (`capability: chat`) return their result as an assistant message in 
 
 ## Notes
 
-- The `image-local-edit` case requires one low-cost reference image because it uses `image_edit`.
-- The other 8 cases can be tested with text-to-image only.
+- Cases with `requiresReferenceImage: true` in the JSON need one low-cost reference photo attached before submitting: `image-local-edit`, `photo-organic-knit`, `photo-travel-sketch`, `surreal-pop-collage`, `photo-stamp-archive`, `washi-tape-collage`, `pulp-print-poster`, `halftone-dot-poster`, `minimal-zine-poster`.
+- `image-local-edit` uses `image_edit`; the photo-art skills use `text_to_image` with the photo passed as a reference so the server skill MD is injected.
+- All other cases can be tested with text-to-image only.
 - Do not judge artistic taste too strictly in minimum validation; the key question is whether the skill changes the output type and structure in the intended direction.

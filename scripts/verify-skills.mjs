@@ -33,6 +33,16 @@ const expectedIds = [
   "cover-image-lab",
   "slide-deck-visual",
   "diagram-flowchart",
+  "photo-organic-knit",
+  "photo-travel-sketch",
+  "surreal-pop-collage",
+  "photo-stamp-archive",
+  "washi-tape-collage",
+  "pulp-print-poster",
+  "halftone-dot-poster",
+  "minimal-zine-poster",
+  "xiaohei-object-scenes",
+  "ip-mascot-logo",
 ];
 
 const expectedCategories = [
@@ -49,6 +59,7 @@ const expectedCategories = [
   "ui_design",
   "office_visual",
   "diagram",
+  "photo_art",
 ];
 
 const removedIds = [
@@ -228,7 +239,18 @@ for (const id of expectedIds) {
   if (typeof item.requiresReferenceImage !== "boolean") {
     fail(`validation JSON requiresReferenceImage for ${id} must be boolean`);
   }
-  if (item.requiresReferenceImage !== (id === "image-local-edit")) {
+  const referenceImageIds = new Set([
+    "image-local-edit",
+    "photo-organic-knit",
+    "photo-travel-sketch",
+    "surreal-pop-collage",
+    "photo-stamp-archive",
+    "washi-tape-collage",
+    "pulp-print-poster",
+    "halftone-dot-poster",
+    "minimal-zine-poster",
+  ]);
+  if (item.requiresReferenceImage !== referenceImageIds.has(id)) {
     fail(`validation JSON requiresReferenceImage for ${id} is incorrect`);
   }
   for (const field of ["minimumPrompt", "expectedVisualResult", "passCriteria"]) {

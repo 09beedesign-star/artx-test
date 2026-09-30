@@ -142,5 +142,85 @@
     "minimumPrompt": "画一张用户注册到首次付费的流程图，决策分支必须带条件标签，连线尽量少交叉。",
     "expectedVisualResult": "A flowchart with one entry, one exit, consistent node shapes, orthogonal connectors, and labeled decision branches.",
     "passCriteria": "The diagram is readable at slide width, connectors are mostly crossing-free, and every decision branch is labeled."
+  },
+  {
+    "skillId": "photo-organic-knit",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（一只橘猫坐在窗台）做成毛线针织海报，加一行毛线拼出的标题 SUNNY CAT。",
+    "expectedVisualResult": "A warm ivory poster with a centered knitted-wool emblem of the cat, visible stitches and loose yarn ends, plus a yarn-strand title.",
+    "passCriteria": "The subject reads as handmade yarn craft rather than a filter, with clear negative space around it and no plastic or vector look."
+  },
+  {
+    "skillId": "photo-travel-sketch",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（欧洲小镇街角咖啡馆）画成针管笔旅行速写，只保留咖啡馆和一棵树。",
+    "expectedVisualResult": "A loose black-line sketch on off-white paper with sparse dry marker colour and lots of blank paper.",
+    "passCriteria": "Lines are hand-drawn and open, colour is sparse strokes rather than washes, and at least about half the paper is blank."
+  },
+  {
+    "skillId": "surreal-pop-collage",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（在京都街头的人像）做成超现实波普拼贴，巨物元素用一只巨大的招财猫。",
+    "expectedVisualResult": "A black-and-white person cut-out over large flat colour blocks, with one giant lucky cat and small graduated elements with white doodles.",
+    "passCriteria": "The subject is monochrome, the background is flat colour fields, exactly one giant surreal element appears, and there is no text."
+  },
+  {
+    "skillId": "photo-stamp-archive",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "用参考照片（雪山日出）做一张照片图章档案，标题 ALPINE DAWN。",
+    "expectedVisualResult": "A landscape layout with the untouched photo on the left and a warm paper panel on the right holding a ridge-shaped ink stamp and typewriter caption.",
+    "passCriteria": "The photo half is unchanged, the seam is straight, the stamp echoes the subject shape, and most of the paper panel stays blank."
+  },
+  {
+    "skillId": "washi-tape-collage",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（一束郁金香）做成和纸胶带拼贴。",
+    "expectedVisualResult": "Tulips rebuilt from translucent torn washi tape strips on plain paper with visible overlaps and lots of empty paper.",
+    "passCriteria": "The image reads as physical tape collage with translucent overlaps and negative space, not a painted illustration."
+  },
+  {
+    "skillId": "pulp-print-poster",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（骑摩托车的人）做成高彩印刷电影海报，标题 MIDNIGHT RIDE。",
+    "expectedVisualResult": "A 2:3 poster with a flat saturated background, a hard-edged posterised rider, a big golden condensed title and a tiny credit block.",
+    "passCriteria": "Only 3-4 colours are used, the title is golden condensed uppercase, and no real film or actor names appear."
+  },
+  {
+    "skillId": "halftone-dot-poster",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "把参考照片（一位女生侧脸）做成双色网点印刷海报，小标题 QUIET HOURS。",
+    "expectedVisualResult": "A vertical poster where the portrait is rendered from fine halftone dots in one or two inks on warm paper with a small title.",
+    "passCriteria": "The subject is made of fine dots rather than chunky game pixels, with at most two ink colours and no neon."
+  },
+  {
+    "skillId": "minimal-zine-poster",
+    "capability": "text_to_image",
+    "requiresReferenceImage": true,
+    "minimumPrompt": "用参考照片（海边的一把空椅子）做一张极简纸刊海报，标题「夏日尾声」。",
+    "expectedVisualResult": "A vertical paper-textured poster with a small photo-collage focal element, lots of white space, one accent colour and a delicate title.",
+    "passCriteria": "Most of the canvas is intentional white space, only one accent colour is used, and the typography looks editorial."
+  },
+  {
+    "skillId": "xiaohei-object-scenes",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "小黑费力地推着一个巨大的咖啡杯往前走，标注「周一早上」。",
+    "expectedVisualResult": "A small flat black character pushing a realistic oversized coffee cup on a pure white 16:9 canvas with a short Chinese label.",
+    "passCriteria": "The character is flat black, the object is realistic, the action is clear, the background is pure white and the label is legible Chinese."
+  },
+  {
+    "skillId": "ip-mascot-logo",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "为一款记账 App 设计 IP 吉祥物 Logo，角色是一只圆滚滚的小仓鼠。",
+    "expectedVisualResult": "A 1:1 icon with a simple hamster mascot made of a few big shapes, two character colours on a muted solid background, peeking from a lower corner.",
+    "passCriteria": "The mascot is readable at icon size, uses two colours plus background, is not centred, and has no text or frame."
   }
 ]
