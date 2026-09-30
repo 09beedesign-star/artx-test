@@ -191,6 +191,60 @@ describe("AI 事前余额校验：0 积分不得放行", () => {
   });
 });
 
+/**
+ * 2026-09-30 线上事故：新注册用户手握注册积分，AI 助手用「auto」出图却被 402，
+ * 弹「当前未订阅套餐，暂无可用创作积分」。
+ *
+ * 根因①：auto 在预检里拿不到模型单价，回落到 text_to_image 通用价 300/张
+ *          （9:16 2K 再 ×2.14 ≈ 640），而实际跑的是 70 积分的首选模型。
+ * 根因②：Free 用户一律回 NO_SUBSCRIPTION，哪怕他余额 > 0。
+ */
+describe("AI 事前余额校验：auto 模型与新用户注册积分（2026-09-30 事故）", () => {
+  it("⭐⭐ auto 按首选模型估价（70），不按通用 300", async () => {
+    await seedUser({ credits: 130, plan: "Free" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    await expect(assertUserCanAffordAiUsage({
+      userId: "user-1",
+      capabilityKey: "text_to_image",
+      outputCount: 1,
+      model: "auto",
+    })).resolves.toBeUndefined();
+  });
+
+  it("⭐⭐ auto + 9:16 2K（1440×2560）估价 ≈ 150，350 注册积分足够", async () => {
+    await seedUser({ credits: 350, plan: "Free" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    await expect(assertUserCanAffordAiUsage({
+      userId: "user-1",
+      capabilityKey: "text_to_image",
+      outputCount: 1,
+      model: "auto",
+      targetWidth: 1440,
+      targetHeight: 2560,
+    })).resolves.toBeUndefined();
+  });
+
+  it("⭐ Free 用户有余额但不够 → INSUFFICIENT_BALANCE（不能说「暂无可用积分」）", async () => {
+    await seedUser({ credits: 30, plan: "Free" });
+    const { assertUserCanAffordAiUsage } = await loadAdminStore();
+
+    const error = await expectBillingRejection(
+      assertUserCanAffordAiUsage({
+        userId: "user-1",
+        capabilityKey: "text_to_image",
+        outputCount: 1,
+        model: "auto",
+      }),
+    );
+
+    expect(error.code).toBe("INSUFFICIENT_BALANCE");
+    expect(error.requiredCredits).toBe(70);
+    expect(error.availableCredits).toBe(30);
+  });
+});
+
 describe("AI 事前余额校验：容差垫付（差一点由平台补足）", () => {
   it("⭐ 差 15 积分（≤20 容差）→ 平台垫付放行，不弹窗", async () => {
     await seedUser({ credits: 55, plan: "Pro", planExpiresAt: "2030-01-01 00:00:00" });

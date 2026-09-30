@@ -24300,6 +24300,8 @@ function CanvasAssistantPanel({
       setIsSubmitting(true);
 
       window.setTimeout(async () => {
+        // 同 handleSubmit 的 pendingImageTask：402 时要把占位框收掉，不能留「生成中」。
+        let homePendingImageTask: ImageGeneratorPayload | null = null;
         try {
           /**
            * 首页参考图必须在**构造 payload 之前**导入完。
@@ -24388,7 +24390,9 @@ function CanvasAssistantPanel({
               { ...imagePayload, status: "pending" },
               projectId
             );
+            homePendingImageTask = imagePayload;
             const result = await generateAiImages(imagePayload);
+            homePendingImageTask = null;
             dispatchImageGenerationTask(
               { ...imagePayload, status: "completed", images: result.images },
               projectId
@@ -24430,6 +24434,12 @@ function CanvasAssistantPanel({
           ]);
         } catch (error) {
           const message = error instanceof Error ? error.message : "请稍后重试";
+          if (homePendingImageTask && isAiCreditBlockedMessage(message)) {
+            dispatchImageGenerationTask(
+              { ...homePendingImageTask, status: "failed", error: message },
+              projectId
+            );
+          }
           notifyAiFailure("首页提示词自动处理失败", message);
         } finally {
           setComposerSegments([createAssistantTextSegment("")]);
@@ -24537,6 +24547,14 @@ function CanvasAssistantPanel({
     const submissionAbortController = new AbortController();
     assistantAbortRef.current = submissionAbortController;
     const submissionSignal = submissionAbortController.signal;
+    /**
+     * 本轮已派发为 pending、但还没收尾（completed / failed）的出图任务。
+     * catch 里要靠它把占位框标成失败 —— 否则 402（积分不足）时占位框一直
+     * 「生成中」，直到超时清扫器把它改成「网络开了个小差」，用户白得一个失败节点
+     * （2026-09-30 新用户事故）。标 failed 并带上计费文案后，
+     * 画布侧的 dispatch-failed 处理会识别计费拦截、直接撤掉占位框。
+     */
+    let pendingImageTask: ImageGeneratorPayload | null = null;
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
     const hasVisualReferences =
@@ -24698,6 +24716,7 @@ function CanvasAssistantPanel({
           { ...payload, status: "pending" },
           projectId
         );
+        pendingImageTask = payload;
         const result =
           shouldEditTargetReference && targetReference
             ? await editImageWithPrompt({
@@ -24722,6 +24741,7 @@ function CanvasAssistantPanel({
           requestedImageCount
         );
         if (validImages.length === 0) {
+          pendingImageTask = null;
           dispatchImageGenerationTask(
             {
               ...payload,
@@ -24736,6 +24756,7 @@ function CanvasAssistantPanel({
           { ...payload, status: "completed", images: validImages },
           projectId
         );
+        pendingImageTask = null;
         setMessages(prev => [
           ...prev,
           {
@@ -25039,6 +25060,7 @@ function CanvasAssistantPanel({
           { ...payload, status: "pending" },
           projectId
         );
+        pendingImageTask = payload;
         const result =
           shouldEditTargetReference && targetReference
             ? await editImageWithPrompt({
@@ -25059,6 +25081,7 @@ function CanvasAssistantPanel({
           requestedImageCount
         );
         if (validImages.length === 0) {
+          pendingImageTask = null;
           dispatchImageGenerationTask(
             {
               ...payload,
@@ -25073,6 +25096,7 @@ function CanvasAssistantPanel({
           { ...payload, status: "completed", images: validImages },
           projectId
         );
+        pendingImageTask = null;
         setMessages(prev => [
           ...prev,
           {
@@ -25138,6 +25162,21 @@ function CanvasAssistantPanel({
        */
       if (isAiAbortError(error)) return;
       const message = error instanceof Error ? error.message : "请稍后重试";
+      /**
+       * 只对**计费拦截**收尾占位框：带上计费文案标 failed，
+       * dispatch-failed 处理会识别它并直接撤掉占位（不留失败节点）。
+       *
+       * ⚠️ 其它错误不在这里标失败：后台任务可能仍在服务端跑
+       * （前台轮询超时 ≠ 任务失败），ensureBackgroundImageGeneration 会接着恢复它；
+       * 在这里抢先标 failed 会把本来能出的图判死。
+       */
+      if (pendingImageTask && isAiCreditBlockedMessage(message)) {
+        dispatchImageGenerationTask(
+          { ...pendingImageTask, status: "failed", error: message },
+          projectId
+        );
+      }
+      pendingImageTask = null;
       notifyAiFailure("AI 助手请求失败", message);
     } finally {
       // ⚠️ 只清理「本轮」的状态。用户可能已经发起了新一轮提交，
@@ -27709,6 +27748,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
 
+      /**
+       * 计费拦截（402）是**确定性**失败：服务端根本没建任务，轮询永远拿不到结果。
+       * 以前这里一律吞掉错误，占位框会一直「生成中」到超时，
+       * 最后被改成「网络开了个小差」—— 用户明明是积分不够，看到的却是网络故障。
+       */
+      let billingBlocked = false;
       const startTask = async () => {
         try {
           if (!(task as PersistedImageGenerationTask).backgroundStartedAt) {
@@ -27743,13 +27788,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               });
             }
           }
-        } catch {
-          /* The foreground request may still finish; polling below handles eventual state. */
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (isAiCreditBlockedMessage(message)) {
+            billingBlocked = true;
+            dispatchImageGenerationTask(
+              {
+                ...(task as ImageGeneratorPayload),
+                generationId,
+                projectId: taskProjectId,
+                status: "failed",
+                error: message,
+              },
+              taskProjectId
+            );
+          }
+          /* Other errors: the foreground request may still finish; polling below handles eventual state. */
         }
       };
 
       const pollTask = async () => {
         while (Date.now() - startedAt < AI_GENERATION_TIMEOUT_MS) {
+          if (billingBlocked) return;
           try {
             const result = await getBackgroundImageGenerationTask(generationId);
             if (result.status === "completed" && result.images?.length) {
@@ -27786,6 +27846,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           }
           await new Promise(resolve => window.setTimeout(resolve, 3000));
         }
+        if (billingBlocked) return;
         failTimedOutTask();
       };
 

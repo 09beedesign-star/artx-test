@@ -1,4 +1,4 @@
-import { normalizeImageModelId } from "./image-models";
+import { IMAGE_MODEL_PRIORITY_IDS, normalizeImageModelId } from "./image-models";
 
 export type AiBillingCapability =
   | "text_generation"
@@ -333,8 +333,18 @@ export function getAiPlanDiscount(planId?: string) {
 }
 
 export function getAiImageModelCreditPolicy(model?: string) {
-  const normalized = (model || "").trim();
-  if (!normalized || normalized === "auto") return null;
+  const trimmed = (model || "").trim();
+  if (!trimmed) return null;
+  /**
+   * 「auto」必须按**真正会跑的首选模型**估价（IMAGE_MODEL_PRIORITY_IDS[0]）。
+   *
+   * 2026-09-30 事故：这里曾对 auto 直接返回 null，quoteAiUsage 于是回落到
+   * text_to_image 的通用 baseCredits（300/张，2K 再 ×2.14 ≈ 640），
+   * 而实际出图的是 70 积分的 vod-og25-sunburst-medium。
+   * 结果新注册用户手握 350 积分却被事前闸门以「暂无可用积分」拦下（402），
+   * 真实扣费（recordAiUsage 记的是实际模型）从来不会出现 auto，只有预检被高估。
+   */
+  const normalized = trimmed.toLowerCase() === "auto" ? IMAGE_MODEL_PRIORITY_IDS[0] : trimmed;
   const exact = AI_IMAGE_MODEL_CREDIT_POLICIES.find((item) => item.model === normalized);
   if (exact) return exact;
   /**

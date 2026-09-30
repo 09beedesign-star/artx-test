@@ -1706,7 +1706,7 @@ export async function assertCanUseAiImageModel(input: {
      *    正确做法是删掉这里的余额判断、交给统一入口，而不是在这里再补一份容差。
      */
     throw new AiBillingError({
-      code: isFreePlanId(planId) ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE",
+      code: resolveAiBillingErrorCode(planId, eligibleBalance),
       requiredCredits: chargedCredits,
       availableCredits: eligibleBalance,
       planId,
@@ -1829,11 +1829,23 @@ export async function assertUserCanAffordAiUsage(input: {
 
   const planId = getPlanIdFromUserPlan(user?.plan);
   throw new AiBillingError({
-    code: isFreePlanId(planId) ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE",
+    code: resolveAiBillingErrorCode(planId, availableCredits),
     requiredCredits,
     availableCredits,
     planId,
   });
+}
+
+/**
+ * 402 的 code 必须看**余额**，不能只看套餐。
+ *
+ * 2026-09-30 事故：新注册用户（Free）手里有注册赠送积分，只是不够本次消耗，
+ * 却因为「Free 一律 NO_SUBSCRIPTION」收到「当前未订阅套餐，暂无可用创作积分」
+ * ——用户明明看得到自己有积分，这句话是错的。
+ * 只有「Free 且余额为 0」才是真正的「还没有积分」；有余额就是「积分不足」。
+ */
+export function resolveAiBillingErrorCode(planId: string | undefined, availableCredits: number): AiBillingErrorCode {
+  return isFreePlanId(planId) && availableCredits <= 0 ? "NO_SUBSCRIPTION" : "INSUFFICIENT_BALANCE";
 }
 
 /**

@@ -124,6 +124,25 @@ describe("画布接线：计费拦截时撤占位框而不是标失败", () => {
     );
   });
 
+  /**
+   * 2026-09-30 事故：右侧 AI 助手 / 技能出图被 402 时，catch 只弹 toast、
+   * 从不把 pending 任务标 failed —— 上面那条撤框逻辑根本没机会跑，
+   * 占位框一直「生成中」，超时后变成「网络开了个小差」失败节点。
+   * 后台续跑（ensureBackgroundImageGeneration）同样吞掉了 402。
+   */
+  it("⭐ 右侧助手 catch 与后台续跑都会把计费拦截派发为 failed", () => {
+    const { stripped } = readSource(canvasPath);
+
+    expect(stripped).toMatch(
+      /if \(pendingImageTask && isAiCreditBlockedMessage\(message\)\) \{\s*dispatchImageGenerationTask\(\s*\{ \.\.\.pendingImageTask, status: "failed", error: message \}/
+    );
+    // 两条右侧出图路径（技能 / 助手）都要登记 pending 任务。
+    expect(stripped.match(/pendingImageTask = payload;/g) || []).toHaveLength(2);
+    expect(stripped).toMatch(
+      /if \(isAiCreditBlockedMessage\(message\)\) \{\s*billingBlocked = true;\s*dispatchImageGenerationTask\(/
+    );
+  });
+
   it("占位框在创建处打标记，且全文件只此一处", () => {
     const { stripped } = readSource(canvasPath);
 
