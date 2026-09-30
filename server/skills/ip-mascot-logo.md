@@ -20,4 +20,4 @@ Generation priorities:
 - Cute through proportion (big head, small features), not through detail.
 
 Open-source references used to shape this skill:
-- s1dashu/ip-as-logo-skill (MIT): original skill by s1dashu, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

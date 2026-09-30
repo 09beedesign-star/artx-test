@@ -21,4 +21,4 @@ Generation priorities:
 - Never plastic, clay, vector-clean edges, edge-to-edge coverage, or watermarks.
 
 Open-source references used to shape this skill:
-- NalaZhang27/photo-to-organic-knit (MIT): original skill by NalaZhang27, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

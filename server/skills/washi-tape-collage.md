@@ -20,4 +20,4 @@ Generation priorities:
 - No text or watermark unless the user asks.
 
 Open-source references used to shape this skill:
-- sherlyryn/make-tape-collage (MIT): original skill by sherlyryn, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

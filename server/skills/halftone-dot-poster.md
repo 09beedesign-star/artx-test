@@ -19,4 +19,4 @@ Generation priorities:
 - Slight ink spread and registration shift are welcome.
 
 Open-source references used to shape this skill:
-- v92388375-gif/pixel-style-poster-skill (MIT): original skill by v92388375-gif, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

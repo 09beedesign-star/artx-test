@@ -21,4 +21,4 @@ Generation priorities:
 - No text, signatures, notebook or desk mockups; output the drawing only.
 
 Open-source references used to shape this skill:
-- liigoQi/photo-to-travel-sketch (MIT): original skill by liigoQi, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

@@ -21,4 +21,4 @@ Generation priorities:
 - Restraint over decoration: blank paper is part of the design.
 
 Open-source references used to shape this skill:
-- Dlcccc71913/skill-make-photo-stamp-archive (MIT): original skill by Dlcccc71913, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

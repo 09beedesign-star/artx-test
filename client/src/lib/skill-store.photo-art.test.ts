@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { skillCategoryMeta, skillStoreItems } from "./skill-store";
 
 /**
- * 「图像创意」分类：来自 vechooool-skills 合集中许可证为 MIT、且产物是单张图片的 10 个 skill。
+ * 「图像创意」分类：10 个照片艺术化 / 创意风格 skill，产物均为单张图片。
  *
  * 为什么全部是 text_to_image 而不是 image_edit：
  * image_edit 分支会追加「保持构图/主体/背景不变」的引导语，而且后台 image_edit
@@ -50,8 +50,10 @@ describe("photo_art skills", () => {
       expect(existsSync(mdPath)).toBe(true);
       const md = readFileSync(mdPath, "utf-8");
       expect(md).toContain("capability: text_to_image");
-      expect(md).toContain("(MIT)");
-      expect(skill.sourceUrl).toMatch(/^https:\/\/github\.com\//);
+      // 用户要求：不对外展示原作者与仓库名（前端产物与 skill MD 都会被下发/注入）。
+      expect(md).not.toMatch(/github|MIT\)|original skill by/i);
+      expect(skill.sourceUrl).toBe("");
+      expect(skill.sourceRepo).toBe("ArtX 图像创意");
     }
   });
 

@@ -21,4 +21,4 @@ Generation priorities:
 - Correct glyphs for any Chinese text.
 
 Open-source references used to shape this skill:
-- LiamGvchi/gc-minimal-zine-poster (MIT): original skill by LiamGvchi, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

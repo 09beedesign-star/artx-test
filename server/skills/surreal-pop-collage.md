@@ -20,4 +20,4 @@ Generation priorities:
 - No text or watermark. Default ratio 3:4.
 
 Open-source references used to shape this skill:
-- 2998980-hue/surreal-pop-collage (MIT): original skill by 2998980-hue, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.

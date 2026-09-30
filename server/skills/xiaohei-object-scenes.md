@@ -21,4 +21,4 @@ Generation priorities:
 - Correct Chinese glyphs; keep labels short.
 
 Open-source references used to shape this skill:
-- helloianneo/ian-xiaohei-scenes (MIT): original skill by helloianneo, condensed and adapted for ArtX single-image generation.
+- ArtX in-house photo-art style guide, written for single-image generation.
