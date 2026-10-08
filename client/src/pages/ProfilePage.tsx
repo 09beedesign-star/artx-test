@@ -2,6 +2,7 @@
  * ProfilePage — personal homepage detail page
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
+import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
 import { useLocation } from "wouter";
@@ -28,12 +29,14 @@ interface ProfileDraft {
   avatar: string;
 }
 
-const PROFILE_STORAGE_KEY = "artx:creator-profile";
+const PROFILE_STORAGE_BASE_KEY = "artx:creator-profile";
+// 账号隔离：资料按 userId 分桶，见 @/lib/owner-storage。
+const profileStorageKey = () => ownerScopedKey(PROFILE_STORAGE_BASE_KEY);
 const DEFAULT_DESCRIPTION = "这是您的 ArtXStudio 创作者主页";
 
 function readStoredProfile(): Partial<ProfileDraft> {
   try {
-    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    const raw = getOwnedItem(localStorage, profileStorageKey());
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -53,13 +56,13 @@ function isQuotaExceededError(error: unknown) {
 
 function writeStoredProfile(profile: ProfileDraft) {
   try {
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
     return { ok: true, avatarDropped: false };
   } catch (error) {
     if (!isQuotaExceededError(error)) return { ok: false, avatarDropped: false };
     try {
       localStorage.setItem(
-        PROFILE_STORAGE_KEY,
+        profileStorageKey(),
         JSON.stringify({
           ...profile,
           avatar: "",

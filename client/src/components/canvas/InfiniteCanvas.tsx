@@ -6,6 +6,7 @@
  * 3. Right-click on node: context menu with icon commands
  * 4. Asset node double-click zoom is disabled; image download is available from the node context menu
  */
+import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import {
   useCallback,
   useState,
@@ -672,7 +673,7 @@ const ENABLE_NODE_CONNECTIONS = false;
 function readConversationIndexStorage(key: string): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem(key);
+    return getOwnedItem(window.localStorage, key);
   } catch {
     return null;
   }
@@ -837,10 +838,10 @@ function shouldShowCloudRetentionToast() {
   if (typeof window === "undefined") return false;
   try {
     // 「不再提醒」是终态：一旦置位，后面的间隔判断一律跳过。
-    if (window.localStorage.getItem(CLOUD_RETENTION_OPT_OUT_KEY) === "1") {
+    if (getOwnedItem(window.localStorage, ownerScopedKey(CLOUD_RETENTION_OPT_OUT_KEY)) === "1") {
       return false;
     }
-    const last = window.localStorage.getItem(CLOUD_RETENTION_LAST_SHOWN_KEY);
+    const last = getOwnedItem(window.localStorage, ownerScopedKey(CLOUD_RETENTION_LAST_SHOWN_KEY));
     if (!last) return true;
     const lastTime = Number(last);
     // ⚠️ 旧版本存的是 "YYYY-MM-DD" 字符串，Number() 会得到 NaN。
@@ -858,7 +859,7 @@ function markCloudRetentionToastShown() {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      CLOUD_RETENTION_LAST_SHOWN_KEY,
+      ownerScopedKey(CLOUD_RETENTION_LAST_SHOWN_KEY),
       String(Date.now())
     );
   } catch {
@@ -869,7 +870,7 @@ function markCloudRetentionToastShown() {
 function markCloudRetentionOptOut() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CLOUD_RETENTION_OPT_OUT_KEY, "1");
+    window.localStorage.setItem(ownerScopedKey(CLOUD_RETENTION_OPT_OUT_KEY), "1");
   } catch {
     // Ignore storage failures.
   }
@@ -889,7 +890,7 @@ const EXPIRY_SUMMARY_LAST_SHOWN_KEY = "artx:upload-expiry-summary-last-shown";
 function shouldShowExpirySummary() {
   if (typeof window === "undefined") return false;
   try {
-    const last = window.localStorage.getItem(EXPIRY_SUMMARY_LAST_SHOWN_KEY);
+    const last = getOwnedItem(window.localStorage, ownerScopedKey(EXPIRY_SUMMARY_LAST_SHOWN_KEY));
     if (!last) return true;
     // 存的是本地日期键（YYYY-MM-DD）而不是时间戳：用户关心的是"今天提醒过没有"，
     // 用 24 小时滚动窗会出现「昨天 23:50 提醒过，今天 9:00 不提醒」的怪异行为。
@@ -902,7 +903,7 @@ function shouldShowExpirySummary() {
 function markExpirySummaryShown() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(EXPIRY_SUMMARY_LAST_SHOWN_KEY, getLocalDateKey());
+    window.localStorage.setItem(ownerScopedKey(EXPIRY_SUMMARY_LAST_SHOWN_KEY), getLocalDateKey());
   } catch {
     // Ignore storage failures; the reminder is helpful but not critical.
   }
@@ -14490,12 +14491,18 @@ function formatProjectHistoryTimestamp(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/*
+ * ⚠️⚠️⚠️【2026-09-27 账号隔离】画布状态按 userId 分桶（后缀 `:${userId}`）。
+ *    以前同一浏览器先后登录两个账号会读到同一份 `artx:canvas-state:p1`，
+ *    即「abc」能看到「abc@qq.com」的画布。必须与 workspace-sync.canvasKeysForProject
+ *    同口径。老的无账号 key 由 getOwnedItem 在首次读取时认领给当前账号。
+ */
 function canvasStateStorageKey(projectId: string) {
-  return `${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`;
+  return ownerScopedKey(`${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`);
 }
 
 function canvasStateSessionKey(projectId: string) {
-  return `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`;
+  return ownerScopedKey(`${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`);
 }
 
 /**
@@ -14553,7 +14560,12 @@ function ensureTestCanvasStateReset() {
   window.localStorage.setItem(TEST_CANVAS_STATE_RESET_KEY, "1");
 }
 
+/** 账号隔离：IndexedDB 图片 key 也按 userId 分桶；老 key 见 legacyCanvasImagePayloadKey。 */
 function canvasImagePayloadKey(projectId: string, nodeId: string) {
+  return ownerScopedKey(legacyCanvasImagePayloadKey(projectId, nodeId));
+}
+
+function legacyCanvasImagePayloadKey(projectId: string, nodeId: string) {
   return `${projectId || "p1"}:${nodeId}`;
 }
 
@@ -14562,14 +14574,17 @@ function imageGenerationTaskImageKey(
   generationId: string,
   index: number
 ) {
-  return `${projectId || "p1"}:image-task:${generationId}:${index}`;
+  return ownerScopedKey(`${projectId || "p1"}:image-task:${generationId}:${index}`);
 }
 
 function readPersistedImageGenerationTasks() {
   if (typeof window === "undefined") return [];
   try {
     const parsed = JSON.parse(
-      window.localStorage.getItem(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY) ||
+      getOwnedItem(
+        window.localStorage,
+        ownerScopedKey(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY)
+      ) ||
         "[]"
     ) as PersistedImageGenerationTask[];
     if (!Array.isArray(parsed)) return [];
@@ -14590,7 +14605,7 @@ function writePersistedImageGenerationTasks(
     .slice(0, 60);
   try {
     window.localStorage.setItem(
-      CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY,
+      ownerScopedKey(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY),
       JSON.stringify(pruned)
     );
   } catch {
@@ -14605,7 +14620,7 @@ function writePersistedImageGenerationTasks(
     );
     try {
       window.localStorage.setItem(
-        CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY,
+        ownerScopedKey(CANVAS_IMAGE_GENERATION_TASKS_STORAGE_KEY),
         JSON.stringify(lightweight.slice(0, 30))
       );
     } catch {
@@ -15309,10 +15324,22 @@ async function hydrateCanvasNodeImagePayloads(
     const transaction = db.transaction(CANVAS_IMAGE_STORE_NAME, "readonly");
     const store = transaction.objectStore(CANVAS_IMAGE_STORE_NAME);
     missingAssetNodes.forEach(node => {
-      const request = store.get(canvasImagePayloadKey(projectId, node.id));
+      const scopedKey = canvasImagePayloadKey(projectId, node.id);
+      const legacyKey = legacyCanvasImagePayloadKey(projectId, node.id);
+      const request = store.get(scopedKey);
       request.onsuccess = () => {
-        if (typeof request.result === "string")
+        if (typeof request.result === "string") {
           restored.set(node.id, request.result);
+          return;
+        }
+        // 账号隔离上线前存的图在老 key 下：画布本身已归属当前账号（画布 key 已分桶），
+        // 所以这里回读老 key 是安全的，否则老用户的图会全部消失。
+        if (legacyKey === scopedKey) return;
+        const legacyRequest = store.get(legacyKey);
+        legacyRequest.onsuccess = () => {
+          if (typeof legacyRequest.result === "string")
+            restored.set(node.id, legacyRequest.result);
+        };
       };
     });
     // ⚠️ 连接共享，不关。
@@ -15394,10 +15421,10 @@ function safeReadCanvasState(projectId: string): PersistedCanvasState | null {
   try {
     return (
       readRawState(
-        window.sessionStorage.getItem(canvasStateSessionKey(projectId))
+        getOwnedItem(window.sessionStorage, canvasStateSessionKey(projectId))
       ) ||
       readRawState(
-        window.localStorage.getItem(canvasStateStorageKey(projectId))
+        getOwnedItem(window.localStorage, canvasStateStorageKey(projectId))
       )
     );
   } catch {
@@ -20883,12 +20910,26 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
   "artx:canvas-assistant-auto-default-version";
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
+/*
+ * ⚠️⚠️【2026-09-27 账号隔离】模型偏好直接决定扣费档位（vod-gem 300/张），
+ *    必须按账号分桶：否则 A 账号选了贵模型，B 账号在同一浏览器登录后
+ *    会默认沿用，花的是 B 的积分。与 assistant-model-preference.ts 同口径。
+ */
+function readOwnedPreference(baseKey: string) {
+  if (typeof window === "undefined") return null;
+  return getOwnedItem(window.localStorage, ownerScopedKey(baseKey));
+}
+
+function writeOwnedPreference(baseKey: string, value: string) {
+  window.localStorage.setItem(ownerScopedKey(baseKey), value);
+}
+
 function getStoredCanvasAssistantImageEditModel() {
   if (typeof window === "undefined") return "gpt-image-2";
   const autoMode =
-    window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
+    readOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
   if (autoMode) return "auto";
-  const storedModel = window.localStorage.getItem(
+  const storedModel = readOwnedPreference(
     CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY
   );
   return IMAGE_AI_MODELS.some(model => model.id === storedModel)
@@ -21081,7 +21122,8 @@ function canvasAssistantMessagesSessionKey(
   conversationId = ""
 ) {
   const base = `${CANVAS_ASSISTANT_MESSAGES_SESSION_PREFIX}${projectId || "p1"}`;
-  return conversationId ? `${base}:${conversationId}` : base;
+  // 账号隔离：与 canvasConversationMessagesKey 同口径，后缀 `:${userId}`。
+  return ownerScopedKey(conversationId ? `${base}:${conversationId}` : base);
 }
 
 function serializeCanvasAssistantMessages(messages: CanvasAssistantMessage[]) {
@@ -21557,25 +21599,22 @@ function CanvasAssistantPanel({
   const [assistantAutoMode, setAssistantAutoMode] = useState(() => {
     if (typeof window === "undefined") return true;
     if (
-      window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY) !==
+      readOwnedPreference(CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY) !==
       CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION
     ) {
-      window.localStorage.setItem(
+      writeOwnedPreference(
         CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY,
         CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION
       );
-      window.localStorage.setItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, "1");
+      writeOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, "1");
       return true;
     }
-    return (
-      window.localStorage.getItem(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !==
-      "0"
-    );
+    return readOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
   });
   const [assistantModelTab, setAssistantModelTab] =
     useState<CanvasAssistantModelTab>(() => {
       if (typeof window === "undefined") return "image";
-      const stored = window.localStorage.getItem(
+      const stored = readOwnedPreference(
         CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY
       );
       return stored === "text" ? "text" : "image";
@@ -21584,8 +21623,8 @@ function CanvasAssistantPanel({
     const fallbackImageModelId = DEFAULT_IMAGE_AI_MODEL_ID;
     if (typeof window === "undefined") return fallbackImageModelId;
     const stored =
-      window.localStorage.getItem(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) ||
-      window.localStorage.getItem("artx:canvas-assistant-model");
+      readOwnedPreference(CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY) ||
+      readOwnedPreference("artx:canvas-assistant-model");
     return IMAGE_AI_MODELS.some(model => model.id === stored)
       ? stored!
       : fallbackImageModelId;
@@ -21595,7 +21634,7 @@ function CanvasAssistantPanel({
     // 下面的 TEXT_AI_MODELS.some 会判定为非法值并回落到 DEFAULT_TEXT_MODEL，
     // 这正是我们要的效果（自动迁移到 claude-opus-5），不要额外做兼容放行。
     if (typeof window === "undefined") return DEFAULT_TEXT_MODEL;
-    const stored = window.localStorage.getItem(
+    const stored = readOwnedPreference(
       CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY
     );
     return TEXT_AI_MODELS.some(model => model.id === stored)
@@ -21780,13 +21819,15 @@ function CanvasAssistantPanel({
       typeof window === "undefined"
         ? []
         : deserializeCanvasAssistantMessages(
-            window.sessionStorage.getItem(
+            getOwnedItem(
+              window.sessionStorage,
               canvasAssistantMessagesSessionKey(
                 projectId,
                 conversationIndex.activeId
               )
             ) ||
-              window.localStorage.getItem(
+              getOwnedItem(
+                window.localStorage,
                 canvasConversationMessagesKey(
                   projectId,
                   conversationIndex.activeId
@@ -21963,7 +22004,7 @@ function CanvasAssistantPanel({
         conversations: conversationIndex.conversations,
         query: conversationQuery,
         read: key =>
-          typeof window === "undefined" ? null : window.localStorage.getItem(key),
+          typeof window === "undefined" ? null : getOwnedItem(window.localStorage, key),
       }),
     [projectId, conversationIndex.conversations, conversationQuery]
   );
@@ -23928,19 +23969,19 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
+      writeOwnedPreference(
         CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY,
         assistantAutoMode ? "1" : "0"
       );
-      window.localStorage.setItem(
+      writeOwnedPreference(
         CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY,
         assistantModelTab
       );
-      window.localStorage.setItem(
+      writeOwnedPreference(
         CANVAS_ASSISTANT_IMAGE_MODEL_STORAGE_KEY,
         assistantImageModel.id
       );
-      window.localStorage.setItem(
+      writeOwnedPreference(
         CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY,
         assistantTextModel.id
       );
@@ -23981,10 +24022,12 @@ function CanvasAssistantPanel({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = deserializeCanvasAssistantMessages(
-      window.sessionStorage.getItem(
+      getOwnedItem(
+        window.sessionStorage,
         canvasAssistantMessagesSessionKey(projectId, activeConversationId)
       ) ||
-        window.localStorage.getItem(
+        getOwnedItem(
+          window.localStorage,
           canvasConversationMessagesKey(projectId, activeConversationId)
         )
     );
@@ -27453,8 +27496,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const readCrossCanvasClipboard = useCallback(() => {
     if (typeof window === "undefined") return [] as Node[];
     try {
-      const raw = window.localStorage.getItem(
-        CANVAS_CROSS_PROJECT_CLIPBOARD_KEY
+      // 账号隔离：跨画布剪贴板也按账号分桶，否则 A 复制的节点能粘贴进 B 的画布。
+      const raw = getOwnedItem(
+        window.localStorage,
+        ownerScopedKey(CANVAS_CROSS_PROJECT_CLIPBOARD_KEY)
       );
       if (!raw) return [] as Node[];
       const parsed = JSON.parse(raw) as { nodes?: Node[] };
@@ -27474,7 +27519,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (typeof window !== "undefined") {
       try {
         window.localStorage.setItem(
-          CANVAS_CROSS_PROJECT_CLIPBOARD_KEY,
+          ownerScopedKey(CANVAS_CROSS_PROJECT_CLIPBOARD_KEY),
           JSON.stringify({
             copiedAt: Date.now(),
             nodes: copyable,

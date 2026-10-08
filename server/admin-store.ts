@@ -2040,8 +2040,12 @@ function displayNameFromUsername(username: string) {
   return username.split("@")[0] || username;
 }
 
+/**
+ * 账号隔离：用户名不是邮箱时邮箱字段留空，**禁止合成 `${username}@example.com`**。
+ * 合成邮箱会让「abc」与「abc@example.com」这类账号在按邮箱匹配的地方撞到一起。
+ */
 function userEmailFromUsername(username: string) {
-  return username.includes("@") ? username : `${username}@example.com`;
+  return username.includes("@") ? username : "";
 }
 
 function ensureBillingUser(data: AdminData, params: {
@@ -2196,22 +2200,19 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
   const authUsers = await listAuthUsers();
   const merged = new Map<string, AdminUserAccount>();
 
+  // 账号隔离：只按 userId 关联。用户名 / 邮箱 / `@example.com` 都不能作为合并依据，
+  // 否则「abc」和「abc@qq.com」这类两个独立账号会被合并成一行、互相覆盖角色与模型权限。
   seedUsers.forEach((user) => {
-    merged.set(user.email || user.account, user);
-    merged.set(user.account, user);
     merged.set(user.id, user);
   });
 
   for (const authUser of authUsers) {
-    const existing =
-      merged.get(authUser.username) ||
-      merged.get(`${authUser.username}@example.com`) ||
-      seedUsers.find((item) => item.email === authUser.username || item.account === authUser.username);
+    const existing = merged.get(authUser.id);
 
     if (existing) {
       existing.role = authUser.role || existing.role;
       existing.account = authUser.username;
-      existing.email = existing.email || authUser.username;
+      existing.email = existing.email || userEmailFromUsername(authUser.username);
       existing.allowedAiModels = authUser.allowedAiModels;
       continue;
     }
@@ -2219,7 +2220,7 @@ async function buildUserAccounts(seedUsers: AdminUserAccount[] = []) {
     const syntheticUser: AdminUserAccount = {
       id: authUser.id,
       name: authUser.username.split("@")[0],
-      email: authUser.username,
+      email: userEmailFromUsername(authUser.username),
       account: authUser.username,
       registeredAt: formatAbsoluteSecondTime(authUser.createdAt) || formatAbsoluteSecondTime(nowIso()) || nowIso(),
       loginMethod: authUser.username.includes("@artx.social") ? "social" : "email",
@@ -3084,9 +3085,8 @@ export async function submitUserFeedback(input: {
   }
 
   const data = await loadAdminData();
-  const user =
-    data.users.find((item) => item.id === input.user.id) ||
-    data.users.find((item) => item.account === input.user.username || item.email === input.user.username);
+  // 账号隔离：只按 userId 找人，禁止按用户名 / 邮箱兜底匹配（会把反馈挂到同名的另一个账号上）。
+  const user = data.users.find((item) => item.id === input.user.id);
   const username = user?.account || user?.email || input.user.username;
   const feedbackId = `fb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 6)}`;
   let attachments: StoredFeedbackImage[] = [];
@@ -6110,7 +6110,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
     user = {
       id: input.userId,
       name: input.username.split("@")[0] || input.username,
-      email: input.username.includes("@") ? input.username : `${input.username}@example.com`,
+      email: userEmailFromUsername(input.username),
       account: input.username,
       registeredAt: formatDateTime(nowIso()),
       loginMethod: input.username.includes("@artx.social") ? "social" : "email",

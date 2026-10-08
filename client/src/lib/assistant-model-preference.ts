@@ -3,6 +3,7 @@ import {
   DEFAULT_IMAGE_AI_MODEL_ID,
   IMAGE_AI_MODELS,
 } from "./workspace-data";
+import { getOwnedItem, ownerScopedKey } from "./owner-storage";
 
 /**
  * 「用户偏好的出图模型」的唯一事实源。
@@ -42,11 +43,13 @@ export function readPreferredImageModelId(): string {
     // auto 开关缺省即开启（与画布 getStoredCanvasAssistantImageEditModel 一致：
     // 只有显式写入 "0" 才算关闭）。新用户第一次进站就是 auto，
     // 这与首页原先硬编码的 model:"auto" 行为完全吻合，属于零变化迁移。
-    const autoMode = window.localStorage.getItem(AUTO_MODE_STORAGE_KEY) !== "0";
+    // 账号隔离：模型偏好直接影响扣费档位，必须按账号分桶（见 owner-storage.ts）。
+    const ls = window.localStorage;
+    const autoMode = getOwnedItem(ls, ownerScopedKey(AUTO_MODE_STORAGE_KEY)) !== "0";
     if (autoMode) return AUTO_AI_MODEL.id;
     const stored =
-      window.localStorage.getItem(IMAGE_MODEL_STORAGE_KEY) ||
-      window.localStorage.getItem(LEGACY_MODEL_STORAGE_KEY);
+      getOwnedItem(ls, ownerScopedKey(IMAGE_MODEL_STORAGE_KEY)) ||
+      getOwnedItem(ls, ownerScopedKey(LEGACY_MODEL_STORAGE_KEY));
     return IMAGE_AI_MODELS.some(model => model.id === stored)
       ? stored!
       : DEFAULT_IMAGE_AI_MODEL_ID;
@@ -68,12 +71,12 @@ export function writePreferredImageModelId(modelId: string) {
   if (typeof window === "undefined") return;
   try {
     if (modelId === AUTO_AI_MODEL.id) {
-      window.localStorage.setItem(AUTO_MODE_STORAGE_KEY, "1");
+      window.localStorage.setItem(ownerScopedKey(AUTO_MODE_STORAGE_KEY), "1");
       return;
     }
     if (!IMAGE_AI_MODELS.some(model => model.id === modelId)) return;
-    window.localStorage.setItem(AUTO_MODE_STORAGE_KEY, "0");
-    window.localStorage.setItem(IMAGE_MODEL_STORAGE_KEY, modelId);
+    window.localStorage.setItem(ownerScopedKey(AUTO_MODE_STORAGE_KEY), "0");
+    window.localStorage.setItem(ownerScopedKey(IMAGE_MODEL_STORAGE_KEY), modelId);
   } catch {
     /* ignore storage quota errors */
   }

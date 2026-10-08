@@ -40,6 +40,7 @@ import {
   type InspirationReactionKind,
   type InspirationReactionState,
 } from "./inspiration-reactions";
+import { getOwnedItem } from "./owner-storage";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const CANVAS_STATE_STORAGE_PREFIX = "artx:canvas-state:";
@@ -176,8 +177,9 @@ function writeLocalProjects(projects: SyncedWorkspaceProject[]) {
 
 function canvasKeysForProject(projectId: string) {
   return {
-    local: `${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`,
-    session: `${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`,
+    // ⚠️ 必须与 InfiniteCanvas.canvasStateStorageKey/SessionKey 同口径（都按账号分桶）。
+    local: ownedKey(`${CANVAS_STATE_STORAGE_PREFIX}${projectId || "p1"}`),
+    session: ownedKey(`${CANVAS_STATE_SESSION_PREFIX}${projectId || "p1"}`),
   };
 }
 
@@ -189,7 +191,8 @@ function readLocalCanvas(projectId: string): SyncedCanvasState | null {
    *    local 存的是剥离大图的轻量版。反过来读会拿到残缺数据，
    *    然后把这份残缺数据同步到云端，把另一台设备的完整数据覆盖掉。
    */
-  const raw = safeGetItem(window?.sessionStorage, keys.session) || safeGetItem(window?.localStorage, keys.local);
+  // getOwnedItem：带账号 key 缺失时认领老的无账号 key（老用户数据不丢，见 owner-storage.ts）。
+  const raw = getOwnedItem(window?.sessionStorage, keys.session) || getOwnedItem(window?.localStorage, keys.local);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { nodes?: unknown; edges?: unknown; updatedAt?: unknown };
@@ -290,12 +293,12 @@ function readLocalConversationIndex(projectId: string): CanvasConversationIndex 
    *    📌 判据：后台流程只能观察状态，绝不能制造状态。
    */
   return parseConversationIndex(
-    safeGetItem(window?.localStorage, canvasConversationIndexKey(projectId))
+    getOwnedItem(window?.localStorage, canvasConversationIndexKey(projectId))
   );
 }
 
 function readLocalConversationMessages(projectId: string, conversationId: string): unknown[] {
-  const raw = safeGetItem(
+  const raw = getOwnedItem(
     window?.localStorage,
     canvasConversationMessagesKey(projectId, conversationId)
   );

@@ -15,6 +15,8 @@
  *    ✅ 收敛成：所有出口都只管改 messages，**存哪个 key 由这里唯一决定**。
  */
 
+import { ownerScopedKey } from "./owner-storage";
+
 export type CanvasConversationMeta = {
   id: string;
   /** 会话标题。取首条用户消息前 20 字；没有用户消息时为空串，由 UI 兜底显示。 */
@@ -54,7 +56,8 @@ export const CONVERSATION_TITLE_MAX_LENGTH = 20;
 export const CONVERSATION_FALLBACK_TITLE = "新对话";
 
 export function canvasConversationIndexKey(projectId: string) {
-  return `${INDEX_PREFIX}${projectId || "p1"}`;
+  // 账号隔离：同一浏览器两个账号的会话索引必须分桶（见 owner-storage.ts）。
+  return ownerScopedKey(`${INDEX_PREFIX}${projectId || "p1"}`);
 }
 
 /**
@@ -71,7 +74,8 @@ export function canvasConversationMessagesKey(
   conversationId: string
 ) {
   const base = `${MESSAGES_PREFIX}${projectId || "p1"}`;
-  return conversationId ? `${base}:${conversationId}` : base;
+  // 账号后缀放在最后，保证 `artx:canvas-assistant-messages:` 前缀清理仍然命中。
+  return ownerScopedKey(conversationId ? `${base}:${conversationId}` : base);
 }
 
 export function createCanvasConversationId() {
