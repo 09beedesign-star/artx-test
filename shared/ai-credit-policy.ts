@@ -367,6 +367,49 @@ export function isHighQualityImageModel(model?: string) {
   return getAiImageModelCreditPolicy(model)?.qualityTier === "high";
 }
 
+/**
+ * 「高消耗」标记阈值 = 全站默认档（image2.5 medium）的单价 70 积分/张。
+ *
+ * 口径：**单价高于默认档的模型一律标「高消耗」**。用默认档做基准而不是拍一个
+ * 绝对数字，是因为所有套餐额度都按 70 积分/张换算（见上方定价注释），
+ * 用户心里的「正常一张图」就是 70 —— 超过它就意味着同样的积分出图更少。
+ * ⚠️ 默认档调价时这里自动跟随，不要改成字面量。
+ */
+export const HIGH_COST_IMAGE_CREDITS_THRESHOLD =
+  AI_IMAGE_MODEL_CREDIT_POLICIES.find((item) => item.model === IMAGE_MODEL_PRIORITY_IDS[0])?.creditsPerImage ?? 70;
+
+/** 是否在模型选择器里标「高消耗」。auto / 未知模型 → false（auto 按默认档计价）。 */
+export function isHighCostImageModel(model?: string) {
+  const trimmed = (model || "").trim();
+  if (!trimmed || trimmed.toLowerCase() === "auto") return false;
+  const policy = getAiImageModelCreditPolicy(trimmed);
+  return Boolean(policy && policy.creditsPerImage > HIGH_COST_IMAGE_CREDITS_THRESHOLD);
+}
+
+/**
+ * Free 用户被锁定的唯一出图模型 = 全站默认档（70 积分/张）。
+ * 2026-10 用户拍板：「免费用户默认锁定 70 积分的默认档」。
+ */
+export const FREE_PLAN_LOCKED_IMAGE_MODEL_ID = IMAGE_MODEL_PRIORITY_IDS[0];
+
+/**
+ * Free 用户能否使用该模型。
+ *
+ * ⚠️ 只锁「用户可在选择器里挑的出图模型」（IMAGE_MODEL_PRIORITY_IDS）。
+ *    抠图/扩图/去水印等固定后端能力（picwish-* / vod-kling-image-expand）、
+ *    文本模型、auto / 空值一律放行 —— 它们不是用户选的，锁了等于把
+ *    免费用户的整条功能链砍断，且零报错地表现为「什么都用不了」。
+ * auto 放行的理由：计费按 tracking.model（auto → 默认档 70）计，用户付费恒为 70。
+ */
+export function isImageModelAllowedForFreePlan(model?: string) {
+  const trimmed = (model || "").trim();
+  if (!trimmed || trimmed.toLowerCase() === "auto") return true;
+  const normalized = normalizeImageModelId(trimmed) || trimmed;
+  const selectable = (IMAGE_MODEL_PRIORITY_IDS as readonly string[]).includes(normalized);
+  if (!selectable) return true;
+  return normalized === FREE_PLAN_LOCKED_IMAGE_MODEL_ID;
+}
+
 export function getAiImageResolutionPolicy(tier?: string) {
   const normalized = (tier || "").trim().toLowerCase();
   return AI_IMAGE_RESOLUTION_POLICIES.find((item) => item.tier === normalized)

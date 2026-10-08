@@ -173,6 +173,7 @@ import {
 } from "lucide-react";
 import {
   AssistantModelIcon,
+  HighCostBadge,
   ModelSelector,
   useImageModelOptions,
 } from "./ModelSelector";
@@ -19301,15 +19302,18 @@ function ImageGeneratorPopover({
                           <span className="flex min-w-0 items-center gap-2.5">
                             <AssistantModelIcon modelId={item.id} icon={item.icon} />
                             <span className="flex min-w-0 flex-col leading-tight">
-                              <span
-                                className="truncate type-caption"
-                                style={{
-                                  color: text,
-                                  textTransform: "none",
-                                  letterSpacing: "0.02em",
-                                }}
-                              >
-                                {item.label}
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span
+                                  className="truncate type-caption"
+                                  style={{
+                                    color: text,
+                                    textTransform: "none",
+                                    letterSpacing: "0.02em",
+                                  }}
+                                >
+                                  {item.label}
+                                </span>
+                                <HighCostBadge model={item.id} />
                               </span>
                               {"description" in item && item.description ? (
                                 <span
@@ -26888,6 +26892,9 @@ function CanvasAssistantPanel({
                                       >
                                         默认{getImageModelDefaultOutputCount(model.id)}张
                                       </span>
+                                    ) : null}
+                                    {assistantModelTab === "image" ? (
+                                      <HighCostBadge model={model.id} />
                                     ) : null}
                                   </div>
                                   {"description" in model &&

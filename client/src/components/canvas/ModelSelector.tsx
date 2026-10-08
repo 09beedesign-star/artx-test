@@ -16,7 +16,14 @@ import {
   type AiModelOption,
 } from "../../lib/workspace-data";
 import { getAiModelEntitlements, listAiModelCatalog } from "../../lib/ai";
+import { getStorageOwnerId } from "../../lib/owner-storage";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
+import {
+  getAiImageModelCreditPolicy,
+  HIGH_COST_IMAGE_CREDITS_THRESHOLD,
+  isHighCostImageModel,
+} from "../../../../shared/ai-credit-policy";
+import { DEFAULT_IMAGE_MODEL_ID } from "../../../../shared/image-models";
 
 /**
  * 模型选择器 —— 画布与首页共用的唯一实现。
@@ -126,6 +133,38 @@ export function AssistantModelIcon({
 }
 
 /**
+ * 「高消耗」角标 —— 全站所有模型清单的**唯一实现**（2026-10）。
+ *
+ * 口径在 shared/ai-credit-policy.ts 的 isHighCostImageModel：单价高于默认档
+ * （70 积分/张）即标。⚠️ 模型清单有三个渲染出口（本文件的 ModelSelector、
+ * 画布 ImageGeneratorPopover、AI 助手模型菜单），必须都用这个组件，
+ * 只改一处 = 另外两处用户照样无感知地选到 300 积分的模型。
+ */
+export function HighCostBadge({ model }: { model: string }) {
+  if (!isHighCostImageModel(model)) return null;
+  const credits = getAiImageModelCreditPolicy(model)?.creditsPerImage;
+  return (
+    <span
+      data-high-cost-badge={model}
+      title={credits ? `${credits} 积分/张，高于默认档 ${HIGH_COST_IMAGE_CREDITS_THRESHOLD} 积分/张` : undefined}
+      className="shrink-0 rounded-full"
+      style={{
+        fontSize: 9,
+        lineHeight: "14px",
+        padding: "0 6px",
+        color: "#F59E0B",
+        background: "rgba(245,158,11,0.14)",
+        border: "1px solid rgba(245,158,11,0.36)",
+        letterSpacing: 0,
+        whiteSpace: "nowrap",
+      }}
+    >
+      高消耗
+    </span>
+  );
+}
+
+/**
  * 模型目录 + 权益的拉取 hook。
  *
  * ⚠️ 首页也必须走这个 hook，不能直接用静态的 IMAGE_AI_MODEL_OPTIONS：
@@ -133,18 +172,30 @@ export function AssistantModelIcon({
  * 用户选了之后要到画布里才发现用不了 —— 错误发生在一个页面，
  * 暴露在另一个页面，是最难排查的那种。
  */
-export function useImageModelOptions() {
-  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
+/**
+ * 模块级短缓存：DraftImageNode 等组件每个节点都会挂一个选择器，
+ * 不缓存时画布上 N 个草稿节点 = N 次目录 + 权益请求。
+ * 30 秒足够覆盖一次画布加载，又不会让「刚升级套餐」的用户等太久才解锁。
+ */
+const MODEL_OPTIONS_CACHE_TTL_MS = 30_000;
+let modelOptionsCache: { at: number; owner: string; promise: Promise<AiModelOption[]> } | null = null;
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.allSettled([listAiModelCatalog(), getAiModelEntitlements()])
-      .then(results => {
-        if (!cancelled) {
+function loadEntitledImageModelOptions(): Promise<AiModelOption[]> {
+  // ⚠️ 缓存按账号隔离：切账号（Free ↔ Pro）后不能沿用上一个账号的权益。
+  const owner = getStorageOwnerId();
+  if (
+    modelOptionsCache
+    && modelOptionsCache.owner === owner
+    && Date.now() - modelOptionsCache.at < MODEL_OPTIONS_CACHE_TTL_MS
+  ) {
+    return modelOptionsCache.promise;
+  }
+  const promise = Promise.allSettled([listAiModelCatalog(), getAiModelEntitlements()])
+    .then(results => {
           const catalog = results[0].status === "fulfilled" ? results[0].value : null;
           const entitlements = results[1].status === "fulfilled" ? results[1].value.imageModels : [];
           const entitlementByModel = new Map(entitlements.map(item => [item.model, item]));
-          setImageModelOptions(
+          return (
             mergeImageAiModelOptions(catalog?.image || []).map(option => {
               const entitlement = entitlementByModel.get(option.id);
               if (!entitlement || option.id === AUTO_AI_MODEL.id) return option;
@@ -174,11 +225,20 @@ export function useImageModelOptions() {
               };
             })
           );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setImageModelOptions(IMAGE_AI_MODEL_OPTIONS);
-      });
+    })
+    .catch(() => IMAGE_AI_MODEL_OPTIONS);
+  modelOptionsCache = { at: Date.now(), owner, promise };
+  return promise;
+}
+
+export function useImageModelOptions() {
+  const [imageModelOptions, setImageModelOptions] = useState(IMAGE_AI_MODEL_OPTIONS);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadEntitledImageModelOptions().then(options => {
+      if (!cancelled) setImageModelOptions(options);
+    });
     return () => {
       cancelled = true;
     };
@@ -224,7 +284,13 @@ export function ModelSelector({
   model,
   onChange,
   isDark,
-  models = IMAGE_AI_MODEL_OPTIONS,
+  /**
+   * 不传 → 组件内部自取「目录 + 权益」（2026-10）。
+   * 此前默认值是静态 IMAGE_AI_MODEL_OPTIONS，画布里 4 个调用点
+   * （素材面板 / 草稿节点 / 底部提示条 / 节点悬浮条）因此**完全不看权益**，
+   * 免费用户能在那里选中被锁的模型，直到发请求才吃 403。
+   */
+  models: modelsProp,
   surface,
   placement = "up",
   triggerClassName,
@@ -244,6 +310,20 @@ export function ModelSelector({
   triggerClassName?: string;
   iconOnly?: boolean;
 }) {
+  const entitledModels = useImageModelOptions();
+  const models = modelsProp ?? entitledModels;
+  /**
+   * 当前选中的模型被权益置灰（典型：免费用户 + 节点悬浮条默认即梦 / 本地偏好
+   * 里存着 banana）→ 自动切回默认档。不切的话按钮上显示的是一个用不了的模型，
+   * 用户一点生成就 403，体验等于「默认就是坏的」。
+   */
+  useEffect(() => {
+    const selected = models.find(m => m.id === model);
+    if (!selected?.disabled) return;
+    const fallback = models.find(m => m.id === DEFAULT_IMAGE_MODEL_ID && !m.disabled)
+      || models.find(m => !m.disabled);
+    if (fallback && fallback.id !== model) onChange(fallback.id);
+  }, [model, models, onChange]);
   const [open, setOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -445,11 +525,14 @@ export function ModelSelector({
               >
                 <AssistantModelIcon modelId={m.id} icon={m.icon} />
                 <span className="flex min-w-0 flex-col leading-tight">
-                  <span
-                    className="type-caption"
-                    style={{ textTransform: "none", letterSpacing: "0.02em" }}
-                  >
-                    {m.label}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="type-caption"
+                      style={{ textTransform: "none", letterSpacing: "0.02em" }}
+                    >
+                      {m.label}
+                    </span>
+                    <HighCostBadge model={m.id} />
                   </span>
                   {"description" in m && m.description ? (
                     <span

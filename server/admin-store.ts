@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, isImageModelAllowedForFreePlan, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -1673,14 +1673,43 @@ function countHighQualityImageUsageThisMonth(data: AdminData, userId: string) {
   }, 0);
 }
 
+/** 免费版锁模型的报错文案。index.ts 的 aiRequestErrorStatus 按前缀映射成 403。 */
+export const FREE_PLAN_MODEL_LOCK_MESSAGE =
+  "免费版仅可使用默认模型 image2.5 medium（70 积分/张），升级套餐即可解锁全部模型。";
+
+/**
+ * Free 用户文生图锁定默认档（70 积分/张）。
+ *
+ * ⚠️ 只拦 text_to_image：它是唯一「换模型 = 换价格」的能力
+ *    （quoteAiUsage 只在 text_to_image 取模型单价，image_edit 是固定 180/次）。
+ *    若连 image_edit 一起拦，智能文案编辑（内部固定 sunburst-high）、
+ *    局部重绘（默认即梦）会对免费用户全线 403，而用户付的钱根本不变。
+ * ⚠️ 测试账号放行（与 assertUserCanAffordAiUsage 同口径）。
+ */
+function assertFreePlanImageModelLock(
+  user: { plan?: string; testProfile?: unknown; accountType?: string } | undefined,
+  model: string | undefined,
+  capabilityKey: string | undefined,
+) {
+  if (capabilityKey && capabilityKey !== "text_to_image") return;
+  if (user?.testProfile && user.accountType === "test") return;
+  if (!isFreePlanId(getPlanIdFromUserPlan(user?.plan))) return;
+  if (isImageModelAllowedForFreePlan(model)) return;
+  throw new Error(FREE_PLAN_MODEL_LOCK_MESSAGE);
+}
+
 export async function assertCanUseAiImageModel(input: {
   userId: string;
   model?: string;
   outputCount?: number;
+  capabilityKey?: string;
 }) {
-  if (!isHighQualityImageModel(input.model)) return;
+  const needsFreeLockCheck = !isImageModelAllowedForFreePlan(input.model);
+  if (!needsFreeLockCheck && !isHighQualityImageModel(input.model)) return;
   const data = await loadAdminData();
   const user = data.users.find((item) => item.id === input.userId);
+  assertFreePlanImageModelLock(user, input.model, input.capabilityKey);
+  if (!isHighQualityImageModel(input.model)) return;
   const planId = getPlanIdFromUserPlan(user?.plan);
   const limit = getHighQualityImageMonthlyLimit(planId);
   if (limit <= 0) {
@@ -1873,11 +1902,25 @@ export async function getAiModelEntitlementsForUser(userId: string) {
     : MEMBERSHIP_PLANS.find((item) => item.id === planId);
   const highLimit = getHighQualityImageMonthlyLimit(planId);
   const highUsed = countHighQualityImageUsageThisMonth(data, userId);
+  // 与 assertFreePlanImageModelLock 同口径（测试账号放行），保证「前端置灰」与「后端拦截」一致。
+  const freeLocked = isFreePlanId(planId) && !(user?.testProfile && user.accountType === "test");
 
   return {
     planId,
     planName: plan?.name || user?.plan || FREE_PLAN_DISPLAY_NAME,
     imageModels: AI_IMAGE_MODEL_CREDIT_POLICIES.map((policy) => {
+      if (freeLocked && !isImageModelAllowedForFreePlan(policy.model)) {
+        return {
+          model: policy.model,
+          status: "unavailable" as const,
+          label: "升级解锁",
+          used: 0,
+          limit: 0,
+          remaining: 0,
+          creditsPerImage: policy.creditsPerImage,
+          message: "免费版仅可用默认模型，升级套餐解锁",
+        };
+      }
       if (!isHighQualityImageModel(policy.model)) {
         return {
           model: policy.model,

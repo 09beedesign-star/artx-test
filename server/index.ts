@@ -742,6 +742,7 @@ async function reserveAiRouteUsage(input: {
     userId: input.user.id,
     model: input.tracking.model,
     outputCount,
+    capabilityKey: input.tracking.capabilityKey,
   });
   const quote = await quoteAdminAiUsage({
     capability: input.tracking.capabilityKey,
@@ -793,6 +794,8 @@ function aiRequestErrorStatus(error: unknown) {
   if (error instanceof AiBillingError) return 402;
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.includes("无权使用该模型")) return 403;
+  // 免费版锁默认模型（admin-store FREE_PLAN_MODEL_LOCK_MESSAGE）—— 权限问题，不是服务器故障。
+  if (message.startsWith("免费版仅可使用默认模型")) return 403;
   if (message.includes("今日 AI 限额")) return 429;
   if (message.includes("测试账号")) return 403;
   return 500;

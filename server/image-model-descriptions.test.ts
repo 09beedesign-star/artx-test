@@ -53,13 +53,19 @@ function stripBlockComments(source: string) {
  */
 const MODEL_SELECTOR_PATH = "client/src/components/canvas/ModelSelector.tsx";
 
-/** 取 useImageModelOptions() 函数体。锚真正的结尾，别用缩进或裸 `}`。 */
+/**
+ * 取「目录 + 权益 → 选项」的映射函数体。锚真正的结尾，别用缩进或裸 `}`。
+ *
+ * 2026-10 映射逻辑从 useImageModelOptions 内联搬到模块级
+ * loadEntitledImageModelOptions（加按账号隔离的短缓存，供 ModelSelector
+ * 不传 models 时自取权益）。锚点随搬家，断言内容不变。
+ */
 function readUseImageModelOptionsBody() {
   const source = readSource(MODEL_SELECTOR_PATH);
-  const start = source.indexOf("function useImageModelOptions()");
-  expect(start, "未找到 useImageModelOptions()").toBeGreaterThan(-1);
-  const end = source.indexOf("return imageModelOptions;", start);
-  expect(end, "未找到 useImageModelOptions 的 return").toBeGreaterThan(start);
+  const start = source.indexOf("function loadEntitledImageModelOptions()");
+  expect(start, "未找到 loadEntitledImageModelOptions()").toBeGreaterThan(-1);
+  const end = source.indexOf("modelOptionsCache = { at: Date.now()", start);
+  expect(end, "未找到 loadEntitledImageModelOptions 的缓存写入").toBeGreaterThan(start);
   const body = source.slice(start, end);
   expect(body).toContain("entitlementByModel");
   return stripBlockComments(body);
