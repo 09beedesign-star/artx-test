@@ -344,6 +344,15 @@ const MODEL_VERSION_MAP: Record<string, string> = {
   gem: "3.1",
   "gem-lite": "3.1-lite",
   "gem-3.1-lite": "3.1-lite",
+  /**
+   * nano banana 2.1（2026-10-11 接入）—— 腾讯侧 ModelName=**GG**、ModelVersion=**3.6**。
+   * 注意 ModelName 是 GG 不是 GEM：resolveModelName 的 "gg" 分支必须排在默认 GEM 兜底之前，
+   * 否则会静默发成 GEM/3.6。实测（生产机 scripts/probe-vod-gg36.mjs）：
+   * 1K 21:9 → 1584×672，37s 出图，中文/英文字形正确。
+   * 能力：文生图 + 图生图（最多 14 张参考图，其中最多 4 张角色图）；1K/2K/4K；
+   * 宽高比 1:1 9:16 16:9 3:4 4:3 2:3 3:2 5:4 4:5 21:9。
+   */
+  gg36: "3.6",
   og: "image2_medium",
   "og-image2-low": "image2_low",
   "og-image2-medium": "image2_medium",
@@ -380,6 +389,18 @@ const MODEL_VERSION_MAP: Record<string, string> = {
   jimeng: "4.0",
 };
 
+/**
+ * 各 ModelName 的参考图上限（不含蒙版）。超限时腾讯整单拒绝，所以在客户端层截断。
+ * GG 3.6：最多 14 张（其中最多 4 张角色图）。
+ */
+const VOD_MODEL_REFERENCE_LIMITS: Record<string, number> = {
+  GG: 14,
+};
+
+/** 仅供测试。 */
+export const __testResolveModelAndVersion = (model?: string, version?: string) =>
+  resolveModelAndVersion(model, version);
+
 function resolveModelAndVersion(model?: string, version?: string): { modelName: string; modelVersion: string } {
   // 项目内部模型 id 带 "vod-" 前缀（如 vod-og / vod-gem），而 VOD 接口只认去掉前缀后的
   // 模型族名（og / gem / mj ...）。前缀不剥离会导致所有 vod-* 都匹配不上、
@@ -401,6 +422,8 @@ function resolveModelAndVersion(model?: string, version?: string): { modelName: 
 
 function resolveModelName(model: string): string {
   const lower = model.toLowerCase();
+  // nano banana 2.1 走 ModelName=GG（不是 GEM），见 MODEL_VERSION_MAP.gg36。
+  if (lower.startsWith("gg")) return "GG";
   if (lower.startsWith("gem")) return "GEM";
   if (lower.startsWith("og")) return "OG";
   if (lower.startsWith("mj")) return "MJ";
@@ -554,9 +577,12 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
 
   const fileInfos: FileInfo[] | undefined = (() => {
     if (!input.imageUrl && !input.imageUrls?.length) return undefined;
-    const list: FileInfo[] = input.imageUrl
-      ? [toFileInfo(input.imageUrl)]
-      : (input.imageUrls || []).map((url) => toFileInfo(url));
+    const refLimit = VOD_MODEL_REFERENCE_LIMITS[modelName];
+    const urls = input.imageUrl ? [input.imageUrl] : input.imageUrls || [];
+    if (refLimit && urls.length > refLimit) {
+      console.log(`[vod-aigc] ${modelName} 参考图 ${urls.length} 张超过上限 ${refLimit}，截取前 ${refLimit} 张`);
+    }
+    const list: FileInfo[] = (refLimit ? urls.slice(0, refLimit) : urls).map((url) => toFileInfo(url));
     // OG（GPT-Image2）系列支持蒙版编辑：白色区域=待替换/编辑区域。
     // 参考 https://cloud.tencent.com/document/product/266/126240
     // 注意：mask 参考图不能带 Usage 字段，只需 ReferenceType:"mask"。

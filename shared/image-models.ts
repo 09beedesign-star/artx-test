@@ -88,6 +88,9 @@ export const IMAGE_MODEL_PRIORITY_IDS = [
   // —— 腾讯 VOD 直连：其余模型 ——
   "vod-gem",
   "vod-gem-lite",
+  // nano banana 2.1（GG 3.6，2026-10-11 接入）。排在 gem 族之后，
+  // 不改变 auto 链前段（og25 → gem）的既有兜底顺序。
+  "vod-gg36",
   "vod-jimeng",
   "vod-og",
   "vod-mj",
@@ -199,6 +202,8 @@ export function normalizeImageModelId(model?: string) {
   // nano-banana 曾指向中转站的 gemini-3.5-flash-preview，该模型已下线，
   // 现直接落到等价的 VOD 模型 gem 3.1 lite。
   if (normalized === "nano-banana" || normalized === "nano-banana-lite") return "vod-gem-lite";
+  // nano banana 2.1 = 腾讯 VOD 的 GG 3.6。
+  if (["nano-banana-2.1", "banana-2.1", "gg", "gg-3.6", "gg36"].includes(normalized)) return "vod-gg36";
   if (normalized === "gem" || normalized === "gem-3.1") return "vod-gem";
   if (normalized === "gem-3.1-lite" || normalized === "gem-lite") return "vod-gem-lite";
   if (normalized === "og" || normalized === "og-image2") return "vod-og";

@@ -53,6 +53,8 @@ describe("model brand icons after the claude text-model switch", () => {
     const baseline: Record<string, string> = {
       "vod-gem": "none",
       "vod-gem-lite": "none",
+      // nano banana 2.1（2026-10-11）：裸 id 同 gem 族无品牌关键字，UI 靠显式 icon:"gemini"。
+      "vod-gg36": "none",
       "vod-og": "none",
       "vod-mj": "none",
       "vod-kling": "kling",

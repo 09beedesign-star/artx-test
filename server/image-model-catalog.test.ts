@@ -18,6 +18,7 @@ const expectedImageModelDescriptions = {
   // 其余 VOD 直连模型
   "vod-gem": "指令理解准，改图听话",
   "vod-gem-lite": "响应快，适合多轮微调",
+  "vod-gg36": "多图融合，角色一致性强",
   "vod-og": "画面稳定，长文案不崩",
   "vod-mj": "艺术表现强，构图出彩",
   "vod-kling": "国风人像与电商主图",

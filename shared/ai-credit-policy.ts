@@ -317,6 +317,13 @@ export const AI_IMAGE_MODEL_CREDIT_POLICIES: AiImageModelCreditPolicy[] = [
   { model: "vod-og", creditsPerImage: 300, estimatedCostPerImage: 1.335 },
   { model: "vod-gem", creditsPerImage: 300, estimatedCostPerImage: 1.3 },
   { model: "vod-gem-lite", creditsPerImage: 150, estimatedCostPerImage: 0.42 },
+  /**
+   * nano banana 2.1（GG 3.6，2026-10-11 接入）。
+   * ⚠️ 腾讯《计费项抵扣比例说明》截至接入日只列到 GG 3.1（1K 0.50 / 2K 0.75 / 4K 1.12 元），
+   * **3.6 尚无公开报价**。按同族旗舰 vod-gem 的口径暂代（300 积分/张），
+   * 待商务给出 3.6 单价后按 55% 毛利红线复核。>70 积分 → 自动标「高消耗」、免费版锁定。
+   */
+  { model: "vod-gg36", creditsPerImage: 300, estimatedCostPerImage: 1.3 },
   { model: "vod-jimeng", creditsPerImage: 120, estimatedCostPerImage: 0.22 },
   { model: "vod-mj", creditsPerImage: 180, estimatedCostPerImage: 0.46 },
   { model: "vod-kling", creditsPerImage: 200, estimatedCostPerImage: 0.56 },

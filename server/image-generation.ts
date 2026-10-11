@@ -760,6 +760,8 @@ const imageModelDescriptions: Record<string, string> = {
   // UI 因为有本地清单看不出来，直接消费该接口的第三方才会踩到。
   "vod-gem": "指令理解准，改图听话",
   "vod-gem-lite": "响应快，适合多轮微调",
+  // GG 3.6：最多 14 张参考图（含 4 张角色图），卖点是多图融合与角色一致。
+  "vod-gg36": "多图融合，角色一致性强",
   "vod-og": "画面稳定，长文案不崩",
   "vod-mj": "艺术表现强，构图出彩",
   "vod-kling": "国风人像与电商主图",
@@ -789,6 +791,7 @@ const imageModelLabels: Record<string, string> = {
   "vod-og25-flare-high": "image2.5 high flare",
   "vod-gem": "banana 3.1",
   "vod-gem-lite": "banana 3.1 lite",
+  "vod-gg36": "banana 2.1",
   "vod-og": "image2",
   "vod-mj": "mj v8.2",
   "vod-kling": "kling 3.0",
@@ -807,6 +810,7 @@ const imageModelIcons: Record<string, string> = {
   "vod-og25-flare-high": "openai",
   "vod-gem": "gemini",
   "vod-gem-lite": "gemini",
+  "vod-gg36": "gemini",
   "vod-og": "openai",
   "vod-mj": "midjourney",
   "vod-kling": "kling",

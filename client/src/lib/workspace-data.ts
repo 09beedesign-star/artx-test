@@ -64,6 +64,8 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   // 否则 /api/ai/models 下发的目录文案会覆盖前端，UI 上出现两套名字。
   { id: "vod-gem", label: "banana 3.1", color: "oklch(0.72 0.18 200)", description: "指令理解准，改图听话", icon: "gemini" },
   { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "响应快，适合多轮微调", icon: "gemini" },
+  // nano banana 2.1 = 腾讯 VOD GG 3.6（2026-10-11 接入）。必须与 server/image-generation.ts 三张表一致。
+  { id: "vod-gg36", label: "banana 2.1", color: "oklch(0.74 0.16 285)", description: "多图融合，角色一致性强", icon: "gemini" },
   { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "画面稳定，长文案不崩", icon: "openai" },
   { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "艺术表现强，构图出彩", icon: "midjourney" },
   { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },
