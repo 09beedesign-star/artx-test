@@ -152,6 +152,8 @@ export default function AnnouncementModal({
             overflow: "hidden",
             background: "#000",
             boxShadow: "0 36px 108px rgba(0,0,0,0.72)",
+            border: `${CARD_BORDER_WIDTH}px solid #fff`,
+            boxSizing: "border-box",
           }}
         >
           <h2 id="artx-announcement-title" style={VISUALLY_HIDDEN}>
