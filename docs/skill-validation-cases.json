@@ -222,5 +222,13 @@
     "minimumPrompt": "为一款记账 App 设计 IP 吉祥物 Logo，角色是一只圆滚滚的小仓鼠。",
     "expectedVisualResult": "A 1:1 icon with a simple hamster mascot made of a few big shapes, two character colours on a muted solid background, peeking from a lower corner.",
     "passCriteria": "The mascot is readable at icon size, uses two colours plus background, is not centred, and has no text or frame."
+  },
+  {
+    "skillId": "isometric-line-art",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "画一张等距线稿插画：一台服务器机柜通过三条连线连接到中心枢纽，表达「数据汇聚」。",
+    "expectedVisualResult": "A white-background isometric hairline drawing of a server cabinet linked by three lines to a central hub, all in one uniform thin stroke with rounded corners.",
+    "passCriteria": "All edges follow the isometric grid, line weight is uniform, there are no fills, gradients or shading, and the composition stays clean with generous margin."
   }
 ]

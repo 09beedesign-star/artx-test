@@ -34,6 +34,7 @@ Text skills (`capability: chat`) return their result as an assistant message in 
 | `minimal-zine-poster` | 用参考照片（海边的一把空椅子）做一张极简纸刊海报，标题「夏日尾声」。 | A vertical paper-textured poster with a small photo-collage focal element, lots of white space, one accent colour and a delicate title. | Most of the canvas is intentional white space, only one accent colour is used, and the typography looks editorial. |
 | `xiaohei-object-scenes` | 小黑费力地推着一个巨大的咖啡杯往前走，标注「周一早上」。 | A small flat black character pushing a realistic oversized coffee cup on a pure white 16:9 canvas with a short Chinese label. | The character is flat black, the object is realistic, the action is clear, the background is pure white and the label is legible Chinese. |
 | `ip-mascot-logo` | 为一款记账 App 设计 IP 吉祥物 Logo，角色是一只圆滚滚的小仓鼠。 | A 1:1 icon with a simple hamster mascot made of a few big shapes, two character colours on a muted solid background, peeking from a lower corner. | The mascot is readable at icon size, uses two colours plus background, is not centred, and has no text or frame. |
+| `isometric-line-art` | 画一张等距线稿插画：一台服务器机柜通过三条连线连接到中心枢纽，表达「数据汇聚」。 | A white-background isometric hairline drawing of a server cabinet linked by three lines to a central hub, all in one uniform thin stroke with rounded corners. | All edges follow the isometric grid, line weight is uniform, there are no fills, gradients or shading, and the composition stays clean with generous margin. |
 
 ## Suggested Validation Flow
 

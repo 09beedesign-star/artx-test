@@ -43,6 +43,7 @@ const expectedIds = [
   "minimal-zine-poster",
   "xiaohei-object-scenes",
   "ip-mascot-logo",
+  "isometric-line-art",
 ];
 
 const expectedCategories = [

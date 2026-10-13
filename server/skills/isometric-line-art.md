@@ -22,5 +22,5 @@ Generation priorities:
 - No text unless the user asks for it; if Chinese text is requested, render the glyphs correctly.
 - No watermarks, no logos, no 3D rendered materials.
 
-Style source:
+Open-source references used to shape this skill:
 - ArtX in-house isometric line art style guide, written for single-image generation.
