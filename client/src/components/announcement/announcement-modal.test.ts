@@ -389,9 +389,9 @@ describe("弹窗内容与骨架分离", () => {
          那不是回归，是提醒你「id 也要跟着改」。改完把这行更新即可。
     */
     const code = readCode(CONTENT_PATH);
-    expect(code).toContain('id: "artxstudio-agent25-2026-09"');
+    expect(code).toContain('id: "artxstudio-nanobanana21-2026-10"');
     // 上一期 id 不得残留
-    expect(code).not.toContain('id: "artxstudio-image25-2026-09"');
+    expect(code).not.toContain('id: "artxstudio-agent25-2026-09"');
   });
 
   it("图片走 import 而非 public 绝对路径（换图必须换 URL）", () => {

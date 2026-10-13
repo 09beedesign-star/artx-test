@@ -1,4 +1,4 @@
-import homeAnnouncement001 from "@/assets/announcement/home-announcement-001.png";
+import homeAnnouncement002 from "@/assets/announcement/home-announcement-002.jpg";
 
 /**
  * ── 公共弹窗的「可变内容」唯一事实源 ──────────────────────────────
@@ -38,24 +38,37 @@ export interface AnnouncementContent {
   tag: { line1: string; line2: string } | null;
   /** 右下角绿色按钮文案 */
   actionLabel: string;
+  /**
+   * 整图模式：设计稿是一整张成品图（标题/正文/标签都画在图里）时使用。
+   * 传了它，弹窗就**只渲染这张图 + 叠在图上的真按钮**，无白描边、无内边距；
+   * title/body/tag 只作无障碍文本，不再显示。
+   * `button` 是图中绿色按钮区域的位置（相对整图的百分比），真按钮按它绝对定位。
+   */
+  fullImage?: {
+    /** 图片宽高比，如 "1989 / 1352"，用于预留高度避免加载时跳动 */
+    aspectRatio: string;
+    button: { left: number; top: number; width: number; height: number };
+  } | null;
 }
 
 /* 文案以 Figma「Bk page / 首页弹窗模板」为准逐字照抄，全角标点是设计稿的排版节奏，别改半角 */
+/* 上一期（2026-09-20 agent25）的内容保留在 git 历史；图片 home-announcement-001.png 仍在 assets 里 */
 export const HOME_ANNOUNCEMENT: AnnouncementContent = {
-  /* 2026-09-20 文案改版，id 同步换（image25 → agent25），否则老用户看不到且不报错 */
-  id: "artxstudio-agent25-2026-09",
-  image: homeAnnouncement001,
-  imageAlt: "ArtX Studio",
-  title: "ArtXStudio",
-  subtitle: "全场景图片生成Agent",
+  /* 2026-10-13 换成 nano banana 2.1 整图弹窗，id 同步换，否则看过上一期的老用户看不到且不报错 */
+  id: "artxstudio-nanobanana21-2026-10",
+  image: homeAnnouncement002,
+  imageAlt: "ArtX Studio x nano banana 2.1",
+  title: "ArtXStudio x nano banana 2.1",
+  subtitle: null,
   body:
-    "全新的创意视觉Agent；支持文生图、图生图、局部重绘、AI重绘，2K/4K/8K高清输出；" +
-    "覆盖25个国内外电商平台商品图生成，也能轻松搞定广告海报、PPT配图、办公视觉，" +
-    "低成本做出高质感商业设计。更有：优质高效设计 Skill 让你事半功倍！" +
-    "更多AI能力等你来解锁！准备好了吗？Go!",
-  tag: {
-    line1: "IMAGE2.5 系列",
-    line2: "图片大模型已强势接入",
-  },
+    "Nano Banana 2.1，2026 年 10 月全新发布。基于 Gemini 3.6 Flash，百万级上下文。" +
+    "六大核心能力：指令精准跟随、角色一致性保持、多语言文字清晰渲染、14 图多参考融合、" +
+    "联网实时搜索、4K 全比例输出（支持 8:1 超宽/超长）。所想即所见，所说即所得。",
+  tag: { line1: "4k 直出，更便宜", line2: "中文识别更精准，一致性更高" },
   actionLabel: "我知道了",
+  /* 图 1989×1352；绿色按钮在图中的像素框 x 1007–1899, y 1177–1300（已从原图量出） */
+  fullImage: {
+    aspectRatio: "1989 / 1352",
+    button: { left: 50.63, top: 87.06, width: 44.85, height: 9.1 },
+  },
 };

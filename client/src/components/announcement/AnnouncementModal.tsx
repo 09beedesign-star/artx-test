@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { AnnouncementContent } from "./announcement-content";
 
@@ -55,6 +55,18 @@ const CARD_WIDTH = 480;
  */
 const CARD_BORDER_WIDTH = 4;
 
+/** 整图模式的最大宽度：图内正文是烤在图里的，480 宽时只剩约 6px 看不清，放到 860 约 11px */
+const FULL_IMAGE_MAX_WIDTH = 860;
+
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+};
+
 /** 蒙层遮罩 —— 压暗首页背景，与弹窗形成层次 */
 const MASK_SCRIM = "rgba(0,0,0,0.55)";
 
@@ -80,6 +92,91 @@ export default function AnnouncementModal({
   }, [open]);
 
   if (!open || typeof document === "undefined") return null;
+
+  /*
+   * 右下角绿色按钮 = 全局唯一关闭出口。两种版式共用这一个定义，
+   * 只传各自的尺寸/定位，保证 onClick={onClose} 在文件里恰好出现一次
+   * （测试据此防「遮罩或别处多出一个关闭口」）。
+   */
+  const renderActionButton = (layout: CSSProperties) => (
+    <button
+      type="button"
+      onClick={onClose}
+      style={{
+        borderRadius: 6,
+        border: "none",
+        background: ACCENT_LIME,
+        color: "#111",
+        cursor: "pointer",
+        transition: "filter 0.15s ease",
+        ...layout,
+      }}
+      onMouseEnter={e => (e.currentTarget.style.filter = "brightness(0.92)")}
+      onMouseLeave={e => (e.currentTarget.style.filter = "none")}
+    >
+      {content.actionLabel}
+    </button>
+  );
+
+  /*
+   * ── 整图模式（2026-10-13：nano banana 2.1 弹窗）──
+   * 设计稿是一张成品图，弹窗 = 图本身：无白描边、无内边距、无额外文字。
+   * 真按钮（唯一关闭出口）绝对定位叠在图中绿色按钮上，按百分比走，随图缩放。
+   * ⚠️ 宽度同时受视口高度约束：只限宽的话矮屏上图会超出视口，按钮被挤出可视区 → 弹窗关不掉。
+   */
+  if (content.fullImage) {
+    const { aspectRatio, button } = content.fullImage;
+    return createPortal(
+      <div
+        role="presentation"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 2147483000,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          background: MASK_SCRIM,
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="artx-announcement-title"
+          style={{
+            position: "relative",
+            width: `min(${FULL_IMAGE_MAX_WIDTH}px, 100%, calc((100vh - 48px) * ${aspectRatio}))`,
+            aspectRatio,
+            borderRadius: 14,
+            overflow: "hidden",
+            background: "#000",
+            boxShadow: "0 36px 108px rgba(0,0,0,0.72)",
+          }}
+        >
+          <h2 id="artx-announcement-title" style={VISUALLY_HIDDEN}>
+            {content.title}
+          </h2>
+          <img
+            src={content.image}
+            alt={`${content.imageAlt}。${content.body}`}
+            draggable={false}
+            style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }}
+          />
+          {renderActionButton({
+            position: "absolute",
+            left: `${button.left}%`,
+            top: `${button.top}%`,
+            width: `${button.width}%`,
+            height: `${button.height}%`,
+            fontSize: "clamp(13px, 1.9vw, 17px)",
+            fontWeight: 700,
+          })}
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div
@@ -243,28 +340,14 @@ export default function AnnouncementModal({
             <span />
           )}
 
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              flexShrink: 0,
-              minWidth: 176,
-              height: 38,
-              padding: "0 19px",
-              borderRadius: 6,
-              border: "none",
-              background: ACCENT_LIME,
-              color: "#111",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "filter 0.15s ease",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.filter = "brightness(0.92)")}
-            onMouseLeave={e => (e.currentTarget.style.filter = "none")}
-          >
-            {content.actionLabel}
-          </button>
+          {renderActionButton({
+            flexShrink: 0,
+            minWidth: 176,
+            height: 38,
+            padding: "0 19px",
+            fontSize: 13,
+            fontWeight: 600,
+          })}
         </div>
       </div>
     </div>,
