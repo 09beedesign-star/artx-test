@@ -13,6 +13,7 @@ import {
   skillStoreStats,
   type SkillStoreCategory,
 } from "@/lib/skill-store";
+import { skillCardNames, skillCardSummaries } from "@/lib/skill-card-copy";
 import {
   Boxes,
   CheckCircle2,
@@ -35,6 +36,11 @@ const categoryOrder: SkillStoreCategory[] = [
   "photo_art",
   "visual_audit",
 ];
+/**
+ * 技能卡缩略图：client/public/skill-thumbs/<id>.webp，800×400（2:1），每张 <150KB。
+ * 用户要求所有卡片尺寸一致、不随描述长短变化：图片 2:1 固定、标题/分类单行截断、
+ * 描述固定 3 行高（超出截断，卡片文案见 skill-card-copy.ts）、标签固定单行。
+ */
 const skillButtonPurple = "#9058fc";
 const skillButtonPurpleBorder = "rgba(144, 88, 252, 0.56)";
 const skillButtonPurpleShadow = "0 10px 26px rgba(144, 88, 252, 0.25)";
@@ -333,9 +339,19 @@ export default function SkillsPage() {
                 <article
                   key={skill.id}
                   data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsCard : undefined}
-                  className="flex h-full min-h-[220px] flex-col rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
+                  className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
                   style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
                 >
+                  {/* 效果缩略图：-mx-4 -mt-4 抵消卡片 p-4，让图片贴边铺满卡片顶部。 */}
+                  <div className="-mx-4 -mt-4 mb-4 aspect-[2/1] shrink-0 overflow-hidden" style={{ background: panelStrong }}>
+                    <img
+                      src={`/skill-thumbs/${skill.id}.webp`}
+                      alt={`${skill.name} 效果示例`}
+                      loading="lazy"
+                      decoding="async"
+                      className="block h-full w-full object-cover"
+                    />
+                  </div>
                   <div className="flex items-start gap-3">
                     <div
                       className="flex h-10 w-10 shrink-0 items-center justify-center"
@@ -343,18 +359,18 @@ export default function SkillsPage() {
                     >
                       <Icon size={22} strokeWidth={2.2} />
                     </div>
-                    <div>
-                      <h2 className="text-base font-semibold leading-6" style={{ color: text }}>{skill.name}</h2>
-                      <p className="mt-0.5 text-xs" style={{ color: faint }}>{meta.label} / {skill.subcategory}</p>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold leading-6" style={{ color: text }} title={skill.name}>{skillCardNames[skill.id] ?? skill.name}</h2>
+                      <p className="mt-0.5 truncate text-xs" style={{ color: faint }}>{meta.label} / {skill.subcategory}</p>
                     </div>
                   </div>
 
-                  <p className="mt-4 min-h-[48px] text-sm leading-6" style={{ color: sub }}>
-                    {skill.summary}
+                  <p className="mt-4 h-[72px] overflow-hidden text-sm leading-6 line-clamp-3" style={{ color: sub }}>
+                    {skillCardSummaries[skill.id] ?? skill.summary}
                   </p>
 
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {skill.tags.slice(0, 3).map((tag) => (
+                  <div className="mt-3 flex h-[26px] flex-wrap gap-1.5 overflow-hidden">
+                    {skill.tags.slice(0, 2).map((tag) => (
                       <span
                         key={tag}
                         className="rounded-[var(--radius-sm-design)] border px-2 py-1 text-xs"
