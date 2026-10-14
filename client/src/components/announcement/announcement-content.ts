@@ -1,4 +1,4 @@
-import homeAnnouncement002 from "@/assets/announcement/home-announcement-002.jpg";
+import homeAnnouncement002Banner from "@/assets/announcement/home-announcement-002-banner.jpg";
 
 /**
  * ── 公共弹窗的「可变内容」唯一事实源 ──────────────────────────────
@@ -56,19 +56,17 @@ export interface AnnouncementContent {
 export const HOME_ANNOUNCEMENT: AnnouncementContent = {
   /* 2026-10-13 换成 nano banana 2.1 整图弹窗，id 同步换，否则看过上一期的老用户看不到且不报错 */
   id: "artxstudio-nanobanana21-2026-10",
-  image: homeAnnouncement002,
+  /* 2026-10-14：回到上一版的「图 + 文字」常规卡片版式（480 宽），图只取原整图上半部分的照片区 */
+  image: homeAnnouncement002Banner,
   imageAlt: "ArtX Studio x nano banana 2.1",
-  title: "ArtXStudio x nano banana 2.1",
-  subtitle: null,
+  title: "ArtXStudio",
+  subtitle: "x nano banana 2.1",
   body:
     "Nano Banana 2.1，2026 年 10 月全新发布。基于 Gemini 3.6 Flash，百万级上下文。" +
     "六大核心能力：指令精准跟随、角色一致性保持、多语言文字清晰渲染、14 图多参考融合、" +
     "联网实时搜索、4K 全比例输出（支持 8:1 超宽/超长）。所想即所见，所说即所得。",
   tag: { line1: "4k 直出，更便宜", line2: "中文识别更精准，一致性更高" },
   actionLabel: "我知道了",
-  /* 图 1989×1352；绿色按钮在图中的像素框 x 1007–1899, y 1177–1300（已从原图量出） */
-  fullImage: {
-    aspectRatio: "1989 / 1352",
-    button: { left: 50.63, top: 87.06, width: 44.85, height: 9.1 },
-  },
+  /* 整图模式已停用：整图里的小字在 480 宽下只有约 6px，看不清 */
+  fullImage: null,
 };
