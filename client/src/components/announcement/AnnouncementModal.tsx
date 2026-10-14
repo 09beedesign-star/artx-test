@@ -55,8 +55,11 @@ const CARD_WIDTH = 480;
  */
 const CARD_BORDER_WIDTH = 4;
 
-/** 整图模式的最大宽度：图内正文是烤在图里的，480 宽时只剩约 6px 看不清，放到 860 约 11px */
-const FULL_IMAGE_MAX_WIDTH = 860;
+/**
+ * 整图模式的最大宽度 = 常规卡片宽度（480），与上一版弹窗尺寸保持一致（2026-10-14 用户拍板）。
+ * 曾放到 860 以让图内小字更清楚，用户认为弹窗过大，回退。
+ */
+const FULL_IMAGE_MAX_WIDTH = CARD_WIDTH;
 
 const VISUALLY_HIDDEN: CSSProperties = {
   position: "absolute",
@@ -171,7 +174,7 @@ export default function AnnouncementModal({
             top: `${button.top}%`,
             width: `${button.width}%`,
             height: `${button.height}%`,
-            fontSize: "clamp(13px, 1.9vw, 17px)",
+            fontSize: 13,
             fontWeight: 700,
           })}
         </div>
