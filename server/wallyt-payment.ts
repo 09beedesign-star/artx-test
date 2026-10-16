@@ -27,7 +27,7 @@ export type WallytPaymentResult = {
   raw: Record<string, string>;
 };
 
-const DEFAULT_GATEWAY = "https://paycert.wepayez.com/pay/gateway";
+const DEFAULT_GATEWAY = "https://gateway.wepayez.com/pay/gate";
 
 const SERVICE_MAP: Record<WallytPaymentMethod, Record<WallytPayMode, { service: string; channelType: WallytPaymentResult["channelType"]; payField: string; payUrlType: WallytPaymentResult["payUrlType"] }>> = {
   wechat: {
