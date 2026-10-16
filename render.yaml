@@ -69,7 +69,7 @@ services:
       - key: WECHAT_CLIENT_SECRET
         sync: false
       - key: WALLYT_DOMAIN_URL
-        value: https://paycert.wepayez.com/pay/gateway
+        value: https://gateway.wepayez.com/pay/gateway
       - key: WALLYT_MCH_ID
         sync: false
       - key: WALLYT_SIGNATURE_KEY

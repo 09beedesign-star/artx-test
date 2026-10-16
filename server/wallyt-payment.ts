@@ -27,7 +27,9 @@ export type WallytPaymentResult = {
   raw: Record<string, string>;
 };
 
-const DEFAULT_GATEWAY = "https://gateway.wepayez.com/pay/gate";
+// 威富通标准网关。注意路径是 /pay/gateway：/pay/gate 会返回 status=404「not found」，
+// 表现为前端「支付暂时不可用」（2026-10-16 线上事故）。
+const DEFAULT_GATEWAY = "https://gateway.wepayez.com/pay/gateway";
 
 const SERVICE_MAP: Record<WallytPaymentMethod, Record<WallytPayMode, { service: string; channelType: WallytPaymentResult["channelType"]; payField: string; payUrlType: WallytPaymentResult["payUrlType"] }>> = {
   wechat: {

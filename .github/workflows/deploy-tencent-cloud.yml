@@ -245,6 +245,21 @@ jobs:
           systemctl is-active "${service}"
           curl -fsS http://127.0.0.1:3002/api/health
 
+          # ⚠️ 威富通网关路径门禁（2026-10-16 事故：地址写成 /pay/gate，
+          # 网关回 HTTP 200 + status=404 "not found"，全站充值「支付暂时不可用」近 9 小时，
+          # 健康检查与 /api/billing/config 全绿）。取「进程真正生效」的 gatewayUrl，
+          # 发空 XML：路径对 → status=400 缺参数；路径错 → status=404。只拦 404 / 不通。
+          echo "--- 威富通网关路径门禁 ---"
+          gw="$(curl -fsS http://127.0.0.1:3002/api/billing/config | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).gatewayUrl||""))')"
+          echo "生效网关：${gw}"
+          gw_resp="$(curl -sS -m 15 -X POST -H 'Content-Type: application/xml' --data '<xml></xml>' "${gw}")" \
+            || { echo "威富通网关不通：${gw}" >&2; exit 1; }
+          if echo "${gw_resp}" | grep -q '<status><!\[CDATA\[404\]\]></status>'; then
+            echo "威富通网关路径错误（status=404）：${gw}，应为 https://gateway.wepayez.com/pay/gateway" >&2
+            exit 1
+          fi
+          echo "威富通网关路径 OK"
+
           # ⚠️ 必须额外打一个带 JSON body 的 POST。
           # 只验 /api/health（GET）会漏掉 body 解析链路故障，见上面注释。
           # 未登录时期望 401（业务 JSON）；若拿到 400 说明 body-parser 已崩。

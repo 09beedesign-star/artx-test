@@ -1341,7 +1341,7 @@ describe("production readiness", () => {
   });
 
   it("derives payment provider status from current Wallyt env instead of stale stored snapshots", async () => {
-    process.env.WALLYT_DOMAIN_URL = "https://paycert.wepayez.com/pay/gateway";
+    process.env.WALLYT_DOMAIN_URL = "https://gateway.wepayez.com/pay/gateway";
     process.env.WALLYT_MCH_ID = "190000000167";
     process.env.WALLYT_SIGNATURE_KEY = "test-signature-key";
     process.env.WALLYT_NOTIFY_URL = "https://admin.artxsd.com/api/billing/wallyt/callback";
