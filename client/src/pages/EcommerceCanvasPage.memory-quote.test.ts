@@ -17,9 +17,12 @@ describe("电商画布报价带记忆附加费", () => {
     expect(quoteBlock).toMatch(/\[[^\]]*memoryContext[^\]]*\]/);
   });
 
-  it("memoryContext 与服务端同一函数、同一开关口径（includeRecentPrompts = contextEnabled）", () => {
+  it("memoryContext 与服务端同一函数、同一开关口径（电商专属作用域 + 电商开关）", () => {
     expect(source).toContain("buildUserMemoryContext({");
-    expect(source).toContain("includeRecentPrompts: memoryDoc.contextEnabled");
+    // 2026-10-17 起开关按对话/电商绑定，不再读账号全局 contextEnabled。
+    expect(source).toContain("conversationId: ECOMMERCE_MEMORY_SCOPE");
+    expect(source).toContain("includeRecentPrompts: ecommerceMemoryEnabled");
+    expect(source).not.toContain("includeRecentPrompts: memoryDoc.contextEnabled");
   });
 
   it("监听全站记忆变更事件，在画布/个人中心切换后同步刷新", () => {

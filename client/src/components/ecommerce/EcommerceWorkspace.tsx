@@ -299,7 +299,8 @@ export function EcommerceWorkspace({
           </div>
           {/*
             长期记忆提示条（用户 2026-10-17 指定）：开启时在板块内明确告知；
-            hover 大脑图标出 tooltip，指引去个人中心编辑。
+            hover 大脑图标出 tooltip，指引去左侧边栏「长期记忆」（/memory）编辑。
+            2026-10-17：个人中心的长期记忆卡片已按用户要求移除，唯一编辑入口是侧栏。
             ⚠️ 用 Radix Tooltip 而不是 title 属性：title 有 ~1s 延迟且样式不可控，
                用户要的是"hover 即出现的 toast 式浮层"。
             2026-10-17：加入「电商画布记忆」专属开关（与画布对话记忆、长期记忆彼此独立）。
@@ -331,11 +332,11 @@ export function EcommerceWorkspace({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6} className="max-w-[240px] leading-relaxed">
-                  开启记忆可以了解您的出图习惯，如需编辑长期记忆，请在
-                  <Link href="/profile" className="mx-0.5 underline">
-                    个人中心
+                  开启记忆可以了解您的出图习惯，如需编辑长期记忆，请在左侧边栏的
+                  <Link href="/memory" className="mx-0.5 underline">
+                    长期记忆
                   </Link>
-                  下编辑你的长期记忆。
+                  中编辑。
                 </TooltipContent>
               </Tooltip>
               <span className="flex-1">

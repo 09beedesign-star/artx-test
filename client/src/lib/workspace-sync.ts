@@ -330,6 +330,7 @@ function collectLocalConversations(projects: SyncedWorkspaceProject[]): SyncedCa
         title: meta.title,
         createdAt: meta.createdAt,
         updatedAt: meta.updatedAt,
+        memoryEnabled: meta.memoryEnabled === true,
         active: true,
         messages: readLocalConversationMessages(project.id, meta.id),
       });
@@ -412,6 +413,8 @@ function applyConversationsToLocal(conversations: SyncedCanvasConversation[]) {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         messageCount: row.messages.length || local?.messageCount || 0,
+        // 远端更新时才会走到这里（本地更新已在上方 continue），以远端为准；老数据无字段 → 关。
+        memoryEnabled: row.memoryEnabled === true,
       });
 
       /*

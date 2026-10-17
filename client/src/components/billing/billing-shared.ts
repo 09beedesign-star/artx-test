@@ -16,7 +16,9 @@ import {
   FREE_PLAN_DISPLAY_NAME,
   quoteCreditRecharge,
   type MembershipPlanId,
+  type MemoryLimits,
 } from "@shared/billing-config";
+import { FREE_MEMORY_LIMITS } from "@shared/user-memory";
 
 export type BillingTab = "subscription" | "recharge";
 export type PaymentMethod = "wechat" | "alipay";
@@ -206,6 +208,18 @@ export function buildCreditFeature(
     };
   }
   return { label: `每月到账 ${monthly} 创作积分，${note}`, included: true };
+}
+
+/**
+ * 【2026-10-18】套餐福利：长期记忆容量 —— 从 MEMBERSHIP_PLANS[].memoryLimits 现算，不写死。
+ * Skill 文档上限所有套餐一致（SKILL_DIMENSION_LIMIT），不作为档位卖点，故不写进福利条。
+ */
+export function buildMemoryCapacityFeature(memoryLimits: MemoryLimits | undefined) {
+  const limits = memoryLimits ?? FREE_MEMORY_LIMITS;
+  return {
+    label: `长期记忆容量：每项 ${limits.perDimension.toLocaleString("zh-HK")} 字，合计 ${limits.total.toLocaleString("zh-HK")} 字`,
+    included: true,
+  };
 }
 
 export function readInitialTab(): BillingTab {

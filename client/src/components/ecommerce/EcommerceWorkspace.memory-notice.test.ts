@@ -4,7 +4,8 @@
  * 用户 2026-10-17 要求：
  * - 板块内明确告知用户"您已开启长期记忆"
  * - hover 大脑图标出 tooltip：开启记忆可以了解您的出图习惯，如需编辑长期记忆，
- *   请在个人中心下编辑你的长期记忆。
+ *   请在左侧边栏的长期记忆中编辑。
+ *   （2026-10-17 二次调整：个人中心的长期记忆卡片已移除，唯一入口是侧栏 /memory）
  * - memoryActive = contextEnabled 或 longTerm 非空
  * - 报价加上记忆附加费（本页面锁结构，EcommerceCanvasPage 负责计费逻辑）
  */
@@ -23,8 +24,9 @@ describe("电商画布长期记忆提示条结构", () => {
   });
 
   it("提示条结构：Brain 图标 + 文字 + testid", () => {
-    // 只在 memoryActive 时渲染
-    expect(source).toMatch(/\{memoryActive\s+&&\s*\(/);
+    // ⚠️ 提示条必须始终渲染（内含电商画布记忆开关）：若跟着 memoryActive 隐藏，
+    //    没写长期记忆的用户永远看不到开关 ——「开」在 A「关」在 B 必卡死。
+    expect(source).not.toMatch(/\{memoryActive\s+&&\s*\(\s*<div\s+data-testid="ecommerce-memory-notice"/);
     // 包含 testid
     expect(source).toContain('data-testid="ecommerce-memory-notice"');
     // Brain 图标
@@ -40,20 +42,18 @@ describe("电商画布长期记忆提示条结构", () => {
     expect(source).toContain("TooltipContent");
     // Brain 包在 TooltipTrigger 里
     expect(source).toMatch(
-      /<TooltipTrigger[^>]*>[\s\S]*?<button[\s\S]*?aria-label="长期记忆说明"[\s\S]*?<Brain/,
+      /<TooltipTrigger[^>]*>[\s\S]*?<button[\s\S]*?aria-label="电商画布记忆说明"[\s\S]*?<Brain/,
     );
     // 延迟 0（即开即出）
     expect(source).toMatch(/<Tooltip\s+[^>]*delayDuration=\{0\}/);
   });
 
-  it('Tooltip 内容与用户 2026-10-17 指定的文案一致，并带"个人中心"链接', () => {
-    // 文案原样锁住，user-facing 不能自己改。
+  it('Tooltip 指向左侧边栏「长期记忆」（/memory），不再指向个人中心', () => {
     expect(source).toContain("开启记忆可以了解您的出图习惯");
-    expect(source).toContain("如需编辑长期记忆，请在");
-    expect(source).toContain("下编辑你的长期记忆");
-    // Link to /profile
-    expect(source).toMatch(/<Link\s+href="\/profile"/);
-    expect(source).toContain(">个人中心</Link>");
+    expect(source).toContain("如需编辑长期记忆，请在左侧边栏的");
+    expect(source).toMatch(/<Link\s+href="\/memory"/);
+    // 个人中心已无长期记忆卡片，链过去 = 死路
+    expect(source).not.toMatch(/<Link\s+href="\/profile"/);
   });
 
   it("报价行：模型单价 × 张数 + 记忆附加费 = 总价", () => {

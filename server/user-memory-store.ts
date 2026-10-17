@@ -4,9 +4,11 @@ import {
   createEmptyUserMemoryDocument,
   normalizeUserMemoryPayload,
   upsertProjectMemory,
+  STORAGE_MEMORY_LIMITS,
   type UserMemoryDocument,
   type UserProjectMemory,
   type UserPromptMemory,
+  type MemoryLimits,
 } from "../shared/user-memory";
 
 /**
@@ -79,7 +81,8 @@ function documentFor(db: UserMemoryDatabase, userId: string): UserMemoryDocument
   const existing = db.users[userId];
   if (!existing) return createEmptyUserMemoryDocument();
   return {
-    ...normalizeUserMemoryPayload(existing),
+    // ⚠️⚠️ 读取用「全档最大值」：用 Free 上限会在每次读取时把付费用户已存内容截掉。
+    ...normalizeUserMemoryPayload(existing, STORAGE_MEMORY_LIMITS),
     revision: typeof existing.revision === "number" ? existing.revision : 0,
     updatedAt: typeof existing.updatedAt === "string" ? existing.updatedAt : new Date(0).toISOString(),
   };
@@ -94,7 +97,8 @@ export async function getUserMemoryDocument(userId: string): Promise<UserMemoryD
 
 async function mutate(
   userId: string,
-  mutator: (current: UserMemoryDocument) => UserMemoryDocument
+  mutator: (current: UserMemoryDocument) => UserMemoryDocument,
+  limits: MemoryLimits = STORAGE_MEMORY_LIMITS
 ): Promise<UserMemoryDocument> {
   if (!userId) return createEmptyUserMemoryDocument();
   return runExclusive(async () => {
@@ -102,7 +106,7 @@ async function mutate(
     const current = documentFor(db, userId);
     const mutated = mutator(current);
     const next: UserMemoryDocument = {
-      ...normalizeUserMemoryPayload(mutated),
+      ...normalizeUserMemoryPayload(mutated, limits),
       revision: current.revision + 1,
       updatedAt: new Date().toISOString(),
     };
@@ -132,8 +136,18 @@ export async function updateUserMemorySettings(
     generalRules?: unknown;
     regularMemory?: unknown;
     contextEnabled?: unknown;
-  }
+    ecommerceMemoryEnabled?: unknown;
+  },
+  /** 该用户会员档位的容量（getMemoryLimitsForPlan）。不传 = 全档最大值，仅供测试/内部调用。 */
+  limits: MemoryLimits = STORAGE_MEMORY_LIMITS
 ): Promise<UserMemoryDocument> {
+  /*
+   * ⚠️ 档位上限只在「改了记忆文本」时生效。
+   *    只拨开关（contextEnabled / ecommerceMemoryEnabled）也按档位归一化的话，
+   *    降级用户拨一下开关就会把付费期写的内容永久截掉，且零报错。
+   */
+  const touchesText = [patch.longTerm, patch.projectMemory, patch.skill, patch.generalRules, patch.regularMemory]
+    .some(value => value !== undefined);
   return mutate(userId, current => ({
     ...current,
     ...(patch.longTerm !== undefined ? { longTerm: String(patch.longTerm) } : {}),
@@ -144,7 +158,10 @@ export async function updateUserMemorySettings(
     ...(patch.contextEnabled !== undefined
       ? { contextEnabled: patch.contextEnabled === true }
       : {}),
-  }));
+    ...(patch.ecommerceMemoryEnabled !== undefined
+      ? { ecommerceMemoryEnabled: patch.ecommerceMemoryEnabled === true }
+      : {}),
+  }), touchesText ? limits : STORAGE_MEMORY_LIMITS);
 }
 
 /** 记一条项目记忆（同 projectId 覆盖，空 note 等于删除）。 */
@@ -159,19 +176,20 @@ export async function saveProjectMemory(
 }
 
 /**
- * 追加一条历史提示词。
+ * 追加一条历史提示词（记到某个对话 / 电商画布的作用域下）。
  *
- * ⚠️ 只在用户**打开了上下文开关**时才写入 —— 开关关着却偷偷记录，
- *    等于用户以为没开记忆、实际一直在被记录。调用方负责判断，
- *    但这里再挡一道：拿不到开启状态就什么都不做。
+ * ⚠️ 只在**该作用域的记忆开关开着**时才写入 —— 开关关着却偷偷记录，
+ *    等于用户以为没开记忆、实际一直在被记录。
+ * ⚠️ 2026-10-17 起开关按对话绑定：没有 conversationId（作用域）一律不记，
+ *    否则这条会变成不属于任何对话的「孤儿」，永远用不上还占配额。
+ * `scopeEnabled` 由调用方从请求体读出（readMemoryScope）。
  */
 export async function recordPromptMemory(
   userId: string,
-  entry: UserPromptMemory
+  entry: UserPromptMemory,
+  scopeEnabled: boolean
 ): Promise<UserMemoryDocument | null> {
-  if (!userId) return null;
-  const current = await getUserMemoryDocument(userId);
-  if (!current.contextEnabled) return null;
+  if (!userId || !scopeEnabled || !entry.conversationId) return null;
   return mutate(userId, latest => ({
     ...latest,
     recentPrompts: appendPromptMemory(latest.recentPrompts, entry),

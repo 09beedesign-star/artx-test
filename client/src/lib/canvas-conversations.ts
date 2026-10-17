@@ -19,12 +19,21 @@ import { ownerScopedKey } from "./owner-storage";
 
 export type CanvasConversationMeta = {
   id: string;
-  /** 会话标题。取首条用户消息前 20 字；没有用户消息时为空串，由 UI 兜底显示。 */
+  /** 会话标题。取首条用户消息前 20 字；没有用户消息时为空串,由 UI 兜底显示。 */
   title: string;
   createdAt: string;
   updatedAt: string;
   /** 仅用于历史列表展示，不参与任何逻辑判断。 */
   messageCount: number;
+  /**
+   * 【2026-10-17 新增】本对话的记忆开关。
+   * 
+   * ⚠️ 默认 false：用户拍板「每新建一个对话，记忆默认是关闭的」。
+   * 开关开 → 本对话的近期提示词 + 长期记忆（不冲突维度合并）。
+   * 开关关 → 只用长期记忆。
+   * 📌 对话之间互相独立 —— 对话 A 的记忆不会泄漏进对话 B。
+   */
+  memoryEnabled?: boolean;
 };
 
 export type CanvasConversationIndex = {
@@ -131,7 +140,38 @@ function normalizeMeta(value: CanvasConversationMeta): CanvasConversationMeta {
       typeof value.messageCount === "number" && Number.isFinite(value.messageCount)
         ? value.messageCount
         : 0,
+    // ⚠️ 只认严格 true：老数据没有该字段 / 脏数据 → 一律关闭（默认关）。
+    memoryEnabled: value.memoryEnabled === true,
   };
+}
+
+/**
+ * 设置某条对话的记忆开关，返回新索引。
+ *
+ * ⚠️ 不改 updatedAt：开关不是「对话内容变化」，改了会让这条对话
+ *    在历史列表里无故跳到最前。
+ */
+export function setConversationMemoryEnabled(
+  index: CanvasConversationIndex,
+  conversationId: string,
+  enabled: boolean
+): CanvasConversationIndex {
+  return {
+    ...index,
+    conversations: index.conversations.map(item =>
+      item.id === conversationId ? { ...item, memoryEnabled: enabled } : item
+    ),
+  };
+}
+
+/** 读取某条对话的记忆开关；找不到该对话时视为关闭。 */
+export function isConversationMemoryEnabled(
+  index: CanvasConversationIndex,
+  conversationId: string
+): boolean {
+  return index.conversations.some(
+    item => item.id === conversationId && item.memoryEnabled === true
+  );
 }
 
 /**
@@ -188,7 +228,8 @@ export function createConversationMeta(
   id = createCanvasConversationId()
 ): CanvasConversationMeta {
   const now = new Date().toISOString();
-  return { id, title: "", createdAt: now, updatedAt: now, messageCount: 0 };
+  // memoryEnabled: false —— 用户拍板「每新建一个对话，记忆默认是关闭的」。
+  return { id, title: "", createdAt: now, updatedAt: now, messageCount: 0, memoryEnabled: false };
 }
 
 /**

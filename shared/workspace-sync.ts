@@ -119,6 +119,8 @@ export type SyncedCanvasConversation = {
   title: string;
   createdAt: string;
   updatedAt: string;
+  /** 该对话的记忆开关（2026-10-17：对话记忆与对话窗口强制绑定，新建默认关）。 */
+  memoryEnabled?: boolean;
   /** false = 已删除的墓碑。 */
   active: boolean;
   /**
@@ -315,6 +317,8 @@ function normalizeConversation(value: unknown): SyncedCanvasConversation | null 
     title: typeof value.title === "string" ? value.title : "",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+    // ⚠️ 白名单归一化：漏掉这一行，前端传上来的开关会在服务端被静默丢掉。
+    memoryEnabled: value.memoryEnabled === true,
     /*
      * ⚠️ 默认必须是 true —— 与 normalizeReaction 同一条理由。
      *    旧版本前端发上来的载荷没有 active 字段，默认成 false

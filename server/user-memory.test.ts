@@ -6,7 +6,14 @@ import {
   createEmptyUserMemoryDocument,
   normalizeUserMemoryPayload,
   upsertProjectMemory,
+  FREE_MEMORY_LIMITS,
+  SKILL_DIMENSION_LIMIT,
+  STORAGE_MEMORY_LIMITS,
+  getMemoryContextTotalLimit,
+  getMemoryLimitsForPlan,
+  isSkillOversized,
 } from "../shared/user-memory";
+import { MEMBERSHIP_PLANS } from "../shared/billing-config";
 
 describe("默认值", () => {
   it("上下文开关默认关闭", () => {
@@ -166,5 +173,74 @@ describe("upsertProjectMemory", () => {
   it("空 note 等于删除该项目记忆", () => {
     const first = upsertProjectMemory([], { projectId: "p1", note: "黑金", updatedAt: "2026-10-17T00:00:00.000Z" });
     expect(upsertProjectMemory(first, { projectId: "p1", note: "", updatedAt: "2026-10-17T01:00:00.000Z" })).toEqual([]);
+  });
+});
+
+describe("【2026-10-18】长期记忆容量按会员档位分级 + Skill 固定上限", () => {
+  const big = (ch: string, n: number) => ch.repeat(n);
+
+  it("Free / 未知档 = 每维度 300、合计 1200（与改造前一致）", () => {
+    expect(getMemoryLimitsForPlan("free")).toEqual({ perDimension: 300, total: 1200 });
+    expect(getMemoryLimitsForPlan(undefined)).toEqual(FREE_MEMORY_LIMITS);
+    expect(getMemoryLimitsForPlan("no-such-plan")).toEqual(FREE_MEMORY_LIMITS);
+  });
+
+  it("付费档读定价表 memoryLimits，且档位越高容量不减", () => {
+    const ids = ["lite", "creator", "pro", "studio", "business"];
+    const per = ids.map(id => getMemoryLimitsForPlan(id).perDimension);
+    for (let i = 1; i < per.length; i++) expect(per[i]).toBeGreaterThanOrEqual(per[i - 1]);
+    expect(getMemoryLimitsForPlan("studio").perDimension).toBe(10000);
+    for (const id of ids) {
+      expect(getMemoryLimitsForPlan(id)).toEqual(MEMBERSHIP_PLANS.find(p => p.id === id)!.memoryLimits);
+    }
+  });
+
+  it("保存归一化按档位截断手写维度：Free 截到 300，Studio 保留 1 万字", () => {
+    const payload = { projectMemory: big("P", 10000) };
+    expect(normalizeUserMemoryPayload(payload).projectMemory).toHaveLength(300);
+    expect(normalizeUserMemoryPayload(payload, getMemoryLimitsForPlan("studio")).projectMemory).toHaveLength(10000);
+  });
+
+  it("手写维度合计受 total 约束（三维度顶格时后面的被裁）", () => {
+    const doc = normalizeUserMemoryPayload(
+      { projectMemory: big("P", 500), generalRules: big("G", 500), regularMemory: big("R", 500) },
+      { perDimension: 500, total: 1200 }
+    );
+    expect(doc.projectMemory!.length + doc.generalRules!.length + doc.regularMemory!.length).toBe(1200);
+    expect(doc.regularMemory).toHaveLength(200);
+  });
+
+  it("Skill 不走档位：Free 也能存 SKILL_DIMENSION_LIMIT 字，且不占手写维度合计", () => {
+    const doc = normalizeUserMemoryPayload({ skill: big("S", SKILL_DIMENSION_LIMIT), regularMemory: big("R", 300) });
+    expect(doc.skill).toHaveLength(SKILL_DIMENSION_LIMIT);
+    expect(doc.regularMemory).toHaveLength(300);
+  });
+
+  it("isSkillOversized 以 SKILL_DIMENSION_LIMIT 为界", () => {
+    expect(isSkillOversized(big("S", SKILL_DIMENSION_LIMIT))).toBe(false);
+    expect(isSkillOversized(big("S", SKILL_DIMENSION_LIMIT + 1))).toBe(true);
+    expect(isSkillOversized(undefined)).toBe(false);
+  });
+
+  it("注入按当前档位裁：降级后库里的超额内容不再进提示词", () => {
+    const document = { ...createEmptyUserMemoryDocument(), projectMemory: big("P", 5000) };
+    const asFree = buildUserMemoryContext({ document });
+    const asPro = buildUserMemoryContext({ document, limits: getMemoryLimitsForPlan("pro") });
+    expect(asFree).toContain(big("P", 300));
+    expect(asFree).not.toContain(big("P", 301));
+    expect(asPro).toContain(big("P", 5000));
+  });
+
+  it("Skill 整份进注入，不被总闸门截掉；无 Skill 时 Free 总闸门仍是 4200", () => {
+    const skill = big("S", 50000);
+    const ctx = buildUserMemoryContext({ document: { ...createEmptyUserMemoryDocument(), skill } });
+    expect(ctx).toContain(skill);
+    expect(getMemoryContextTotalLimit()).toBe(USER_MEMORY_LIMITS.total);
+  });
+
+  it("存储侧上限 = 全档最大值（读库不能把付费期内容截掉）", () => {
+    expect(STORAGE_MEMORY_LIMITS.perDimension).toBe(
+      Math.max(...MEMBERSHIP_PLANS.map(p => p.memoryLimits?.perDimension ?? 0))
+    );
   });
 });

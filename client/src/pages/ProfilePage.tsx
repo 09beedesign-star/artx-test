@@ -4,14 +4,7 @@
  */
 import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Brain, Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
-import {
-  USER_MEMORY_CHANGED_EVENT,
-  broadcastUserMemoryChange,
-  fetchUserMemory,
-  saveUserMemory,
-} from "@/lib/user-memory-client";
-import { USER_MEMORY_LIMITS } from "../../../shared/user-memory";
+import { Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
 import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
@@ -123,20 +116,6 @@ export default function ProfilePage() {
    * 📌 若这里自己读一次 localStorage 就完事，取消后本页不会重渲染，
    *    表现就是用户说的「取消了它还在」。
    */
-  /**
-   * 「长期记忆」——用户亲手写的设计习惯。
-   *
-   * ⚠️⚠️ 真值在**服务端**（/api/user/memory），不进 localStorage：
-   *    用户要的是跟随账号，换电脑换浏览器都该在。
-   *    📌 存本地的后果是他在公司写的习惯回家就没了，
-   *    而且他会以为功能坏了，而不是"本来就不同步"。
-   */
-  const [longTermMemory, setLongTermMemory] = useState("");
-  /** 已保存的那一份，用来判断「有没有未保存的改动」。 */
-  const [savedLongTermMemory, setSavedLongTermMemory] = useState("");
-  const [memoryLoading, setMemoryLoading] = useState(true);
-  const [memorySaving, setMemorySaving] = useState(false);
-  const [memoryContextEnabled, setMemoryContextEnabled] = useState(false);
   const [reactionTab, setReactionTab] = useState<"like" | "favorite">("like");
   const inspirationReactions = useInspirationReactions();
   const reactionItems = useMemo(
@@ -189,78 +168,7 @@ export default function ProfilePage() {
     }
   };
 
-  /*
-   * 进场拉一次服务端的长期记忆，并订阅跨页面变更。
-   *
-   * ⚠️ 订阅是必需的：画布右上角的开关也会改同一份文档，
-   *    各自只读一次接口的话这里不会刷新 ——
-   *    表现是「我在画布开了，个人中心还显示关」。
-   */
-  useEffect(() => {
-    let alive = true;
-    void fetchUserMemory()
-      .then(document => {
-        if (!alive) return;
-        setLongTermMemory(document.longTerm);
-        setSavedLongTermMemory(document.longTerm);
-        setMemoryContextEnabled(document.contextEnabled);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (alive) setMemoryLoading(false);
-      });
 
-    const handleChange = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { contextEnabled?: boolean; longTerm?: string }
-        | undefined;
-      if (!detail) return;
-      if (typeof detail.contextEnabled === "boolean") {
-        setMemoryContextEnabled(detail.contextEnabled);
-      }
-      /*
-       * ⚠️ 只同步**已保存**的那一份，不动用户正在编辑的输入框。
-       *    直接覆盖 longTermMemory 会在用户打字时把内容清掉 ——
-       *    对方在画布点一下开关，这边正在写的草稿就没了。
-       */
-      if (typeof detail.longTerm === "string") {
-        setSavedLongTermMemory(detail.longTerm);
-      }
-    };
-    window.addEventListener(USER_MEMORY_CHANGED_EVENT, handleChange);
-    return () => {
-      alive = false;
-      window.removeEventListener(USER_MEMORY_CHANGED_EVENT, handleChange);
-    };
-  }, []);
-
-  const handleSaveLongTermMemory = async () => {
-    if (memorySaving) return;
-    setMemorySaving(true);
-    try {
-      /*
-       * ⚠️ **只传 longTerm 这一个字段。**
-       *    把 contextEnabled 一起带上的话，用户刚在画布打开的开关
-       *    会被这里的页面初始值覆盖回去 —— 悄悄给关掉了。
-       *    服务端是 patch 语义，正是为这种场景准备的。
-       */
-      const document = await saveUserMemory({ longTerm: longTermMemory });
-      setLongTermMemory(document.longTerm);
-      setSavedLongTermMemory(document.longTerm);
-      broadcastUserMemoryChange(document);
-      toast("长期记忆已保存", {
-        description: document.longTerm
-          ? "后续对话和生成图片时会优先参考这些习惯。"
-          : "已清空长期记忆。",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "保存失败";
-      // 失败必须说出来：静默失败会让用户以为写进去了。
-      toast.error("长期记忆没保存成功", { description: message });
-    } finally {
-      setMemorySaving(false);
-    }
-  };
 
   useEffect(() => {
     const result = writeStoredProfile(profile);
@@ -481,105 +389,6 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
-
-          {/*
-            长期记忆 —— 用户亲手写的设计习惯。
-
-            ⚠️ 与画布右上角那个「上下文记忆」开关是**两件事**，这里写清楚：
-               · 长期记忆（本卡片）：用户显式声明的规则，**始终生效**；
-               · 上下文记忆（画布开关）：是否额外带上最近用过的提示词与项目风格。
-               不说清的话用户会以为"开关关着长期记忆就不生效"，
-               进而反复纠结为什么写了没用。
-          */}
-          <section className="mt-6" data-testid="profile-long-term-memory">
-            <div
-              className="rounded-[var(--radius-xl-design)] p-6"
-              style={{
-                background: cardBg,
-                border: `1px solid ${border}`,
-                boxShadow: isDark ? "0 24px 72px rgba(0,0,0,0.34)" : "0 24px 72px rgba(20,20,36,0.10)",
-                backdropFilter: "blur(20px)",
-              }}
-            >
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <span
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md-design)]"
-                    style={{ background: "rgba(197,237,71,0.16)" }}
-                  >
-                    <Brain size={17} style={{ color: "#C5ED47" }} />
-                  </span>
-                  <div>
-                    <p className="type-body-sm" style={{ color: textPrimary, fontWeight: 600 }}>
-                      长期记忆
-                    </p>
-                    <p className="type-caption mt-1 leading-6" style={{ color: textSecondary }}>
-                      写下你的设计习惯，之后每次用大模型或生成图片，都会优先参考这里。
-                      比如常用的主色、画幅、风格倾向、绝对不要出现的元素。
-                    </p>
-                  </div>
-                </div>
-                <span
-                  className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption whitespace-nowrap"
-                  style={{
-                    background: memoryContextEnabled
-                      ? "rgba(197,237,71,0.16)"
-                      : isDark
-                        ? "rgba(255,255,255,0.06)"
-                        : "rgba(20,20,36,0.06)",
-                    color: memoryContextEnabled ? "#C5ED47" : textMuted,
-                  }}
-                >
-                  {memoryContextEnabled ? "画布上下文记忆：已开启" : "画布上下文记忆：未开启"}
-                </span>
-              </div>
-
-              <textarea
-                value={longTermMemory}
-                data-testid="profile-long-term-memory-input"
-                disabled={memoryLoading}
-                maxLength={USER_MEMORY_LIMITS.longTerm}
-                onChange={event => setLongTermMemory(event.target.value)}
-                rows={7}
-                placeholder={
-                  memoryLoading
-                    ? "正在读取…"
-                    : "例如：\n· 主色用 #1F2937，辅色用暖灰，不要高饱和\n· 产品图默认 1:1，海报默认 3:4\n· 偏好极简北欧风，不要卡通质感和廉价光效\n· 文字一律用思源黑体，不要描边"
-                }
-                className="w-full resize-none rounded-[var(--radius-lg-design)] px-4 py-3 type-body-sm leading-7 outline-none"
-                style={{
-                  background: inputBg,
-                  border: `1px solid ${border}`,
-                  color: textPrimary,
-                }}
-              />
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <span className="type-caption" style={{ color: textMuted }}>
-                  {longTermMemory.length} / {USER_MEMORY_LIMITS.longTerm} 字
-                  {longTermMemory !== savedLongTermMemory && !memoryLoading ? " · 有未保存的修改" : ""}
-                </span>
-                <button
-                  type="button"
-                  data-testid="profile-long-term-memory-save"
-                  // 没有改动就禁用：避免用户反复点击产生无意义的写库。
-                  disabled={memorySaving || memoryLoading || longTermMemory === savedLongTermMemory}
-                  onClick={() => {
-                    void handleSaveLongTermMemory();
-                  }}
-                  className="rounded-[var(--radius-lg-design)] px-5 py-2 type-caption transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-45"
-                  style={{ background: "#C5ED47", color: "#1a1a1a", fontWeight: 600 }}
-                >
-                  {memorySaving ? "保存中…" : "保存长期记忆"}
-                </button>
-              </div>
-
-              <p className="type-caption mt-3 leading-6" style={{ color: textMuted }}>
-                这里写的内容始终生效，和画布上那个开关无关。画布开关控制的是要不要额外带上
-                「当前项目风格」和「最近用过的提示词」。记忆跟随账号，换设备也在。
-              </p>
             </div>
           </section>
 

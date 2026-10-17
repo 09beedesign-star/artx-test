@@ -42,8 +42,14 @@ import { createProductBackground, editImageWithPrompt } from "@/lib/ai";
 import { IMAGE_AI_MODELS } from "@/lib/workspace-data";
 import { getMemoryContextSurcharge, quoteAiUsage } from "@shared/ai-credit-policy";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
-import { fetchUserMemory, USER_MEMORY_CHANGED_EVENT } from "@/lib/user-memory-client";
-import { buildUserMemoryContext, type UserMemoryDocument } from "@shared/user-memory";
+import {
+  broadcastUserMemoryChange,
+  fetchUserMemory,
+  saveUserMemory,
+  setCurrentMemoryScope,
+  USER_MEMORY_CHANGED_EVENT,
+} from "@/lib/user-memory-client";
+import { buildUserMemoryContext, ECOMMERCE_MEMORY_SCOPE, type UserMemoryDocument } from "@shared/user-memory";
 import {
   ECOMMERCE_TEMPLATES,
   ECOMMERCE_PLATFORMS,
@@ -146,13 +152,12 @@ export default function EcommerceCanvasPage() {
   }, [tplParam, updateDraft]);
 
   /*
-    长期记忆状态（只读，开关在画布输入框 / 个人中心）。
-    ⚠️ 电商出图走 /api/images/generate → handleTrackedAiRequest → withUserMemory，
-       服务端会注入记忆并加收附加费。前端报价必须用**同一条判据**
-       （buildUserMemoryContext 非空），否则按钮写 70、实扣 75，零报错。
-       电商画布不传 projectId，与服务端口径一致。
+    【2026-10-17】电商画布记忆：与长期记忆、画布对话记忆彼此独立。
+    用专属作用域 ECOMMERCE_MEMORY_SCOPE="ecommerce"。
   */
   const [memoryDoc, setMemoryDoc] = useState<UserMemoryDocument | null>(null);
+  // 电商画布专属开关（默认关），真值在服务端 ecommerceMemoryEnabled。
+  const ecommerceMemoryEnabled = memoryDoc?.ecommerceMemoryEnabled === true;
   useEffect(() => {
     let cancelled = false;
     fetchUserMemory()
@@ -177,13 +182,54 @@ export default function EcommerceCanvasPage() {
       memoryDoc
         ? buildUserMemoryContext({
             document: memoryDoc,
-            includeRecentPrompts: memoryDoc.contextEnabled,
+            conversationId: ECOMMERCE_MEMORY_SCOPE,
+            includeRecentPrompts: ecommerceMemoryEnabled,
           })
         : "",
-    [memoryDoc],
+    [memoryDoc, ecommerceMemoryEnabled],
   );
-  /** 提示条是否展示：开关开着，或者长期记忆实际会被注入。 */
-  const memoryActive = Boolean(memoryDoc?.contextEnabled || memoryContext);
+  /*
+    电商出图请求统一带上电商作用域（fetchAiJson 收口附加）。
+    ⚠️ 关着也要带 scope + memoryEnabled:false：服务端据此只注入长期记忆。
+  */
+  useEffect(() => {
+    setCurrentMemoryScope({
+      memoryScopeId: ECOMMERCE_MEMORY_SCOPE,
+      memoryEnabled: ecommerceMemoryEnabled,
+    });
+    return () => setCurrentMemoryScope(null);
+  }, [ecommerceMemoryEnabled]);
+  /** 提示条是否展示：电商记忆开着，或者长期记忆实际会被注入。 */
+  const memoryActive = Boolean(ecommerceMemoryEnabled || memoryContext);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  /**
+   * 切换电商画布专属记忆。先写服务端、成功后才改本地（不做乐观更新）。
+   */
+  const handleToggleEcommerceMemory = useCallback(
+    async (next: boolean) => {
+      if (memoryBusy) return;
+      setMemoryBusy(true);
+      try {
+        const document = await saveUserMemory({ ecommerceMemoryEnabled: next });
+        setMemoryDoc(document);
+        broadcastUserMemoryChange(document);
+        toast(
+          next ? "您已开启电商画布记忆，可以更好地帮助理解您的意图" : "已关闭电商画布记忆",
+          {
+            description: next
+              ? "电商画布的出图要求优先，与长期记忆不冲突的部分一起参考；与画布对话记忆互相独立。"
+              : "此后电商出图只参考左侧边栏「长期记忆」中的内容。",
+          },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "开关保存失败";
+        toast("电商画布记忆开关没保存成功", { description: message });
+      } finally {
+        setMemoryBusy(false);
+      }
+    },
+    [memoryBusy],
+  );
 
   const count = mode === "post" ? draft.postCount : draft.productCount;
   /**
@@ -446,6 +492,8 @@ export default function EcommerceCanvasPage() {
           modelLabel={modelLabel}
           memoryActive={memoryActive}
           memorySurcharge={getMemoryContextSurcharge(billingCapability, memoryContext)}
+          ecommerceMemoryEnabled={ecommerceMemoryEnabled}
+          onToggleEcommerceMemory={handleToggleEcommerceMemory}
           onGenerate={() => void handleGenerate()}
           onClearResults={() => setResults([])}
           onOpenTemplateDetail={id => navigate(`${ROOT}/templates/${id}`)}

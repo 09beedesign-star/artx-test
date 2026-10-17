@@ -6,6 +6,7 @@ import {
   saveProjectMemory,
   updateUserMemorySettings,
 } from "./user-memory-store";
+import { getMemoryLimitsForPlan } from "../shared/user-memory";
 
 beforeEach(() => {
   __resetUserMemoryForTests();
@@ -38,7 +39,11 @@ describe("patch 语义：个人中心保存不能清空其他层", () => {
       note: "浅灰水泥台面",
       updatedAt: new Date().toISOString(),
     });
-    await recordPromptMemory("u1", { prompt: "白色马克杯", projectId: "p1", createdAt: new Date().toISOString() });
+    await recordPromptMemory(
+      "u1",
+      { prompt: "白色马克杯", projectId: "p1", conversationId: "canvas:p1:c1", createdAt: new Date().toISOString() },
+      true
+    );
 
     await updateUserMemorySettings("u1", { longTerm: "极简北欧" });
 
@@ -62,17 +67,21 @@ describe("patch 语义：个人中心保存不能清空其他层", () => {
 describe("开关关闭时不记录提示词", () => {
   it("开关关着调用 recordPromptMemory 什么都不写", async () => {
     // 开关关着却偷偷记录 = 用户以为没开记忆、实际一直被记录。
-    const result = await recordPromptMemory("u1", {
-      prompt: "白色马克杯",
-      createdAt: new Date().toISOString(),
-    });
+    const result = await recordPromptMemory(
+      "u1",
+      { prompt: "白色马克杯", conversationId: "canvas:p1:c1", createdAt: new Date().toISOString() },
+      false
+    );
     expect(result).toBeNull();
     expect((await getUserMemoryDocument("u1")).recentPrompts).toEqual([]);
   });
 
-  it("开关打开后才开始记录", async () => {
-    await updateUserMemorySettings("u1", { contextEnabled: true });
-    await recordPromptMemory("u1", { prompt: "白色马克杯", createdAt: new Date().toISOString() });
+  it("开关打开后才开始记录（开关按对话绑定，由调用方传 scopeEnabled）", async () => {
+    await recordPromptMemory(
+      "u1",
+      { prompt: "白色马克杯", conversationId: "canvas:p1:c1", createdAt: new Date().toISOString() },
+      true
+    );
     expect((await getUserMemoryDocument("u1")).recentPrompts).toHaveLength(1);
   });
 });
@@ -87,10 +96,15 @@ describe("并发写入不互相覆盖", () => {
     await updateUserMemorySettings("u1", { contextEnabled: true });
     await Promise.all(
       Array.from({ length: 12 }, (_, i) =>
-        recordPromptMemory("u1", {
-          prompt: `prompt-${i}`,
-          createdAt: new Date(Date.now() + i * 1000).toISOString(),
-        })
+        recordPromptMemory(
+          "u1",
+          {
+            prompt: `prompt-${i}`,
+            conversationId: "canvas:p1:c1",
+            createdAt: new Date(Date.now() + i * 1000).toISOString(),
+          },
+          true
+        )
       )
     );
     const doc = await getUserMemoryDocument("u1");
@@ -121,5 +135,18 @@ describe("空 userId 不写库", () => {
   it("userId 为空时返回空文档且不抛错", async () => {
     const doc = await updateUserMemorySettings("", { longTerm: "X" });
     expect(doc.longTerm).toBe("");
+  });
+});
+
+describe("【2026-10-18】按档位保存", () => {
+  it("降级用户只拨开关，不会截掉付费期写的内容", async () => {
+    await updateUserMemorySettings("u1", { projectMemory: "P".repeat(5000) }, getMemoryLimitsForPlan("pro"));
+    await updateUserMemorySettings("u1", { ecommerceMemoryEnabled: true }, getMemoryLimitsForPlan("free"));
+    expect((await getUserMemoryDocument("u1")).projectMemory).toHaveLength(5000);
+  });
+
+  it("改文本时按当前档位截断", async () => {
+    await updateUserMemorySettings("u1", { projectMemory: "P".repeat(5000) }, getMemoryLimitsForPlan("free"));
+    expect((await getUserMemoryDocument("u1")).projectMemory).toHaveLength(300);
   });
 });

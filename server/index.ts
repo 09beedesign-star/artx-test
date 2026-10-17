@@ -14,7 +14,31 @@ import {
   saveProjectMemory,
   updateUserMemorySettings,
 } from "./user-memory-store";
-import { buildUserMemoryContext } from "../shared/user-memory";
+import {
+  buildUserMemoryContext,
+  getMemoryLimitsForPlan,
+  isSkillOversized,
+  readMemoryScope,
+  SKILL_DIMENSION_LIMIT,
+} from "../shared/user-memory";
+
+/**
+ * 该用户当前会员档位的长期记忆容量。
+ * ⚠️ 取档失败时回落 Free（最保守），不能回落到最大档 —— 那等于给所有人白送顶配。
+ */
+async function memoryLimitsForUser(userId: string) {
+  try {
+    const planId = await getPlanIdForUser(userId);
+    return { planId, limits: getMemoryLimitsForPlan(planId) };
+  } catch (error) {
+    console.warn("[user-memory] 取会员档位失败，按 Free 容量处理", error);
+    return { planId: "free", limits: getMemoryLimitsForPlan("free") };
+  }
+}
+
+function memoryLimitsPayload(planId: string, limits: { perDimension: number; total: number }) {
+  return { planId, limits: { ...limits, skill: SKILL_DIMENSION_LIMIT } };
+}
 import {
   failInterruptedBackgroundImageTasks,
   getBackgroundImageTask,
@@ -37,7 +61,7 @@ import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
-import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail, getInviteEarnedCreditsForUser } from "./admin-store";
+import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getPlanIdForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail, getInviteEarnedCreditsForUser } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
@@ -790,15 +814,22 @@ async function withUserMemory<T extends Record<string, unknown>>(
   const { userMemory: _ignored, ...rest } = (body || {}) as Record<string, unknown>;
   try {
     const memory = await getUserMemoryDocument(user.id);
+    const scope = readMemoryScope(body);
+    // 注入按「当前」档位裁：降级用户库里留着的超额内容不再生效。
+    const { limits } = await memoryLimitsForUser(user.id);
     const context = buildUserMemoryContext({
       document: memory,
+      limits,
       projectId: requestedMemoryProjectId(body),
       /*
-       * 近期提示词这一层只在用户打开画布开关后才带。
-       * 长期记忆（用户亲手写的规则）**不受开关影响** ——
-       * 它是显式声明，用户写下来就是要它一直生效。
+       * 2026-10-17 用户拍板：对话记忆与对话窗口强制绑定、彼此独立；
+       * 电商画布有专属记忆。只有**本次请求所在的对话 / 电商画布**开了记忆，
+       * 才带它自己的近期记忆；都没开 → 只用长期记忆。
+       * 长期记忆（用户亲手写的规则）**不受开关影响**。
+       * ⚠️ 不再读账号全局 contextEnabled：那会让一个对话开了，所有对话都带记忆。
        */
-      includeRecentPrompts: memory.contextEnabled,
+      conversationId: scope.scopeId,
+      includeRecentPrompts: scope.enabled,
     });
     if (!context) return rest as T;
     return { ...(rest as T), userMemory: context };
@@ -824,11 +855,19 @@ async function rememberPromptQuietly(user: SessionUser, body: unknown) {
   try {
     const raw = body && typeof body === "object" ? (body as Record<string, unknown>).prompt : "";
     if (typeof raw !== "string" || !raw.trim()) return;
-    await recordPromptMemory(user.id, {
-      prompt: raw,
-      ...(requestedMemoryProjectId(body) ? { projectId: requestedMemoryProjectId(body)! } : {}),
-      createdAt: new Date().toISOString(),
-    });
+    const scope = readMemoryScope(body);
+    // 没开本对话 / 电商记忆就不记（用户以为没开记忆，就不能偷偷记录）。
+    if (!scope.enabled || !scope.scopeId) return;
+    await recordPromptMemory(
+      user.id,
+      {
+        prompt: raw,
+        ...(requestedMemoryProjectId(body) ? { projectId: requestedMemoryProjectId(body)! } : {}),
+        conversationId: scope.scopeId,
+        createdAt: new Date().toISOString(),
+      },
+      scope.enabled
+    );
   } catch (error) {
     console.warn("[user-memory] 提示词记录失败", error);
   }
@@ -2232,7 +2271,8 @@ async function startServer() {
       const user = await requireSessionUser(req, res);
       if (!user) return;
       const document = await getUserMemoryDocument(user.id);
-      res.json({ document });
+      const { planId, limits } = await memoryLimitsForUser(user.id);
+      res.json({ document, ...memoryLimitsPayload(planId, limits) });
     } catch (error) {
       const message = error instanceof Error ? error.message : "User memory read failed";
       res.status(500).json({ error: message });
@@ -2250,6 +2290,15 @@ async function startServer() {
       const user = await requireSessionUser(req, res);
       if (!user) return;
       const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+      // Skill 超限直接拒收（413），不静默截断：截半的 Skill 会丢掉后半段规则且用户察觉不到。
+      if (typeof body.skill === "string" && isSkillOversized(body.skill)) {
+        res.status(413).json({
+          error: `Skill 过大（${body.skill.trim().length} 字，上限 ${SKILL_DIMENSION_LIMIT} 字），请精简之后再上传`,
+          code: "SKILL_TOO_LARGE",
+        });
+        return;
+      }
+      const { planId, limits } = await memoryLimitsForUser(user.id);
       const document = await updateUserMemorySettings(user.id, {
         ...(body.longTerm !== undefined ? { longTerm: body.longTerm } : {}),
         // 四维度长期记忆（长期记忆页 / 个人中心共用），逐字段 patch。
@@ -2258,8 +2307,9 @@ async function startServer() {
         ...(body.generalRules !== undefined ? { generalRules: body.generalRules } : {}),
         ...(body.regularMemory !== undefined ? { regularMemory: body.regularMemory } : {}),
         ...(body.contextEnabled !== undefined ? { contextEnabled: body.contextEnabled } : {}),
-      });
-      res.json({ document });
+        ...(body.ecommerceMemoryEnabled !== undefined ? { ecommerceMemoryEnabled: body.ecommerceMemoryEnabled } : {}),
+      }, limits);
+      res.json({ document, ...memoryLimitsPayload(planId, limits) });
     } catch (error) {
       const message = error instanceof Error ? error.message : "User memory save failed";
       res.status(500).json({ error: message });

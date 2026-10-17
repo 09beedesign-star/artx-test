@@ -6,12 +6,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
 import { resolveBackgroundImageTaskCapability } from "./server/background-image-capability";
 import { editImageWithPrompt, eraseImageObjects, extractImageText, generateImages, listImageModelCatalog, removeImageBackground } from "./server/image-generation";
 import { searchReferenceImages } from "./server/reference-search";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "./shared/image-expansion";
 import { generateText } from "./server/text-generation";
+import { getUserMemoryDocument, saveProjectMemory, updateUserMemorySettings } from "./server/user-memory-store";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -875,6 +876,86 @@ function vitePluginAdminApi(): Plugin {
   };
 }
 
+/*
+ * 长期记忆 / 电商画布记忆开关的 dev 路由。
+ *
+ * ⚠️ 生产 express（server/index.ts 的 /api/user/memory*）早就有，但 dev 走的是 Vite
+ *    中间件，此前漏注册 → 请求穿透到 SPA 兜底页拿到 200 + HTML，
+ *    前端 response.json() 炸掉 → 左侧边栏「长期记忆」页报「加载长期记忆失败」。
+ *    （与 /api/images/ocr、/api/ai/models 同一类「dev 漏注册」事故。）
+ * 📌 用请求自带 token 解析用户，与生产 requireSessionUser 同口径，不同账号互不串。
+ *    PUT 字段白名单与生产逐字一致，改一边必须改另一边。
+ */
+function vitePluginUserMemoryApi(): Plugin {
+  return {
+    name: "artx-user-memory-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/user/memory", async (req, res, next) => {
+        const pathname = (req.url || "").split("?")[0].replace(/\/+$/, "");
+        const isRoot = pathname === "" || pathname === "/";
+        const isProject = pathname === "/project";
+        if (!isRoot && !isProject) return next();
+        if (isRoot && req.method !== "GET" && req.method !== "PUT") return next();
+        if (isProject && req.method !== "PUT") return next();
+        try {
+          const session = await getSessionUserFromAuthorization(req.headers.authorization);
+          const userId = session.status === 200 && "user" in session.body ? session.body.user?.id : undefined;
+          if (!userId) {
+            sendJson(res, 401, session.body);
+            return;
+          }
+          // 与生产 server/index.ts 的 memoryLimitsForUser 同口径（取档失败回落 Free）。
+          const { getPlanIdForUser } = await import("./server/admin-store");
+          const { getMemoryLimitsForPlan, isSkillOversized, SKILL_DIMENSION_LIMIT } = await import("./shared/user-memory");
+          const planId = await getPlanIdForUser(userId).catch(() => "free");
+          const limits = getMemoryLimitsForPlan(planId);
+          const limitsPayload = { planId, limits: { ...limits, skill: SKILL_DIMENSION_LIMIT } };
+          if (isRoot && req.method === "GET") {
+            sendJson(res, 200, { document: await getUserMemoryDocument(userId), ...limitsPayload });
+            return;
+          }
+          const body = await readRequestJson(req);
+          if (isRoot) {
+            if (typeof body.skill === "string" && isSkillOversized(body.skill)) {
+              sendJson(res, 413, {
+                error: `Skill 过大（${body.skill.trim().length} 字，上限 ${SKILL_DIMENSION_LIMIT} 字），请精简之后再上传`,
+                code: "SKILL_TOO_LARGE",
+              });
+              return;
+            }
+            const document = await updateUserMemorySettings(userId, {
+              ...(body.longTerm !== undefined ? { longTerm: body.longTerm } : {}),
+              ...(body.projectMemory !== undefined ? { projectMemory: body.projectMemory } : {}),
+              ...(body.skill !== undefined ? { skill: body.skill } : {}),
+              ...(body.generalRules !== undefined ? { generalRules: body.generalRules } : {}),
+              ...(body.regularMemory !== undefined ? { regularMemory: body.regularMemory } : {}),
+              ...(body.contextEnabled !== undefined ? { contextEnabled: body.contextEnabled } : {}),
+              ...(body.ecommerceMemoryEnabled !== undefined ? { ecommerceMemoryEnabled: body.ecommerceMemoryEnabled } : {}),
+            } as Parameters<typeof updateUserMemorySettings>[1], limits);
+            sendJson(res, 200, { document, ...limitsPayload });
+            return;
+          }
+          const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+          if (!projectId) {
+            sendJson(res, 400, { error: "Missing projectId" });
+            return;
+          }
+          const document = await saveProjectMemory(userId, {
+            projectId,
+            ...(typeof body.title === "string" ? { title: body.title } : {}),
+            note: typeof body.note === "string" ? body.note : "",
+            updatedAt: new Date().toISOString(),
+          });
+          sendJson(res, 200, { document });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "User memory request failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+    },
+  };
+}
+
 function readRequestJson(req: import("node:http").IncomingMessage) {
   return new Promise<Record<string, unknown>>((resolve, reject) => {
     let body = "";
@@ -1017,6 +1098,7 @@ const plugins = [
   vitePluginStorageProxy(),
   vitePluginAuthApi(),
   vitePluginAdminApi(),
+  vitePluginUserMemoryApi(),
   vitePluginDeveloperApi(),
   vitePluginAiOrchestratorApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),

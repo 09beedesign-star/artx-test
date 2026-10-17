@@ -9,6 +9,7 @@ import { AUTO_RATIO_VALUE, resolveImageRatio } from "../../../shared/image-ratio
 import type { AiBillingErrorCode } from "./ai-credit-gate";
 import { emitInsufficientCredits } from "./ai-credit-gate";
 import { compressAiRequestBody } from "./ai-payload-image";
+import { withCurrentMemoryScope } from "./user-memory-client";
 
 type LLMRole = "system" | "user" | "assistant";
 
@@ -404,7 +405,8 @@ async function fetchAiJson<T extends ApiErrorResponse>(
      * 4K PNG 载荷 3.26MB / 12.0s，降采样 1600 宽 JPEG82 后 0.20MB / 7.6s，
      * **读出的文案完全一致**。压缩不是妥协，是更快更稳。
      */
-    const payload = await compressAiRequestBody(body);
+    // 记忆作用域同样在唯一收口附加（见 user-memory-client.ts setCurrentMemoryScope）。
+    const payload = await compressAiRequestBody(withCurrentMemoryScope(body));
 
     const response = await fetch(endpoint, {
       method: "POST",

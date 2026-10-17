@@ -1,8 +1,17 @@
 import { ART_X_TEST_API_BASE_URL, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import {
   createEmptyUserMemoryDocument,
+  type MemoryScopePayload,
   type UserMemoryDocument,
+  type MemoryLimits,
 } from "../../../shared/user-memory";
+
+/** GET /api/user/memory 响应（带档位容量）。 */
+export type UserMemoryResponse = {
+  document: UserMemoryDocument;
+  planId: string;
+  limits: MemoryLimits & { skill: number };
+};
 
 /**
  * 「长期记忆 / 上下文开关」的前端读写。
@@ -44,6 +53,11 @@ async function readDocument(response: Response): Promise<UserMemoryDocument> {
    * （与 client/src/lib/ai.ts 的 fetchAiJson 同一条教训。）
    */
   if (!response.ok) {
+    // 413 是服务端「Skill 过大」的显式拒收，把它的中文提示透出去；其余状态不碰 body。
+    if (response.status === 413) {
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error || "Skill 过大，请精简之后再上传");
+    }
     throw new Error(`读取长期记忆失败（HTTP ${response.status}）`);
   }
   const data = (await response.json()) as { document?: UserMemoryDocument };
@@ -57,6 +71,24 @@ export async function fetchUserMemory(): Promise<UserMemoryDocument> {
   if (!headers.Authorization) return createEmptyUserMemoryDocument();
   const response = await fetch(`${getApiBaseUrl()}/api/user/memory`, { headers });
   return readDocument(response);
+}
+
+/**
+ * 读取记忆文档 + 当前会员档位的容量（长期记忆页用）。
+ * 未登录 / 老后端没回 limits 时返回 null，由页面按 Free 兜底。
+ */
+export async function fetchUserMemoryWithLimits(): Promise<UserMemoryResponse | null> {
+  const headers = getAuthHeaders();
+  if (!headers.Authorization) return null;
+  const response = await fetch(`${getApiBaseUrl()}/api/user/memory`, { headers });
+  if (!response.ok) throw new Error(`读取长期记忆失败（HTTP ${response.status}）`);
+  const data = (await response.json()) as Partial<UserMemoryResponse>;
+  if (!data.limits) return null;
+  return {
+    document: data.document ?? createEmptyUserMemoryDocument(),
+    planId: data.planId || "free",
+    limits: data.limits,
+  };
 }
 
 /**
@@ -74,6 +106,8 @@ export async function saveUserMemory(patch: {
   generalRules?: string;
   regularMemory?: string;
   contextEnabled?: boolean;
+  /** 电商画布专属记忆开关（与画布对话记忆、长期记忆彼此独立）。 */
+  ecommerceMemoryEnabled?: boolean;
 }): Promise<UserMemoryDocument> {
   const headers = getAuthHeaders();
   if (!headers.Authorization) throw new Error("请先登录后再保存长期记忆");
@@ -83,6 +117,29 @@ export async function saveUserMemory(patch: {
     body: JSON.stringify(patch),
   });
   return readDocument(response);
+}
+
+/**
+ * 【2026-10-17】当前页面的记忆作用域（对话记忆 / 电商画布记忆）。
+ *
+ * 由当前挂载的画布 / 电商页设置，client/src/lib/ai.ts 的 fetchAiJson
+ * 在**唯一收口**处附加到每个 AI 请求体 —— 18 个出图/对话出口挨个传必然漏。
+ * 卸载时必须清空：否则离开画布后在别的页面出图，仍会带着上一个对话的记忆。
+ */
+let currentMemoryScope: MemoryScopePayload | null = null;
+
+export function setCurrentMemoryScope(scope: MemoryScopePayload | null) {
+  currentMemoryScope = scope;
+}
+
+export function getCurrentMemoryScope(): MemoryScopePayload | null {
+  return currentMemoryScope;
+}
+
+/** 给请求体附加记忆作用域；调用方显式传了 memoryScopeId 时不覆盖。 */
+export function withCurrentMemoryScope<T extends Record<string, unknown>>(body: T): T {
+  if (!currentMemoryScope || typeof body.memoryScopeId === "string") return body;
+  return { ...body, ...currentMemoryScope };
 }
 
 /** 记一条项目记忆（同 projectId 覆盖；note 传空等于删除）。 */

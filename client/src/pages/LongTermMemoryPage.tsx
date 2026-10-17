@@ -12,11 +12,17 @@ import { toast } from "sonner";
 import gsap from "gsap";
 import {
   fetchUserMemory,
+  fetchUserMemoryWithLimits,
   saveUserMemory,
   broadcastUserMemoryChange,
   USER_MEMORY_CHANGED_EVENT,
 } from "@/lib/user-memory-client";
-import { USER_MEMORY_LIMITS, createEmptyUserMemoryDocument } from "@shared/user-memory";
+import {
+  SKILL_DIMENSION_LIMIT,
+  isSkillOversized,
+  createEmptyUserMemoryDocument,
+} from "@shared/user-memory";
+import { MEMBERSHIP_PLANS, SUBSCRIPTION_PLAN_IDS } from "@shared/billing-config";
 import type { UserMemoryDocument } from "@shared/user-memory";
 import { buildMemoryMarkdown, saveMarkdownWithPicker, suggestMemoryFilename } from "@/lib/memory-export";
 
@@ -26,7 +32,6 @@ interface DimensionConfig {
   key: MemoryDimension;
   label: string;
   placeholder: string;
-  maxLength: number;
   allowUpload?: boolean;
 }
 
@@ -35,26 +40,22 @@ const DIMENSIONS: DimensionConfig[] = [
     key: "projectMemory",
     label: "项目记忆",
     placeholder: "记录项目特定的背景、约定、架构决策...",
-    maxLength: USER_MEMORY_LIMITS.projectMemoryDimension,
   },
   {
     key: "skill",
     label: "Skill",
     placeholder: "记录技能相关的规则、工作流、最佳实践...",
-    maxLength: USER_MEMORY_LIMITS.skillDimension,
     allowUpload: true,
   },
   {
     key: "generalRules",
     label: "通用规则",
     placeholder: "记录通用的偏好、规范、约束条件...",
-    maxLength: USER_MEMORY_LIMITS.generalRulesDimension,
   },
   {
     key: "regularMemory",
     label: "常规记忆",
     placeholder: "记录其他需要长期记住的内容...",
-    maxLength: USER_MEMORY_LIMITS.regularMemoryDimension,
   },
 ];
 
@@ -74,6 +75,12 @@ export default function LongTermMemoryPage() {
   const [activeDimension, setActiveDimension] = useState<MemoryDimension | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPlanId, setCurrentPlanId] = useState<string>("free");
+  const [currentLimits, setCurrentLimits] = useState<{
+    perDimension: number;
+    total: number;
+    skill: number;
+  }>({ perDimension: 300, total: 1200, skill: SKILL_DIMENSION_LIMIT });
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<(() => void) | null>(null);
@@ -175,10 +182,20 @@ export default function LongTermMemoryPage() {
     };
   }, [activeDimension]);
 
-  // 加载记忆
+  // 加载记忆 + 档位容量
   useEffect(() => {
-    fetchUserMemory()
+    fetchUserMemoryWithLimits()
+      .then(data => {
+        if (!data) {
+          // 未登录或后端未返回 limits → 按 Free 处理，但仍读记忆。
+          return fetchUserMemory();
+        }
+        setCurrentPlanId(data.planId);
+        setCurrentLimits(data.limits);
+        return Promise.resolve(data.document);
+      })
       .then(doc => {
+        if (!doc) return;
         const loaded: Record<MemoryDimension, string> = {
           projectMemory: doc.projectMemory || "",
           skill: doc.skill || "",
@@ -213,7 +230,15 @@ export default function LongTermMemoryPage() {
     return () => window.removeEventListener(USER_MEMORY_CHANGED_EVENT, handleChange);
   }, []);
 
+  const skillTooLargeMessage = (length: number) =>
+    `Skill 过大（${length.toLocaleString()} 字，上限 ${SKILL_DIMENSION_LIMIT.toLocaleString()} 字），请精简之后再上传`;
+
   const handleSave = async () => {
+    // ⚠️ 超限时拦下不存：服务端会静默截断尾部，Skill 被截半截比不存更糟。
+    if (isSkillOversized(memories.skill)) {
+      toast.error(skillTooLargeMessage(memories.skill.trim().length));
+      return;
+    }
     setIsSaving(true);
     try {
       const document = await saveUserMemory(memories);
@@ -232,6 +257,8 @@ export default function LongTermMemoryPage() {
 
   const handleUploadSkill = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // 清空选择，保证精简后重新选同一个文件也能触发 onChange。
+    e.target.value = "";
     if (!file) return;
     if (!file.name.endsWith(".md")) {
       toast.error("仅支持 Markdown (.md) 格式的 Skill 文档");
@@ -239,6 +266,18 @@ export default function LongTermMemoryPage() {
     }
     try {
       const text = await file.text();
+      const merged = memories.skill + (memories.skill ? "\n\n" : "") + text;
+      if (isSkillOversized(merged)) {
+        // 整份拒收，不导入半份：截断的 Skill 会丢掉后半段规则且用户察觉不到。
+        const single = text.trim().length > SKILL_DIMENSION_LIMIT;
+        toast.error(
+          single
+            ? skillTooLargeMessage(text.trim().length)
+            : `导入后 Skill 合计 ${merged.trim().length.toLocaleString()} 字，超过上限 ${SKILL_DIMENSION_LIMIT.toLocaleString()} 字，请精简之后再上传`,
+          { duration: 6000 }
+        );
+        return;
+      }
       setMemories(prev => ({ ...prev, skill: prev.skill + (prev.skill ? "\n\n" : "") + text }));
       toast.success(`已导入 ${file.name}`);
     } catch (err) {
@@ -264,6 +303,15 @@ export default function LongTermMemoryPage() {
   const hasUnsavedChanges = DIMENSIONS.some(
     dim => memories[dim.key] !== savedMemories[dim.key]
   );
+
+  // 货架只展示 SUBSCRIPTION_PLAN_IDS（MEMBERSHIP_PLANS 是定价表不是货架）。
+  const shelfPlans = SUBSCRIPTION_PLAN_IDS
+    .map(id => MEMBERSHIP_PLANS.find(plan => plan.id === id))
+    .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan?.memoryLimits));
+  const currentPlan = MEMBERSHIP_PLANS.find(plan => plan.id === currentPlanId);
+  const planDisplayName = currentPlan?.shortName || "Free";
+  // 下一档 = 货架上第一个「每项容量更大」的套餐；已是顶配则不显示升级。
+  const nextPlan = shelfPlans.find(plan => plan.memoryLimits!.perDimension > currentLimits.perDimension);
 
   if (isLoading) {
     return (
@@ -298,11 +346,38 @@ export default function LongTermMemoryPage() {
             </div>
           </div>
 
+          {/* 当前套餐的长期记忆容量（数字现算自服务端 limits，不写死） */}
+          <div
+            className="mb-6 p-4 rounded-xl flex items-center justify-between gap-4"
+            style={{ background: "var(--color-surface-elevated)", border: "1px solid rgba(197, 237, 71, 0.25)" }}
+            data-testid="memory-plan-capacity"
+          >
+            <div className="type-body-sm min-w-0">
+              <div className="font-medium">当前套餐：{planDisplayName}</div>
+              <div className="type-caption text-[var(--color-text-subtle)] mt-1">
+                项目记忆 / 通用规则 / 常规记忆每项 {currentLimits.perDimension.toLocaleString()} 字、合计 {currentLimits.total.toLocaleString()} 字；
+                Skill 文档上限 {currentLimits.skill.toLocaleString()} 字（所有套餐一致）
+              </div>
+            </div>
+            {nextPlan && (
+              <a
+                href="/billing?tab=subscription"
+                className="shrink-0 type-caption px-3 py-1.5 rounded-lg font-medium"
+                style={{ background: "#C5ED47", color: "#111" }}
+                data-testid="memory-upgrade-link"
+              >
+                升级 {nextPlan.shortName} · 每项 {nextPlan.memoryLimits!.perDimension.toLocaleString()} 字
+              </a>
+            )}
+          </div>
+
           {/* 四维度输入框 */}
           <div className="space-y-6">
             {DIMENSIONS.map(dim => {
               const currentLength = memories[dim.key].length;
               const isActive = activeDimension === dim.key;
+              const oversized = dim.key === "skill" && isSkillOversized(memories.skill);
+              const maxLength = dim.key === "skill" ? currentLimits.skill : currentLimits.perDimension;
               return (
                 <div
                   key={dim.key}
@@ -348,14 +423,20 @@ export default function LongTermMemoryPage() {
                       }, 100);
                     }}
                     placeholder={dim.placeholder}
-                    maxLength={dim.maxLength}
-                    rows={6}
+                    // Skill 不用原生 maxLength：粘贴超长文档会被静默截断，改为显式提醒。
+                    maxLength={dim.key === "skill" ? undefined : maxLength}
+                    rows={dim.key === "skill" ? 10 : 6}
                     className="w-full p-3 rounded-lg bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] focus:border-[#C5ED47] focus:outline-none resize-none type-body-sm"
                     data-testid={`memory-input-${dim.key}`}
                   />
                   <div className="flex items-center justify-between mt-2">
-                    <span className="type-caption text-[var(--color-text-subtle)]">
-                      {currentLength} / {dim.maxLength} 字
+                    <span
+                      className="type-caption"
+                      style={{ color: oversized ? "#FF6B6B" : "var(--color-text-subtle)" }}
+                      data-testid={`memory-count-${dim.key}`}
+                    >
+                      {currentLength.toLocaleString()} / {maxLength.toLocaleString()} 字
+                      {oversized && " · Skill 过大，请精简之后再上传"}
                     </span>
                     {memories[dim.key] !== savedMemories[dim.key] && (
                       <span className="type-caption" style={{ color: "#C5ED47" }}>

@@ -29,12 +29,29 @@ describe("长期记忆入口与归属规则", () => {
     expect(body).toMatch(/saveProjectMemory\(\{\s*projectId,\s*note:\s*""\s*\}\)/);
   });
 
-  it("四维度输入框都存在,且上限取自数据层", () => {
+  it("四维度输入框都存在,且上限取自服务端按档位下发的 limits（不写死）", () => {
     const page = read("pages/LongTermMemoryPage.tsx");
     for (const k of ["projectMemory", "skill", "generalRules", "regularMemory"]) {
       expect(page).toContain(`key: "${k}"`);
-      expect(page).toContain(`USER_MEMORY_LIMITS.${k}Dimension`);
     }
+    expect(page).toContain("fetchUserMemoryWithLimits()");
+    expect(page).toContain('dim.key === "skill" ? currentLimits.skill : currentLimits.perDimension');
+    // 写死的旧常量不能回来：回来 = 付费档扩容在前端被静默截断。
+    expect(page).not.toContain("USER_MEMORY_LIMITS.");
+  });
+
+  it("Skill 超限：上传与保存都拦截并提示精简，且不用原生 maxLength 静默截断", () => {
+    const page = read("pages/LongTermMemoryPage.tsx");
+    expect(page).toContain("请精简之后再上传");
+    expect(page.match(/isSkillOversized\(/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(page).toContain('maxLength={dim.key === "skill" ? undefined : maxLength}');
+  });
+
+  it("页面展示当前套餐容量与升级入口（货架只取 SUBSCRIPTION_PLAN_IDS）", () => {
+    const page = read("pages/LongTermMemoryPage.tsx");
+    expect(page).toContain('data-testid="memory-plan-capacity"');
+    expect(page).toContain('data-testid="memory-upgrade-link"');
+    expect(page).toContain("SUBSCRIPTION_PLAN_IDS");
   });
 
   it("页面有下载记忆文档按钮，使用原生文件保存 API", () => {

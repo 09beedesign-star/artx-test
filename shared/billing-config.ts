@@ -1,6 +1,16 @@
 export type MembershipPlanId = "free" | "lite" | "creator" | "pro" | "studio" | "business";
 export type BillingCycleId = "monthly" | "quarterly" | "annual";
 
+export interface MemoryLimits {
+  /**
+   * 手写维度各维度字符上限（项目记忆 / 通用规则 / 常规记忆）。
+   * ⚠️ Skill 是上传文档，不走档位，统一用 shared/user-memory.ts 的 SKILL_DIMENSION_LIMIT。
+   */
+  perDimension: number;
+  /** 三个手写维度合计上限（不含 Skill） */
+  total: number;
+}
+
 export interface MembershipPlan {
   id: MembershipPlanId;
   name: string;
@@ -13,6 +23,8 @@ export interface MembershipPlan {
   tagline: string;
   features: string[];
   recommended?: boolean;
+  /** 长期记忆容量（四维度）。Free 档无此字段，使用默认值。 */
+  memoryLimits?: MemoryLimits;
 }
 
 export interface BillingCycle {
@@ -253,6 +265,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     audience: "灵感探索、个人创作、轻量商用",
     tagline: "用一杯咖啡的预算，把日常灵感快速变成可用图片、文案和视觉草稿。",
     features: ["每月 8,000 创作积分", "标准 AI 生图与智能编辑", "提示词优化与 AI 文案", "个人画布与历史记录"],
+    memoryLimits: { perDimension: 1000, total: 4000 },
   },
   {
     id: "creator",
@@ -265,6 +278,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     audience: "图文、电商图、社媒内容",
     tagline: "给内容创作者和小商家更稳的月度额度。",
     features: ["高清图片生成", "商品图编辑", "社媒封面模板", "基础批量任务"],
+    memoryLimits: { perDimension: 3000, total: 12000 },
   },
   {
     id: "pro",
@@ -278,6 +292,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     tagline: "主推专业档，用更低成本覆盖商品图、海报、社媒视觉和日常商单产出。",
     features: ["每月 28,000 创作积分", "完整标准图片模型", "高质量模型关键交付权益", "优先队列与商业创作工具"],
     recommended: true,
+    memoryLimits: { perDimension: 5000, total: 20000 },
   },
   {
     id: "studio",
@@ -290,6 +305,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     audience: "小团队、工作室、批量商业生产",
     tagline: "为连续交付准备的高额度套餐，让团队稳定生产商品图、广告图和多平台素材。",
     features: ["每月 80,000 创作积分", "Pro 全部专业能力", "高质量模型重点项目权益", "更高优先级与批量生产能力"],
+    memoryLimits: { perDimension: 10000, total: 40000 },
   },
   {
     id: "business",
@@ -302,6 +318,7 @@ export const MEMBERSHIP_PLANS: MembershipPlan[] = [
     audience: "机构、视频/批量内容生产",
     tagline: "面向机构和高成本模型用户，额度更足且单价最低。",
     features: ["机构级额度", "高级视频模型", "最高优先级", "对账与风险提示"],
+    memoryLimits: { perDimension: 10000, total: 40000 },
   },
 ];
 

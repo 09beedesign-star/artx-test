@@ -1,3 +1,13 @@
+import { isFreePlanId, MEMBERSHIP_PLANS, type MemoryLimits } from "./billing-config";
+
+/**
+ * 【2026-10-18】Skill 维度的固定上限 —— 因上传 skill 文档，需容纳完整文档。
+ * 
+ * 数据：本地 skill 文档 90 分位线约 50-70 KB，极端案例 685 KB。
+ * 设为 100,000 字符（约 100 KB）可覆盖绝大部分场景；超过时前端提示精简。
+ */
+export const SKILL_DIMENSION_LIMIT = 100_000;
+
 /**
  * 按账号的「分层记忆」—— 唯一事实源。
  *
@@ -52,6 +62,76 @@ export const USER_MEMORY_LIMITS = {
   total: 4200,
 } as const;
 
+/**
+ * 【2026-10-17】长期记忆容量按会员档位分级 —— 唯一事实源在 billing-config 的 `memoryLimits`。
+ *
+ * Free / 未知档 = 现行上限（每维度 300 / 合计 1200），付费档读定价表。
+ * 【2026-10-18】Skill 维度**不参与档位分级**：它是上传的文档，统一用 SKILL_DIMENSION_LIMIT，
+ *   也不计入 `total`（`total` 只管项目记忆 / 通用规则 / 常规记忆三个手写维度）。
+ * ⚠️⚠️ 截断点有三处（归一化保存 / 拼装注入 / 前端输入框），必须全部用这里的结果，
+ *    只改一处 = 扩容被静默截断（A2 事故族）。
+ */
+export const FREE_MEMORY_LIMITS: MemoryLimits = {
+  perDimension: USER_MEMORY_LIMITS.projectMemoryDimension,
+  total: USER_MEMORY_LIMITS.longTerm,
+};
+
+export type { MemoryLimits };
+
+/**
+ * 存储侧上限 = 所有档位中的最大值。
+ * 读库归一化必须用它：用户降级后，已存内容保留（注入时再按当前档位裁），
+ * 重新升级即恢复 —— 不能因为读一次就把付费期写的内容永久截掉。
+ */
+export const STORAGE_MEMORY_LIMITS: MemoryLimits = MEMBERSHIP_PLANS.reduce<MemoryLimits>(
+  (max, plan) => ({
+    perDimension: Math.max(max.perDimension, plan.memoryLimits?.perDimension ?? 0),
+    total: Math.max(max.total, plan.memoryLimits?.total ?? 0),
+  }),
+  { perDimension: USER_MEMORY_LIMITS.projectMemoryDimension, total: USER_MEMORY_LIMITS.longTerm }
+);
+
+export function getMemoryLimitsForPlan(planId?: string | null): MemoryLimits {
+  if (!planId || isFreePlanId(planId)) return FREE_MEMORY_LIMITS;
+  const plan = MEMBERSHIP_PLANS.find(item => item.id === planId);
+  return plan?.memoryLimits ?? FREE_MEMORY_LIMITS;
+}
+
+/** 手写维度（受档位限制）。Skill 单独处理。 */
+const WRITTEN_DIMENSIONS = ["projectMemory", "generalRules", "regularMemory"] as const;
+
+/**
+ * 拼装注入的总上限 = 手写维度合计 + 项目/近期两层固定 3000 + 本次 Skill 实际长度。
+ * ⚠️ 按 Skill **实际长度**放宽而非加 SKILL_DIMENSION_LIMIT：后者会让没传 Skill 的用户
+ *    总闸门也放宽 10 万字 → 最后一道闸形同虚设。Free 且无 Skill 时恰好 = 原 4200。
+ */
+export function getMemoryContextTotalLimit(limits: MemoryLimits = FREE_MEMORY_LIMITS, skillLength = 0): number {
+  return limits.total + (USER_MEMORY_LIMITS.total - USER_MEMORY_LIMITS.longTerm) + Math.max(0, skillLength);
+}
+
+/** Skill 文档是否超限（前后端共用同一判据）。 */
+export function isSkillOversized(text: string | undefined | null): boolean {
+  return typeof text === "string" && text.trim().length > SKILL_DIMENSION_LIMIT;
+}
+
+/**
+ * 手写维度按「每维度上限」裁剪后，再按「合计上限」依次裁剪（维度顺序即保留优先级）；
+ * Skill 按 SKILL_DIMENSION_LIMIT 单独裁。
+ */
+function clampDimensions(
+  values: Record<"projectMemory" | "skill" | "generalRules" | "regularMemory", string>,
+  limits: MemoryLimits
+) {
+  let remaining = limits.total;
+  const out = { ...values, skill: clampText(values.skill, SKILL_DIMENSION_LIMIT) };
+  for (const key of WRITTEN_DIMENSIONS) {
+    const text = clampText(out[key], Math.min(limits.perDimension, Math.max(remaining, 0)));
+    out[key] = text;
+    remaining -= text.length;
+  }
+  return out;
+}
+
 /** 一条项目记忆。 */
 export type UserProjectMemory = {
   /** 项目 id（画布 id 或工作台项目 id）。 */
@@ -63,11 +143,26 @@ export type UserProjectMemory = {
   updatedAt: string;
 };
 
-/** 一条历史提示词。 */
+/**
+ * 一条历史提示词。
+ * 
+ * 2026-10-17 新增 conversationId：对话记忆现在**按对话隔离**
+ * —— 每条提示词必须打上它来自哪个对话，才能让「对话 A 的记忆」
+ * 不会泄漏进「对话 B 的记忆」。
+ * 电商画布使用特殊 scope `"ecommerce"`。
+ */
 export type UserPromptMemory = {
   prompt: string;
-  /** 关联的项目，便于按项目检索。 */
+  /** 关联的项目,便于按项目检索。 */
   projectId?: string;
+  /**
+   * 记忆作用域：画布 = `canvas:<projectId>:<conversationId>`，电商 = `ecommerce`。
+   *
+   * ⚠️ 老数据没有此字段 → **不属于任何对话**，按作用域筛选时一律排除。
+   *    若把它当「全局」，它会同时出现在每一个对话里，
+   *    正好违反「对话之间记忆相互独立」。
+   */
+  conversationId?: string;
   createdAt: string;
 };
 
@@ -93,6 +188,11 @@ export type UserMemoryDocument = {
    *    即**点击后开启**，而不是一上来就开着。
    */
   contextEnabled: boolean;
+  /**
+   * 【2026-10-17】电商画布专属记忆开关（与画布对话记忆、长期记忆彼此独立）。
+   * 默认 false。画布对话的开关不在这里，在每条会话元数据的 memoryEnabled 上。
+   */
+  ecommerceMemoryEnabled?: boolean;
   projects: UserProjectMemory[];
   recentPrompts: UserPromptMemory[];
   revision: number;
@@ -107,6 +207,7 @@ export function createEmptyUserMemoryDocument(): UserMemoryDocument {
     generalRules: "",
     regularMemory: "",
     contextEnabled: false,
+    ecommerceMemoryEnabled: false,
     projects: [],
     recentPrompts: [],
     revision: 0,
@@ -131,7 +232,10 @@ function asIso(value: unknown): string {
  *    📌 判据：凡是「体积会决定服务能不能用」的约束，校验点必须在服务端
  *    （与 server/workspace-sync-store.ts 的 stripInlineImagesForSync 同一条）。
  */
-export function normalizeUserMemoryPayload(input: unknown): Omit<UserMemoryDocument, "revision" | "updatedAt"> {
+export function normalizeUserMemoryPayload(
+  input: unknown,
+  limits: MemoryLimits = FREE_MEMORY_LIMITS
+): Omit<UserMemoryDocument, "revision" | "updatedAt"> {
   const raw = (input && typeof input === "object" ? input : {}) as Partial<UserMemoryDocument>;
 
   const projects = Array.isArray(raw.projects) ? raw.projects : [];
@@ -145,17 +249,28 @@ export function normalizeUserMemoryPayload(input: unknown): Omit<UserMemoryDocum
     (raw.generalRules && typeof raw.generalRules === "string" && raw.generalRules.trim()) ||
     (raw.regularMemory && typeof raw.regularMemory === "string" && raw.regularMemory.trim());
 
+  const dims = clampDimensions(
+    {
+      projectMemory: typeof raw.projectMemory === "string" ? raw.projectMemory : "",
+      skill: typeof raw.skill === "string" ? raw.skill : "",
+      generalRules: typeof raw.generalRules === "string" ? raw.generalRules : "",
+      regularMemory: typeof raw.regularMemory === "string" ? raw.regularMemory : "",
+    },
+    limits
+  );
+
   return {
     longTerm: legacyLongTerm,
-    projectMemory: clampText(raw.projectMemory, USER_MEMORY_LIMITS.projectMemoryDimension),
-    skill: clampText(raw.skill, USER_MEMORY_LIMITS.skillDimension),
-    generalRules: clampText(raw.generalRules, USER_MEMORY_LIMITS.generalRulesDimension),
+    projectMemory: dims.projectMemory,
+    skill: dims.skill,
+    generalRules: dims.generalRules,
     regularMemory: hasNewDimensions
-      ? clampText(raw.regularMemory, USER_MEMORY_LIMITS.regularMemoryDimension)
+      ? dims.regularMemory
       : legacyLongTerm
         ? legacyLongTerm
-        : clampText(raw.regularMemory, USER_MEMORY_LIMITS.regularMemoryDimension),
+        : dims.regularMemory,
     contextEnabled: raw.contextEnabled === true,
+    ecommerceMemoryEnabled: raw.ecommerceMemoryEnabled === true,
     projects: projects
       .filter((item): item is UserProjectMemory => Boolean(item && typeof item === "object" && (item as UserProjectMemory).projectId))
       .map(item => ({
@@ -173,6 +288,7 @@ export function normalizeUserMemoryPayload(input: unknown): Omit<UserMemoryDocum
       .map(item => ({
         prompt: clampText(item.prompt, USER_MEMORY_LIMITS.recentPrompt),
         ...(item.projectId ? { projectId: String(item.projectId) } : {}),
+        ...(item.conversationId ? { conversationId: clampText(item.conversationId, 160) } : {}),
         createdAt: asIso(item.createdAt),
       }))
       .filter(item => item.prompt.length > 0)
@@ -193,7 +309,47 @@ export type BuildMemoryContextInput = {
    * 而近期提示词属于"会话上下文"，只在用户打开画布开关后才带。
    */
   includeRecentPrompts?: boolean;
+  /**
+   * 记忆作用域（见 memoryScopeId）。给了就只取**这个对话 / 电商画布**的近期提示词。
+   * 2026-10-17 用户拍板：对话记忆与对话窗口强制绑定，对话之间相互独立。
+   */
+  conversationId?: string;
+  /** 该用户会员档位的长期记忆容量；不传 = Free 上限。 */
+  limits?: MemoryLimits;
 };
+
+/** 电商画布专属记忆的作用域 id —— 与画布对话、长期记忆彼此独立。 */
+export const ECOMMERCE_MEMORY_SCOPE = "ecommerce";
+
+/**
+ * 画布对话的记忆作用域 id。
+ *
+ * ⚠️ 必须带 projectId：老数据迁移出的那条会话 id 是空串，
+ *    每个画布都有一条 —— 只用 conversationId 会让所有画布的老对话共用一份记忆。
+ */
+export function canvasMemoryScopeId(projectId: string, conversationId: string): string {
+  return `canvas:${projectId || "p1"}:${conversationId || "legacy"}`;
+}
+
+/**
+ * 请求体里携带的记忆作用域 —— 前后端唯一约定。
+ * 前端在 fetchAiJson 统一附加，服务端 withUserMemory / rememberPromptQuietly 读取。
+ */
+export type MemoryScopePayload = {
+  memoryScopeId?: string;
+  memoryEnabled?: boolean;
+};
+
+export function readMemoryScope(body: unknown): { scopeId?: string; enabled: boolean } {
+  if (!body || typeof body !== "object") return { enabled: false };
+  const raw = body as Record<string, unknown>;
+  const scopeId =
+    typeof raw.memoryScopeId === "string" && raw.memoryScopeId.trim()
+      ? raw.memoryScopeId.trim().slice(0, 160)
+      : undefined;
+  // ⚠️ 没有作用域 = 没有任何对话记忆被开启 → 只用长期记忆（用户定的全局规则）。
+  return { scopeId, enabled: Boolean(scopeId) && raw.memoryEnabled === true };
+}
 
 /**
  * 把分层记忆拼成一段可直接塞进提示词的文本。
@@ -207,7 +363,17 @@ export type BuildMemoryContextInput = {
  * 「参与尺寸仲裁的」是同一批内容（两处各写一遍筛选 = 多出口事故）。
  */
 function selectMemoryLayers(input: BuildMemoryContextInput) {
-  const { document, projectId, includeRecentPrompts = true } = input;
+  const { document, projectId, includeRecentPrompts = true, conversationId, limits = FREE_MEMORY_LIMITS } = input;
+  // 降级用户库里可能留着超出新档位的内容：存储保留，注入按当前档位裁。
+  const dims = clampDimensions(
+    {
+      projectMemory: document.projectMemory || "",
+      skill: document.skill || "",
+      generalRules: document.generalRules || "",
+      regularMemory: document.regularMemory || "",
+    },
+    limits
+  );
   
   // 四维度长期记忆合并（优先使用新版，向后兼容旧版 longTerm）
   const hasNewDimensions =
@@ -218,10 +384,10 @@ function selectMemoryLayers(input: BuildMemoryContextInput) {
   
   const longTermText = hasNewDimensions
     ? [
-        document.projectMemory && `项目记忆：${document.projectMemory.trim()}`,
-        document.skill && `Skill：${document.skill.trim()}`,
-        document.generalRules && `通用规则：${document.generalRules.trim()}`,
-        document.regularMemory && `常规记忆：${document.regularMemory.trim()}`,
+        dims.projectMemory && `项目记忆：${dims.projectMemory}`,
+        dims.skill && `Skill：${dims.skill}`,
+        dims.generalRules && `通用规则：${dims.generalRules}`,
+        dims.regularMemory && `常规记忆：${dims.regularMemory}`,
       ]
         .filter(Boolean)
         .join("\n\n")
@@ -233,13 +399,20 @@ function selectMemoryLayers(input: BuildMemoryContextInput) {
     .slice(0, USER_MEMORY_LIMITS.projectNoteCount);
   const prompts = includeRecentPrompts
     ? (document.recentPrompts || [])
-        .filter(item => (projectId ? item.projectId === projectId : true))
+        // 给了作用域就严格按作用域隔离（老数据无作用域 → 排除）；作用域已唯一，不再叠加 projectId。
+        .filter(item =>
+          conversationId
+            ? item.conversationId === conversationId
+            : projectId
+              ? item.projectId === projectId
+              : true
+        )
         // 从新到旧：越新的对话越能代表用户当下的意图。
         .slice()
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
         .slice(0, USER_MEMORY_LIMITS.recentPromptCount)
     : [];
-  return { longTerm: longTermText, projects, prompts };
+  return { longTerm: longTermText, projects, prompts, skillLength: hasNewDimensions ? dims.skill.length : 0 };
 }
 
 export type UserMemorySource = {
@@ -270,7 +443,7 @@ export function listUserMemorySourcesByPriority(
 }
 
 export function buildUserMemoryContext(input: BuildMemoryContextInput): string {
-  const { longTerm, projects, prompts } = selectMemoryLayers(input);
+  const { longTerm, projects, prompts, skillLength } = selectMemoryLayers(input);
   const sections: string[] = [];
 
   /*
@@ -313,9 +486,8 @@ export function buildUserMemoryContext(input: BuildMemoryContextInput): string {
    * ⚠️ 从**尾部**裁：尾部是优先级最低的近期提示词，
    *    从头裁会先砍掉用户亲手写的长期记忆 —— 那是整个功能的核心价值。
    */
-  return joined.length > USER_MEMORY_LIMITS.total
-    ? joined.slice(0, USER_MEMORY_LIMITS.total)
-    : joined;
+  const totalLimit = getMemoryContextTotalLimit(input.limits, skillLength);
+  return joined.length > totalLimit ? joined.slice(0, totalLimit) : joined;
 }
 
 /**
@@ -332,7 +504,12 @@ export function appendPromptMemory(
   const prompt = clampText(entry.prompt, USER_MEMORY_LIMITS.recentPrompt);
   if (!prompt) return prompts;
   const next = prompts.filter(
-    item => !(item.prompt === prompt && item.projectId === entry.projectId)
+    item =>
+      !(
+        item.prompt === prompt &&
+        item.projectId === entry.projectId &&
+        item.conversationId === entry.conversationId
+      )
   );
   next.unshift({ ...entry, prompt, createdAt: asIso(entry.createdAt) });
   return next.slice(0, limit);

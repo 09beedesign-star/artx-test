@@ -1898,6 +1898,16 @@ function countSubsidizedCreditsToday(data: AdminData, userId: string) {
     .reduce((sum, task) => sum + (task.platformSubsidizedCredits || 0), 0);
 }
 
+/**
+ * 按 userId 取会员档位 id —— 长期记忆容量分级用（与 getAiModelEntitlementsForUser 同口径）。
+ * 测试账号与付费档同待遇：按其 plan 字段解析，不额外放行。
+ */
+export async function getPlanIdForUser(userId: string) {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === userId);
+  return getPlanIdFromUserPlan(user?.plan);
+}
+
 export async function getAiModelEntitlementsForUser(userId: string) {
   const data = await loadAdminData();
   const user = data.users.find((item) => item.id === userId);

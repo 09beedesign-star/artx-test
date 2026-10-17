@@ -213,9 +213,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   USER_MEMORY_CHANGED_EVENT,
-  broadcastUserMemoryChange,
   fetchUserMemory,
-  saveUserMemory,
+  setCurrentMemoryScope,
 } from "@/lib/user-memory-client";
 import {
   detectMemoryDownloadIntent,
@@ -226,6 +225,8 @@ import {
 import {
   listUserMemorySourcesByPriority,
   type UserMemoryDocument,
+  canvasMemoryScopeId,
+  type MemoryScopePayload,
 } from "@shared/user-memory";
 
 // 「井号 + 方框」图标 — 创建画板专用
@@ -658,8 +659,10 @@ import {
   createConversationMeta,
   ensureConversationIndex,
   formatConversationTime,
+  isConversationMemoryEnabled,
   removeConversation,
   searchConversations,
+  setConversationMemoryEnabled,
   touchConversation,
   type CanvasConversationIndex,
 } from "@/lib/canvas-conversations";
@@ -21580,7 +21583,11 @@ function CanvasAssistantPanel({
    *    服务端据此决定是否注入上下文。只存前端的话服务端读不到，
    *    开关就是个装饰品 —— 点了有动画、实际没生效，且零报错。
    */
-  const [memoryContextEnabled, setMemoryContextEnabled] = useState(false);
+  /*
+   * 【2026-10-17】开关真值 = 当前对话元数据的 memoryEnabled（见 conversationIndex 下方
+   * 的 memoryContextEnabled 派生值）。不再镜像成独立 state：
+   * 镜像 state 在「切换对话」时必须手动同步，漏一处就是开关显示 A 对话、实际用 B 对话。
+   */
   const [memoryContextBusy, setMemoryContextBusy] = useState(false);
   const [memoryDoc, setMemoryDoc] = useState<UserMemoryDocument | null>(null);
   const [memoryContextHovered, setMemoryContextHovered] = useState(false);
@@ -21647,19 +21654,17 @@ function CanvasAssistantPanel({
   );
 
   /*
-   * 进场同步一次服务端的开关真值，并订阅跨页面变更。
-   *
-   * ⚠️ 必须订阅事件：开关在个人中心也能被改（那里是长期记忆页面），
-   *    各自只读一次接口的话，在一处改了另一处不刷新 ——
-   *    表现是「我明明开了，另一个页面还显示关」。
+   * 【2026-10-17】同步记忆文档（含四维度长期记忆）。
+   * 
+   * ⚠️ 不再同步全局 contextEnabled（那个字段已弃用）——
+   *    开关现在按对话绑定，从 conversationIndex 里每条对话的 memoryEnabled 读。
    */
   useEffect(() => {
     let alive = true;
     void fetchUserMemory()
       .then(document => {
         if (!alive) return;
-        setMemoryContextEnabled(document.contextEnabled);
-        // 存整份文档：记忆里写的分辨率要参与尺寸仲裁（见 memoryContext）。
+        // ✅ 只存整份文档，不再 setMemoryContextEnabled。
         setMemoryDoc(document);
       })
       // 读不到就保持默认关闭：这里不该弹错，用户没主动做任何操作。
@@ -21669,9 +21674,8 @@ function CanvasAssistantPanel({
       // broadcastUserMemoryChange 派发的是完整 UserMemoryDocument。
       const detail = (event as CustomEvent).detail as Partial<UserMemoryDocument> | undefined;
       if (!detail) return;
-      if (typeof detail.contextEnabled === "boolean") {
-        setMemoryContextEnabled(detail.contextEnabled);
-      }
+      // ⚠️ 这里的 contextEnabled 只是兼容旧事件（个人中心可能还派发）；
+      //    当前对话的记忆开关**只听** conversationIndex。
       if (typeof detail.longTerm === "string") {
         setMemoryDoc(detail as UserMemoryDocument);
       }
@@ -21683,63 +21687,9 @@ function CanvasAssistantPanel({
     };
   }, []);
 
-  /**
-   * 分层记忆来源 —— 只用于前端尺寸仲裁。
-   * 优先级：本次提示词 > 近期对话（新→旧）> 项目约束 > 长期记忆 > 选择器。
-   * 用户在记忆里写了「4K」「16:9」，没在本次提示词里提，就按记忆出图；
-   * 对话与长期冲突（同一维度）时以对话为准（2026-10-17 用户拍板）。
-   * ⚠️ 不拼进 prompt：服务端 withUserMemory 会单独注入，这里拼了就重复注入。
-   * ⚠️ 筛选口径（projectId / 开关）必须与服务端 withUserMemory 一致，
-   *    否则「按 4K 出图」与「模型看到的记忆」不是同一份。
-   */
-  const memorySources = useMemo(
-    () =>
-      memoryDoc
-        ? listUserMemorySourcesByPriority({
-            document: memoryDoc,
-            projectId,
-            includeRecentPrompts: memoryContextEnabled,
-          })
-        : [],
-    [memoryDoc, memoryContextEnabled, projectId]
-  );
+  // ⚠️ memorySources 和 handleToggleMemoryContext 移到下方
+  // conversationIndex 声明之后，避免 TDZ。
 
-  /**
-   * 切换上下文记忆开关。
-   *
-   * ⚠️⚠️ **先写服务端、成功后才改本地状态**（不做乐观更新）。
-   *    乐观更新在这里是有害的：开关的唯一作用就是让服务端注入上下文，
-   *    若写失败而前端已经亮起，用户会以为记忆开着、实际完全没生效 ——
-   *    📌「操作成功」≠「结果可用」，这个开关的"可用"就等于服务端那一位。
-   */
-  const handleToggleMemoryContext = useCallback(
-    async (next: boolean) => {
-      if (memoryContextBusy) return;
-      setMemoryContextBusy(true);
-      try {
-        const document = await saveUserMemory({ contextEnabled: next });
-        setMemoryContextEnabled(document.contextEnabled);
-        broadcastUserMemoryChange(document);
-        if (document.contextEnabled) {
-          toast("您已开启上下文记忆，可以更好地帮助理解您的意图", {
-            description:
-              "后续对话与出图会带上你的长期设计习惯、当前项目风格和最近用过的提示词。可在个人中心编辑长期记忆。",
-          });
-        } else {
-          toast("已关闭上下文记忆", {
-            description: "本次起不再带入历史偏好。个人中心写的长期记忆仍然生效。",
-          });
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "开关保存失败";
-        // 失败必须说出来：静默失败会让用户以为开了，实际没开。
-        toast("上下文记忆开关没保存成功", { description: message });
-      } finally {
-        setMemoryContextBusy(false);
-      }
-    },
-    [memoryContextBusy]
-  );
   // 提示词框左下角「+上传」按钮：隐藏的 file input 与它的 hover 态
   const composerUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [composerUploadButtonHovered, setComposerUploadButtonHovered] =
@@ -22152,6 +22102,90 @@ function CanvasAssistantPanel({
       );
     },
     [projectId]
+  );
+
+  /**
+   * 【2026-10-17】对话记忆开关 —— 与对话窗口强制绑定。
+   *
+   * 用户拍板：「对话的记忆与对话窗口强制绑定，对话框和对话框之间的记忆是相互独立的。
+   *   每新建一个对话，记忆默认是关闭的。」
+   * 真值存在会话元数据 memoryEnabled 上（随索引落盘 + 云端同步），切换对话自动跟随。
+   */
+  const memoryContextEnabled = isConversationMemoryEnabled(
+    conversationIndex,
+    activeConversationId
+  );
+  const memoryScopeId = canvasMemoryScopeId(projectId, activeConversationId);
+
+  /**
+   * 本次请求要带给服务端的记忆作用域。服务端只认它决定
+   * 「注入哪个对话的近期记忆、记录到哪个对话、是否加收附加费」。
+   * 📌 前端仲裁（memorySources）与服务端注入必须是同一个作用域 + 同一个开关。
+   */
+  const memoryScopePayload = useMemo<MemoryScopePayload>(
+    () => ({ memoryScopeId, memoryEnabled: memoryContextEnabled }),
+    [memoryScopeId, memoryContextEnabled]
+  );
+  useEffect(() => {
+    setCurrentMemoryScope(memoryScopePayload);
+    // ⚠️ 卸载必须清空：离开画布去别的页面出图，不能还带着这个对话的记忆。
+    return () => setCurrentMemoryScope(null);
+  }, [memoryScopePayload]);
+
+  /**
+   * 分层记忆来源 —— 只用于前端尺寸仲裁。
+   * 优先级：本次提示词 > 本对话近期记忆（新→旧）> 项目约束 > 长期记忆 > 选择器。
+   * 本对话开关开：对话与长期按维度合并，同一维度冲突听对话；
+   * 开关关：只有长期记忆（全局规则：没开任何对话记忆时才只依赖长期）。
+   * ⚠️ 筛选口径必须与服务端 withUserMemory 一致（同一 memoryScopeId）。
+   */
+  const memorySources = useMemo(
+    () =>
+      memoryDoc
+        ? listUserMemorySourcesByPriority({
+            document: memoryDoc,
+            projectId,
+            conversationId: memoryScopeId,
+            includeRecentPrompts: memoryContextEnabled,
+          })
+        : [],
+    [memoryDoc, memoryContextEnabled, memoryScopeId, projectId]
+  );
+
+  /**
+   * 切换**当前对话**的记忆开关。
+   *
+   * ⚠️ 只改当前对话的元数据，别的对话不受影响；不再写账号全局 contextEnabled。
+   *    开关存在本地索引里（+ 云端同步），服务端每次请求读 memoryEnabled，
+   *    所以不存在「前端亮了、服务端没生效」的双真值问题。
+   */
+  const handleToggleMemoryContext = useCallback(
+    async (next: boolean) => {
+      if (memoryContextBusy) return;
+      setMemoryContextBusy(true);
+      try {
+        persistConversationIndex(
+          setConversationMemoryEnabled(conversationIndex, activeConversationId, next)
+        );
+        scheduleWorkspaceSync();
+        if (next) {
+          toast("您已开启上下文记忆，可以更好地帮助理解您的意图", {
+            description:
+              "仅对当前对话生效：本对话的要求优先，与长期记忆不冲突的部分一起参考。新建的对话默认关闭。",
+          });
+        } else {
+          toast("已关闭当前对话的上下文记忆", {
+            description: "本对话起只参考左侧边栏「长期记忆」中的内容。",
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "开关保存失败";
+        toast("上下文记忆开关没保存成功", { description: message });
+      } finally {
+        setMemoryContextBusy(false);
+      }
+    },
+    [memoryContextBusy, persistConversationIndex, conversationIndex, activeConversationId]
   );
 
   /**

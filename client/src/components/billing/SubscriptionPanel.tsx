@@ -14,6 +14,7 @@ import {
 import PaymentMethodLogo from "./PaymentMethodLogo";
 import {
   buildCreditFeature,
+  buildMemoryCapacityFeature,
   getSubscriptionPlanLevel,
   subscriptionPlans,
 } from "./billing-shared";
@@ -264,6 +265,8 @@ export default function SubscriptionPanel({
                     cycleLabel,
                     planConfig.creditsNote
                   ),
+                  // 长期记忆容量：从定价表 plan.memoryLimits 现算（福利与实际限额同源）。
+                  buildMemoryCapacityFeature(plan.memoryLimits),
                   ...planConfig.features,
                 ].map(feature => (
                   <li
