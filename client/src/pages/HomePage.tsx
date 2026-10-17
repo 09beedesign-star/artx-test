@@ -1259,9 +1259,10 @@ function LandingTopNav({
     { key: "home" as const, label: "首页", onClick: onHome },
     { key: "inspiration" as const, label: "灵感推荐", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
-    // 电商画布无需登录即可浏览（生成时再拦），与侧栏入口同一路由。
-    { key: "ecommerce" as const, label: "电商画布", onClick: onEcommerce },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
+    // 电商画布紧跟在「工作台」右侧（ericbi 2026-10-17 指定位置）。
+    // 无需登录即可浏览（生成时再拦），与侧栏入口同一路由 /ecommerce-canvas。
+    { key: "ecommerce" as const, label: "电商画布", onClick: onEcommerce },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
   ];
 
