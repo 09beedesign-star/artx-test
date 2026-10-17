@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { ModelSelector } from "@/components/canvas/ModelSelector";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Switch as UISwitch } from "@/components/ui/switch";
 import {
   ECOMMERCE_TPL_CATEGORIES,
   ECOMMERCE_TEMPLATES,
@@ -70,10 +71,14 @@ type Props = {
   unitCredits: number;
   /** 当前模型的平台展示名（label，不是接口 id） */
   modelLabel: string;
-  /** 长期记忆是否生效（contextEnabled 或 longTerm 非空） */
+  /** 长期记忆是否生效（ecommerceMemoryEnabled 或 longTerm 非空） */
   memoryActive: boolean;
   /** 记忆附加费（积分），0 表示未开启或不消费记忆 */
   memorySurcharge: number;
+  /** 电商画布专属记忆开关当前值 */
+  ecommerceMemoryEnabled: boolean;
+  /** 切换电商画布记忆开关的回调 */
+  onToggleEcommerceMemory: (next: boolean) => void;
   onGenerate: () => void;
   onClearResults: () => void;
   onOpenTemplateDetail: (id: number) => void;
@@ -93,6 +98,8 @@ export function EcommerceWorkspace({
   modelLabel,
   memoryActive,
   memorySurcharge,
+  ecommerceMemoryEnabled,
+  onToggleEcommerceMemory,
   onGenerate,
   onClearResults,
   onOpenTemplateDetail,
@@ -289,22 +296,28 @@ export function EcommerceWorkspace({
             hover 大脑图标出 tooltip，指引去个人中心编辑。
             ⚠️ 用 Radix Tooltip 而不是 title 属性：title 有 ~1s 延迟且样式不可控，
                用户要的是"hover 即出现的 toast 式浮层"。
+            2026-10-17：加入「电商画布记忆」专属开关（与画布对话记忆、长期记忆彼此独立）。
+            ⚠️ 开关行必须**始终可见**：若跟着 memoryActive 一起隐藏，
+               没写长期记忆的用户永远看不到开关、也就永远打不开 ——「开」在 A「关」在 B 必卡死。
           */}
-          {memoryActive && (
-            <div
-              data-testid="ecommerce-memory-notice"
-              className="mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px]"
-              style={{
-                background: "rgba(197,237,71,0.10)",
-                border: "1px solid rgba(197,237,71,0.35)",
-                color: LIME,
-              }}
-            >
+          <div
+            data-testid="ecommerce-memory-notice"
+            className="mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px]"
+            style={
+              memoryActive
+                ? {
+                    background: "rgba(197,237,71,0.10)",
+                    border: "1px solid rgba(197,237,71,0.35)",
+                    color: LIME,
+                  }
+                : { border: `1px solid ${palette.border}`, color: palette.sub }
+            }
+          >
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="长期记忆说明"
+                    aria-label="电商画布记忆说明"
                     data-testid="ecommerce-memory-icon"
                     className="flex shrink-0 cursor-help items-center"
                   >
@@ -313,13 +326,26 @@ export function EcommerceWorkspace({
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6} className="max-w-[240px] leading-relaxed">
                   开启记忆可以了解您的出图习惯，如需编辑长期记忆，请在
-                  <Link href="/profile" className="mx-0.5 underline">个人中心</Link>
+                  <Link href="/profile" className="mx-0.5 underline">
+                    个人中心
+                  </Link>
                   下编辑你的长期记忆。
                 </TooltipContent>
               </Tooltip>
-              <span>您已开启长期记忆</span>
-            </div>
-          )}
+              <span className="flex-1">
+                {ecommerceMemoryEnabled
+                  ? "您已开启电商画布记忆"
+                  : memoryActive
+                    ? "您已开启长期记忆"
+                    : "电商画布记忆（默认关闭）"}
+              </span>
+              <UISwitch
+                checked={ecommerceMemoryEnabled}
+                onCheckedChange={onToggleEcommerceMemory}
+                aria-label="电商画布记忆开关"
+                data-testid="ecommerce-memory-switch"
+              />
+          </div>
         </div>
 
         {/* 上传 */}
@@ -631,15 +657,17 @@ export function EcommerceWorkspace({
               <div className="text-[14px] font-semibold">模板库</div>
               <div className="text-[11px]" style={{ color: palette.sub }}>选择一个分镜模板，生成节奏更可控</div>
               {/*
-                「查看全部」—— 首版右栏只有一排卡片，翻完全部 49 个模板要
+                「展示所有模板」—— 首版右栏只有一排卡片，翻完全部 49 个模板要
                  靠横向 chips 一格一格切。这里给一个真实进入二级页的出口。
+                 2026-10-17 用户反馈：点击后应确保直接跳转到模板库页面。
               */}
               <Link
                 href="/ecommerce-canvas/templates"
-                className="ml-auto flex items-center gap-0.5 text-[12px]"
+                className="ml-auto flex items-center gap-0.5 text-[12px] transition-opacity hover:opacity-80"
                 style={{ color: LIME }}
+                data-testid="ecommerce-view-all-templates"
               >
-                查看全部 <ChevronRight size={12} />
+                展示所有模板 <ChevronRight size={12} />
               </Link>
             </div>
             <div className="flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>

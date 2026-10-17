@@ -44,6 +44,17 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
     });
   }, [category, keyword]);
 
+  // 确保数据已加载
+  if (!ECOMMERCE_TEMPLATES || ECOMMERCE_TEMPLATES.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center" style={{ background: palette.bg, color: palette.sub }}>
+        <div className="text-center">
+          <div className="text-[14px]">模板数据加载中...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     /*
       ⚠️ h-full + 内层 overflow-y-auto：AppShell 内容区是 overflow-hidden，
