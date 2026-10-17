@@ -92,7 +92,7 @@ const PROMPT_PAUSE_DURATION_MS = 3000;
 const PROMPT_FRAME_MS = 80;
 
 type PanelMode = "prelogin" | "login" | "register";
-type LandingTab = "home" | "inspiration" | "skills" | "workspace" | "help";
+type LandingTab = "home" | "inspiration" | "skills" | "ecommerce" | "workspace" | "help";
 type LoginBubble = { left: number; top: number; id: number } | null;
 
 /**
@@ -907,6 +907,10 @@ export default function HomePage() {
             setCurrentLandingTab("skills");
             navigate("/skills");
           }}
+          onEcommerce={() => {
+            setCurrentLandingTab("ecommerce");
+            navigate("/ecommerce-canvas");
+          }}
           onWorkspace={(event) => {
             if (!isAuthenticated) {
               showLoginRequiredBubble(event);
@@ -1239,6 +1243,7 @@ function LandingTopNav({
   onHome,
   onInspiration,
   onSkills,
+  onEcommerce,
   onWorkspace,
   onHelp,
 }: {
@@ -1246,6 +1251,7 @@ function LandingTopNav({
   onHome: () => void;
   onInspiration: () => void;
   onSkills: () => void;
+  onEcommerce: () => void;
   onWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onHelp: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
@@ -1253,6 +1259,8 @@ function LandingTopNav({
     { key: "home" as const, label: "首页", onClick: onHome },
     { key: "inspiration" as const, label: "灵感推荐", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
+    // 电商画布无需登录即可浏览（生成时再拦），与侧栏入口同一路由。
+    { key: "ecommerce" as const, label: "电商画布", onClick: onEcommerce },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
   ];
