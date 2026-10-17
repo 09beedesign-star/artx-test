@@ -55,6 +55,44 @@ describe("storeGeneratedImagesForUser", () => {
     expect(buffer.byteLength).toBeGreaterThan(0);
   });
 
+  // 回归（2026-10-17）：上游 URL 文件名固定为 aigcImageGenFile.png，
+  // 落盘名不能再沿用它，否则不同任务的图全部同名，下载到本地互相覆盖。
+  it("不同任务的远程图即使上游文件名相同，落盘名也按任务 ID 区分", async () => {
+    uploadsDir = await mkdtemp(path.join(os.tmpdir(), "artx-upload-unique-"));
+    process.env.ARTX_UPLOADS_DIR = uploadsDir;
+    const png = Buffer.from(ONE_PIXEL_PNG_BASE64, "base64");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(png, {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    })) as typeof fetch;
+    try {
+      const upstream = "https://cdn.example.com/x/aigcImageGenFile.png";
+      const [a] = await storeGeneratedImagesForUser([{ src: upstream, width: 1, height: 1 }], "u", { providerTaskId: "task-A" });
+      const [b] = await storeGeneratedImagesForUser([{ src: upstream, width: 1, height: 1 }], "u", { providerTaskId: "task-B" });
+      expect(a.src).toBe("/uploads/images/u/task-A-1.png");
+      expect(b.src).toBe("/uploads/images/u/task-B-1.png");
+      expect(a.src).not.toContain("aigcImageGenFile");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("同名撞车时追加随机后缀而不是覆盖，也不受 100 次序号上限约束", async () => {
+    uploadsDir = await mkdtemp(path.join(os.tmpdir(), "artx-upload-collide-"));
+    process.env.ARTX_UPLOADS_DIR = uploadsDir;
+    const results = [];
+    for (let i = 0; i < 120; i += 1) {
+      const [stored] = await storeGeneratedImagesForUser([{
+        src: ONE_PIXEL_PNG_BASE64, width: 1, height: 1,
+      }], "u", { providerTaskId: "same-task" });
+      results.push(stored.src);
+    }
+    expect(new Set(results).size).toBe(120);
+    expect(results[0]).toBe("/uploads/images/u/same-task-1.png");
+    expect(results[1]).toMatch(/^\/uploads\/images\/u\/same-task-1-[0-9a-f]{8}\.png$/);
+  });
+
   // 核心回归：超过 20MB 的图不再直接报错丢弃，而是压缩后落盘，
   // 且落盘文件必须实测 ≤ 20MB（「压缩之后体积也要监测」）。
   it("压缩超过 20MB 的生成图并保证落盘体积不超过上限", async () => {

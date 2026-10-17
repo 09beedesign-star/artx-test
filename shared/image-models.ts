@@ -179,11 +179,40 @@ export function isVodModelId(model?: string): boolean {
     "kling", "kling-3.0", "si", "si-5.0", "qwen", "jimeng"].includes(normalized);
 }
 
+/**
+ * 对外展示名（label）→ 注册表 id。
+ *
+ * 2026-10-17：MCP 调用方按界面上看到的「banana 2.1」传参，归一化不认带空格的写法，
+ * 落到 resolveModelRoute 的默认分支，**静默换成了 image2.5 medium 且按它扣费**。
+ * 这里收录 server/image-generation.ts `imageModelLabels` 里的展示名（空格/下划线统一转连字符后匹配）。
+ *
+ * ⚠️ 刻意不收 "image2"：它的历史别名是 DEFAULT_IMAGE_MODEL_ID（见下方），
+ *    持久化数据依赖这条映射，改成 vod-og 会让历史调用的计费翻 4 倍。
+ */
+const DISPLAY_LABEL_ALIASES: Record<string, VodModelId> = {
+  "banana-2.1": "vod-gg36",
+  "banana-3.1": "vod-gem",
+  "banana-3.1-lite": "vod-gem-lite",
+  "image2.5-medium": "vod-og25-sunburst-medium",
+  "image2.5-medium-flare": "vod-og25-flare-medium",
+  "image2.5-low": "vod-og25-sunburst-low",
+  "image2.5-low-flare": "vod-og25-flare-low",
+  "image2.5-high": "vod-og25-sunburst-high",
+  "image2.5-high-flare": "vod-og25-flare-high",
+  "mj-v8.2": "vod-mj",
+  "kling-3.0": "vod-kling",
+  "si-5.0-pro": "vod-si",
+  "qwen-0925": "vod-qwen",
+  "jimeng-4.0": "vod-jimeng",
+};
+
 export function normalizeImageModelId(model?: string) {
   const value = (model || "").trim();
   const normalized = value.toLowerCase();
   if (!value || value.toLowerCase() === "auto") return "";
   if (value === "IMAGE2" || normalized === "image2") return DEFAULT_IMAGE_MODEL_ID;
+  const labelTarget = DISPLAY_LABEL_ALIASES[normalized.replace(/[\s_]+/g, "-")];
+  if (labelTarget) return labelTarget;
   /**
    * 注册表里已存在的 id 一律原样返回，不得再被下面的别名规则改写。
    *

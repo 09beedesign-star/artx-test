@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -391,19 +392,6 @@ function isLikelyBase64ImagePayload(value: string) {
     /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
 }
 
-function filenameFromImageSrc(src: string, fallbackName: string) {
-  if (/^https?:\/\//i.test(src)) {
-    try {
-      const url = new URL(src);
-      const basename = path.posix.basename(url.pathname);
-      if (basename && basename !== "/" && basename !== ".") return decodeURIComponent(basename);
-    } catch {
-      return fallbackName;
-    }
-  }
-  return fallbackName;
-}
-
 async function imageSrcToBuffer(src: string): Promise<CompressionOutcome> {
   const limitBytes = resolveMaxImageBytes();
 
@@ -471,8 +459,12 @@ async function writeUniqueFile(directory: string, requestedFilename: string, buf
   const extension = path.extname(requestedFilename);
   const basename = extension ? requestedFilename.slice(0, -extension.length) : requestedFilename;
 
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const filename = attempt === 0 ? requestedFilename : `${basename}-${attempt + 1}${extension}`;
+  // 首选原名；撞名时追加随机后缀而不是递增序号——递增序号有上限（曾是 100），
+  // 同名文件攒满后会让上传/出图直接失败。8 位随机 hex 撞名概率可忽略，试 8 次足够。
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const filename = attempt === 0
+      ? requestedFilename
+      : `${basename}-${randomBytes(4).toString("hex")}${extension}`;
     const filePath = path.join(directory, filename);
     try {
       await fs.writeFile(filePath, buffer, { flag: "wx", mode: 0o640 });
@@ -494,10 +486,12 @@ export async function storeGeneratedImagesForUser(
   const imageDirectory = path.join(getUploadsRoot(), "images", userDirectoryName);
   await fs.mkdir(imageDirectory, { recursive: true, mode: 0o750 });
 
-  const taskId = options.providerTaskId || options.providerTaskIds?.[0] || `generated-${Date.now()}`;
+  const taskId = options.providerTaskId
+    || options.providerTaskIds?.[0]
+    || `generated-${Date.now()}-${randomBytes(3).toString("hex")}`;
 
   return Promise.all(images.map(async (image, index) => {
-    const { buffer, mimeType, compressed } = await imageSrcToBuffer(image.src);
+    const { buffer, mimeType } = await imageSrcToBuffer(image.src);
     // 压缩后必须用压缩产物的真实尺寸回填：降档时可能缩过边，
     // 继续沿用 provider 报的原始宽高会让前端画布按错误比例渲染。
     const dimensions = await getImageBufferDimensions(buffer, {
@@ -505,18 +499,17 @@ export async function storeGeneratedImagesForUser(
       height: image.height,
     });
     const extension = extensionForMimeType(mimeType);
-    const fallbackFilename = `${taskId}-${index + 1}${extension}`;
-    const providerFilename = filenameFromImageSrc(image.src, fallbackFilename);
-    const safeFilename = sanitizePathSegment(providerFilename, fallbackFilename);
-    // 走过压缩的图已经重编码为 webp，此时若沿用上游 URL 带来的 .png/.jpg 后缀，
-    // 会写出「扩展名与实际编码不符」的文件，静态服务按后缀猜 Content-Type 就会发错，
-    // 部分浏览器会直接拒绝渲染。因此压缩过的一律以真实 mime 的后缀为准。
-    const baseFilename = compressed
-      ? `${safeFilename.replace(/\.[^.]+$/, "")}${extension}`
-      : safeFilename;
-    const filename = path.extname(baseFilename)
-      ? baseFilename
-      : `${baseFilename}${extension}`;
+    /**
+     * 文件名一律由「任务 ID + 序号」决定，不再沿用上游 URL 的 basename。
+     *
+     * 2026-10-17 事故：上游每张图的 URL 文件名都是固定的 aigcImageGenFile.png，
+     * 落盘只能靠 -2/-3… 序号避让，用户下载到本地后同名互相覆盖；
+     * 而且序号上限 100，同一用户第 101 张图会直接抛错导致出图失败。
+     * 任务 ID 由上游按任务唯一分配，天然不撞名；扩展名始终取真实 mime，
+     * 压缩重编码成 webp 时也不会留下 .png 壳子装 webp 内容。
+     */
+    const safeTaskId = sanitizePathSegment(taskId, `generated-${Date.now()}`);
+    const filename = `${safeTaskId}-${index + 1}${extension}`;
     const storedFilename = await writeUniqueFile(imageDirectory, filename, buffer);
 
     return {

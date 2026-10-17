@@ -22,7 +22,7 @@ import {
 } from "../shared/image-expansion";
 import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
-import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isVodModelId } from "../shared/image-models";
+import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isSupportedImageModelId, isVodModelId, normalizeImageModelId } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
@@ -578,7 +578,10 @@ function getMcpTools() {
         type: "object",
         properties: {
           prompt: { type: "string", description: "图片生成提示词" },
-          model: { type: "string", description: "可选模型，例如 Image Two 或 Nano Banana" },
+          model: {
+            type: "string",
+            description: "可选模型 id 或展示名，例如 vod-gg36 / banana 2.1、vod-og25-sunburst-medium / image2.5 medium。不传或传 auto 用默认模型；无法识别的模型直接报错，不会静默回落。",
+          },
           ratio: { type: "string", description: "可选画幅比例，例如 1:1、4:5、16:9" },
           count: { type: "number", description: "生成数量，默认 1，最多 9" },
           skillId: { type: "string", description: "可选 ArtX Skill ID" },
@@ -2269,6 +2272,27 @@ async function startServer() {
             res.status(400).json(mcpError(id, -32602, "prompt is required"));
             return;
           }
+          /**
+           * 模型必须在扣费前解析成注册表 id。
+           *
+           * 2026-10-17 事故：调用方传展示名 "banana 2.1"，下游 resolveModelRoute
+           * 不认识就静默回落 DEFAULT_IMAGE_MODEL_ID，用户以为在用 banana 2.1，
+           * 实际出的是 image2.5 medium。MCP 调用方看不到界面上的模型选择器，
+           * 静默回落等于欺骗 —— 认不出来就直接报错，并列出可用 id。
+           */
+          const rawModel = typeof args.model === "string" ? args.model.trim() : "";
+          const resolvedModel = normalizeImageModelId(rawModel);
+          if (rawModel && rawModel.toLowerCase() !== "auto" && !isSupportedImageModelId(resolvedModel)) {
+            res.status(400).json(mcpError(
+              id,
+              -32602,
+              `Unknown image model: ${rawModel}. Use one of: ${IMAGE_MODEL_PRIORITY_IDS.join(", ")}`,
+              { supportedModels: [...IMAGE_MODEL_PRIORITY_IDS] },
+            ));
+            return;
+          }
+          const modelForRun = resolvedModel || undefined;
+          const modelForTracking = resolvedModel || "auto";
           const startedAt = Date.now();
           let reservation: AiUsageReservation | undefined;
           let successRecorded = false;
@@ -2276,8 +2300,8 @@ async function startServer() {
             const tracking: AiRouteTracking = {
               capabilityKey: "text_to_image",
               capability: "MCP 图片生成",
-              provider: resolveImageProviderLabel(typeof args.model === "string" ? args.model : "auto"),
-              model: typeof args.model === "string" ? args.model : "auto",
+              provider: resolveImageProviderLabel(modelForTracking),
+              model: modelForTracking,
               failureMessage: "MCP image generation failed",
             };
             assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
@@ -2291,7 +2315,7 @@ async function startServer() {
               intent: "text_to_image",
               operation: "generate",
               prompt,
-              model: typeof args.model === "string" ? args.model : undefined,
+              model: modelForRun,
               ratio: typeof args.ratio === "string" ? args.ratio : undefined,
               count: Math.max(1, Math.min(9, Number(args.count || 1))),
               skillId: typeof args.skillId === "string" ? args.skillId : undefined,
@@ -2364,8 +2388,8 @@ async function startServer() {
                 tracking: {
                   capabilityKey: "text_to_image",
                   capability: "MCP 图片生成",
-                  provider: resolveImageProviderLabel(typeof args.model === "string" ? args.model : "auto"),
-                  model: typeof args.model === "string" ? args.model : "auto",
+                  provider: resolveImageProviderLabel(modelForTracking),
+                  model: modelForTracking,
                   failureMessage: "MCP image generation failed",
                 },
                 startedAt,
