@@ -218,6 +218,12 @@ import {
   saveUserMemory,
 } from "@/lib/user-memory-client";
 import {
+  detectMemoryDownloadIntent,
+  buildMemoryMarkdown,
+  suggestMemoryFilename,
+  saveMarkdownWithPicker,
+} from "@/lib/memory-export";
+import {
   listUserMemorySourcesByPriority,
   type UserMemoryDocument,
 } from "@shared/user-memory";
@@ -16154,6 +16160,38 @@ function BottomPromptBar({
   const handleSend = async (overridePrompt?: string) => {
     const effectivePrompt =
       typeof overridePrompt === "string" ? overridePrompt : prompt.trim();
+
+    // 用户在提示词中明确要求「下载记忆文档到本地」时直接处理，不发给 AI
+    if (effectivePrompt && detectMemoryDownloadIntent(effectivePrompt)) {
+      // 同步读本地项目历史拿标题（不能 await，否则会消耗用户激活窗口）
+      const memoryProjectTitle =
+        readWorkspaceProjectHistory().find(item => item.id === projectId)?.title || projectId;
+      try {
+        // ⚠️ 必须先弹路径选择器拿句柄（消费用户激活），再异步拉记忆内容；
+        // 慢网下若先 await fetch 再弹窗会超出激活窗口，浏览器拒绝弹窗。
+        const result = await saveMarkdownWithPicker(
+          suggestMemoryFilename({ projectId, projectTitle: memoryProjectTitle }),
+          async () => {
+            const doc = await fetchUserMemory();
+            return buildMemoryMarkdown(doc, { projectId, projectTitle: memoryProjectTitle });
+          }
+        );
+        if (result.status === "saved") {
+          toast.success(`记忆文档已保存：${result.name}`);
+          setPrompt("");
+        } else if (result.status === "downloaded") {
+          toast.success("记忆文档已下载到浏览器默认下载目录");
+          setPrompt("");
+        } else {
+          toast.info("已取消下载");
+        }
+      } catch (err) {
+        console.error("下载记忆文档失败", err);
+        toast.error("下载记忆文档失败");
+      }
+      return;
+    }
+
     if ((effectivePrompt || hasRefs) && !isSending) {
       if (!requestAiAuth()) {
         toast("请先登录", { description: "登录后即可使用 AI 能力" });

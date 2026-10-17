@@ -29,11 +29,19 @@ describe("长期记忆入口与归属规则", () => {
     expect(body).toMatch(/saveProjectMemory\(\{\s*projectId,\s*note:\s*""\s*\}\)/);
   });
 
-  it("四维度输入框都存在，且上限取自数据层", () => {
+  it("四维度输入框都存在,且上限取自数据层", () => {
     const page = read("pages/LongTermMemoryPage.tsx");
     for (const k of ["projectMemory", "skill", "generalRules", "regularMemory"]) {
       expect(page).toContain(`key: "${k}"`);
       expect(page).toContain(`USER_MEMORY_LIMITS.${k}Dimension`);
     }
+  });
+
+  it("页面有下载记忆文档按钮，使用原生文件保存 API", () => {
+    const page = read("pages/LongTermMemoryPage.tsx");
+    expect(page).toContain('data-testid="memory-download"');
+    expect(page).toContain("下载记忆文档");
+    expect(page).toContain("handleDownloadMemory");
+    expect(page).toContain("saveMarkdownWithPicker");
   });
 });

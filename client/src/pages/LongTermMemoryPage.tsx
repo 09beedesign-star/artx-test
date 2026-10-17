@@ -3,10 +3,11 @@
  * - 四维度长期记忆输入：项目记忆、Skill、通用规则、常规记忆
  * - Skill 支持导入本地 .md 文档
  * - GSAP 点阵背景动效：激活输入框时开始播放，保存后停止
+ * - 支持下载记忆文档：系统原生文件保存对话框，用户选择保存路径
  * - 与个人中心的能力完全一致，但 UI 呈现科技感（与平台风格保持一致）
  */
 import { useEffect, useRef, useState } from "react";
-import { Brain, Upload, Save, Loader2 } from "lucide-react";
+import { Brain, Upload, Save, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import gsap from "gsap";
 import {
@@ -15,8 +16,9 @@ import {
   broadcastUserMemoryChange,
   USER_MEMORY_CHANGED_EVENT,
 } from "@/lib/user-memory-client";
-import { USER_MEMORY_LIMITS } from "@shared/user-memory";
+import { USER_MEMORY_LIMITS, createEmptyUserMemoryDocument } from "@shared/user-memory";
 import type { UserMemoryDocument } from "@shared/user-memory";
+import { buildMemoryMarkdown, saveMarkdownWithPicker, suggestMemoryFilename } from "@/lib/memory-export";
 
 type MemoryDimension = "projectMemory" | "skill" | "generalRules" | "regularMemory";
 
@@ -245,6 +247,20 @@ export default function LongTermMemoryPage() {
     }
   };
 
+  const handleDownloadMemory = async () => {
+    try {
+      // 导出当前编辑框里的内容（含未保存草稿），所见即所得
+      const result = await saveMarkdownWithPicker(suggestMemoryFilename(), () =>
+        buildMemoryMarkdown({ ...createEmptyUserMemoryDocument(), ...memories })
+      );
+      if (result.status === "saved") toast.success(`记忆文档已保存：${result.name}`);
+      else if (result.status === "downloaded") toast.success("记忆文档已下载到浏览器默认下载目录");
+    } catch (err) {
+      console.error("下载记忆文档失败", err);
+      toast.error("下载记忆文档失败");
+    }
+  };
+
   const hasUnsavedChanges = DIMENSIONS.some(
     dim => memories[dim.key] !== savedMemories[dim.key]
   );
@@ -352,8 +368,20 @@ export default function LongTermMemoryPage() {
             })}
           </div>
 
-          {/* 保存按钮 */}
-          <div className="flex justify-end mt-8">
+          {/* 操作按钮 */}
+          <div className="flex justify-end items-center gap-4 mt-8">
+            <button
+              onClick={handleDownloadMemory}
+              className="px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2"
+              style={{
+                background: "var(--color-surface-elevated)",
+                color: "var(--color-text-base)",
+              }}
+              data-testid="memory-download"
+            >
+              <Download className="w-5 h-5" />
+              下载记忆文档
+            </button>
             <button
               onClick={handleSave}
               disabled={!hasUnsavedChanges || isSaving}
