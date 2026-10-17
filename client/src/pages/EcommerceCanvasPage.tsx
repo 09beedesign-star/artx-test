@@ -30,17 +30,17 @@
  * 模型：默认全站默认档 image2.5 medium（70 积分/张），banana 2.1 可手选。展示名一律来自 IMAGE_AI_MODELS
  * 的 label（ModelSelector 内部处理），页面不硬编码模型文案。
  *
- * ⚠️ v1 边界：上传的商品图仅作本地预览，生成链路走文生图
- *（卖点 + 模板分镜公式拼 prompt）；图生图（把实拍商品图注入）留待下一步
- * 接 generateImages 的 referencedAssets 链路，接好前 UI 明示。
+ * ⚠️ 图片生成逻辑（2026-10-17 修复）：
+ * - **产品图模式**：用户上传的商品图 + 选择的背景模板 → 调用 `createProductBackground`（智能产品的模板模式同源链路），真正做图生图
+ * - **带货图文模式**：卖点 + 分镜模板 + 商品图作为源图 → 循环调用 `editImageWithPrompt`（image_edit）
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Redirect, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useTheme } from "@/contexts/ThemeContext";
-import { generateImages } from "@/lib/ai";
+import { createProductBackground, editImageWithPrompt } from "@/lib/ai";
 import { IMAGE_AI_MODELS } from "@/lib/workspace-data";
-import { quoteAiUsage } from "@shared/ai-credit-policy";
+import { getMemoryContextSurcharge, quoteAiUsage } from "@shared/ai-credit-policy";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import { fetchUserMemory, USER_MEMORY_CHANGED_EVENT } from "@/lib/user-memory-client";
 import { buildUserMemoryContext, type UserMemoryDocument } from "@shared/user-memory";
@@ -54,6 +54,7 @@ import {
 import {
   ecommercePalette,
   pixelSize,
+  splitFlow,
   type EcommerceDraft,
   type EcommerceMode,
 } from "@/components/ecommerce/shared";
@@ -185,48 +186,79 @@ export default function EcommerceCanvasPage() {
   const memoryActive = Boolean(memoryDoc?.contextEnabled || memoryContext);
 
   const count = mode === "post" ? draft.postCount : draft.productCount;
-  const quote = useMemo(
-    () =>
-      quoteAiUsage({
-        capability: "text_to_image",
-        model: draft.model,
-        outputCount: count,
-        ...(mode === "product" ? { resolutionTier: draft.productTier } : {}),
-        userMemoryContext: memoryContext,
-      }),
-    [draft.model, count, mode, draft.productTier, memoryContext],
-  );
+  /**
+   * 计价能力（2026-10-17 修复）：
+   * - 产品图模式：createProductBackground（smart_background），480/请求（flat）
+   * - 带货图文模式：editImageWithPrompt × N 次（image_edit），180/次 × 张数
+   */
+  const billingCapability = mode === "product" ? "smart_background" : "image_edit";
+  const quote = useMemo(() => {
+    const single = quoteAiUsage({
+      capability: billingCapability,
+      model: draft.model,
+      outputCount: count,
+      userMemoryContext: memoryContext,
+    });
+    // 产品图：一次请求出 N 张，服务端只扣一次 → 直接用。
+    // 带货图文：image_edit 一次 1 张、调用 N 次，服务端扣 N 次 → 乘以张数。
+    return mode === "product"
+      ? single
+      : { ...single, chargedCredits: single.chargedCredits * count };
+  }, [billingCapability, draft.model, count, mode, memoryContext]);
   /**
    * 单张价（含分辨率系数）。按钮上的总价 = 单张价 × 张数再取整十，
    * 只在按钮上写一个总数会让用户误读成「一张 1200 积分」，
    * 所以这里单独算一份单张价，UI 上把算式摊开写。
+   * ⚠️ smart_background 是 per_request（480/次），这里除以 count 得到的「均摊单价」
+   * 只是为了 UI 公式展示（让用户理解总价怎么来的），不代表实际按张计费。
    */
-  const unitCredits = useMemo(
-    () =>
-      quoteAiUsage({
-        capability: "text_to_image",
+  const unitCredits = useMemo(() => {
+    if (mode === "product") {
+      // smart_background 按请求计（resolutionTier 会影响单价），UI 均摊到张数给用户看算式。
+      // 均摊可能出现 480/7 这类小数 → 保留 1 位，避免 UI 出现 68.57142857。
+      const perImage = quoteAiUsage({
+        capability: "smart_background",
         model: draft.model,
-        outputCount: 1,
-        ...(mode === "product" ? { resolutionTier: draft.productTier } : {}),
-      }).chargedCredits,
-    [draft.model, mode, draft.productTier],
-  );
+        outputCount: count,
+        resolutionTier: draft.productTier,
+      }).chargedCredits / count;
+      return Math.round(perImage * 10) / 10;
+    }
+    // 带货图文：image_edit 基础 180/次，真的按张计（循环 N 次调用）。
+    return quoteAiUsage({ capability: "image_edit", model: draft.model, outputCount: 1 }).chargedCredits;
+  }, [draft.model, mode, draft.productTier, count]);
   const modelLabel = useMemo(
     () => IMAGE_AI_MODELS.find(item => item.id === draft.model)?.label || draft.model,
     [draft.model],
   );
 
+  /**
+   * 产品主体保护规则——与智能产品 SmartCommerceProductDialog.handleCreate 的
+   * productProtectionRules 逐字一致。无论走哪条链路，上传的商品都不能被重绘、
+   * 换色或替换成别的东西，这是电商图的底线。
+   */
+  const PRODUCT_PROTECTION_RULES = [
+    "强约束：必须以上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节，不能替换成其他商品。",
+    "保持上传产品图的商品主体完整清晰，不改变产品颜色、材质、文字、标识、比例和外形。",
+    "风格只能影响背景、道具和环境氛围，不能卡通化、重绘或重新解释产品主体。",
+  ];
+
   function buildPrompt() {
     if (mode === "product") {
+      // 与智能产品「模板模式」prompt 结构一致
       return [
-        `电商产品图：保留产品主体不变，替换为${draft.bgTemplate ? `「${draft.bgTemplate.name}」` : "默认"}电商背景。`,
+        "创建真实、干净、有商业质感的产品背景。",
+        draft.bgTemplate ? `电商背景模板：${draft.bgTemplate.name}` : "使用默认随机电商背景模板。",
         draft.sellingPoints.trim() ? `产品信息：${draft.sellingPoints.trim()}` : "",
+        ...PRODUCT_PROTECTION_RULES,
+        "只生成与选定风格匹配的商业化背景、真实光影、空间和氛围。",
       ]
         .filter(Boolean)
         .join("\n");
     }
     const tpl = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId);
     return [
+      ...PRODUCT_PROTECTION_RULES,
       `为 ${draft.platform}（${draft.market}市场）生成一套 ${draft.postCount} 张的社媒带货图文，文案语言：${draft.language}。`,
       tpl ? `分镜模板：${tpl.name}（拍摄节奏：${tpl.flow}）。` : "",
       `商品卖点与要求：${draft.sellingPoints.trim() || "由 AI 根据常见卖点合理发挥"}`,
@@ -255,25 +287,80 @@ export default function EcommerceCanvasPage() {
     const startedTemplateName = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId)?.name || "";
     const startedBackgroundName = draft.bgTemplate?.name || "";
     try {
-      /*
-        ⚠️ 1K 档不传像素（2026-10-17 实测踩到）。
-        服务端 __testResolveHighDefinitionTargetSize 对「显式传入的像素」有一道
-        「长边不足 1536 就放大」：传 1088×1088 → 放大成 1536×1536 → 短边 > 1088
-        按 2K 落档，**界面报价 70、实扣 150**，零报错。
-        不传像素时上游走默认 1K（线上 20 单全是 1k/70），与报价一致。
-        2K/4K 的长边 ≥ 2048，不触发放大，照旧传。
-      */
-      const size = startedMode === "product" && draft.productTier !== "1k"
-        ? pixelSize(draft.productRatio, draft.productTier)
-        : {};
-      const response = await generateImages({
-        prompt: startedPrompt,
-        model: draft.model,
-        ratio: startedMode === "post" ? draft.postRatio : draft.productRatio,
-        count: startedCount,
-        ...size,
-      });
-      const urls = (response.images || []).map(image => image.src).filter(Boolean);
+      let urls: string[];
+      if (startedMode === "product") {
+        /*
+         * 🔧 产品图模式（2026-10-17）：照搬智能产品「模板模式」底层链路。
+         * createProductBackground → smart_background（PicWish 抠图 + 按 sceneType 套背景），
+         * 商品主体来自用户上传图，不经文生图，因此不会出现「和商品无关」的图。
+         * 参数口径与 InfiniteCanvas 的 smart-commerce-product-create 处理器逐项一致：
+         * 一次调用带 count，per_request 计费（480/次），没选模板时 sceneType 留空 = 随机默认背景。
+         */
+        // 1K 不显式传像素（与智能产品一致：1K 交给 ratio + resolution 由服务端定尺寸），2K/4K 才传。
+        const productSize = draft.productTier !== "1k" ? pixelSize(draft.productRatio, draft.productTier) : null;
+        const response = await createProductBackground({
+          imageSrc: draft.uploads[0],
+          prompt: startedPrompt,
+          style: draft.bgTemplate?.name || "默认电商背景模板",
+          sceneType: draft.bgTemplate?.id,
+          ratio: draft.productRatio,
+          resolution: draft.productTier as "1k" | "2k" | "4k",
+          count: startedCount,
+          customWidth: productSize?.targetWidth,
+          customHeight: productSize?.targetHeight,
+          model: draft.model,
+        });
+        urls = (response.images || []).map(image => image.src).filter(Boolean);
+      } else {
+        /*
+         * 🔧 带货图文模式（2026-10-17）：照搬智能产品「提示词模式」底层链路。
+         * editImageWithPrompt → image_edit：商品图作为 **源图**（不是可有可无的参考图），
+         * 模型在商品图基础上按分镜重建场景，所以出图一定是用户的商品。
+         *
+         * 与 InfiniteCanvas smart-commerce-product-create 提示词分支逐项一致：
+         *   - image_edit 一次只回 1 张 → 循环 N 次
+         *   - 每张追加差异化指令，否则同一提示词会出几乎一样的图
+         *   - 逐张容错：失败的跳过，至少拿到 1 张就算成功，全军覆没才抛错
+         * 额外做法：把模板分镜（全景 → 特写 → 收尾）按张分配，让一套图有叙事节奏。
+         * 其余上传图（第 2~5 张）作为补充参考，标注为同一商品的其他角度。
+         */
+        const tpl = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId);
+        const shots = tpl ? splitFlow(tpl.flow) : [];
+        const postSize = pixelSize(draft.postRatio, "1k");
+        const extraRefs = draft.uploads.slice(1).map((src, i) => ({
+          src,
+          title: `same product, another angle ${i + 2}`,
+        }));
+        const collected: string[] = [];
+        let lastError: unknown = null;
+        for (let index = 0; index < startedCount; index += 1) {
+          const shot = shots.length
+            ? shots[Math.min(shots.length - 1, Math.floor((index * shots.length) / startedCount))]
+            : "";
+          try {
+            const single = await editImageWithPrompt({
+              imageSrc: draft.uploads[0],
+              model: draft.model,
+              prompt: [
+                startedPrompt,
+                `这是第 ${index + 1} / ${startedCount} 张${shot ? `，本张分镜：${shot}` : ""}。请在保持上述要求不变的前提下，更换构图角度、道具搭配与光影氛围，与其他张形成明显差异。`,
+              ].join("\n"),
+              preserveSourceSize: false,
+              targetWidth: postSize.targetWidth,
+              targetHeight: postSize.targetHeight,
+              referencedAssets: extraRefs,
+            });
+            const src = single.images[0]?.src;
+            if (src) collected.push(src);
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (collected.length === 0) {
+          throw lastError instanceof Error ? lastError : new Error("图片模型未返回可用图片");
+        }
+        urls = collected;
+      }
       if (urls.length === 0) throw new Error("生成结果为空，请重试");
       setResults(urls);
       setHistory(prev =>
@@ -299,7 +386,7 @@ export default function EcommerceCanvasPage() {
     } finally {
       setGenerating(false);
     }
-  }, [count, draft.bgTemplate, draft.model, draft.postRatio, draft.productRatio, draft.productTier, draft.tplId, mode, quote.chargedCredits]);
+  }, [count, draft.bgTemplate, draft.model, draft.postRatio, draft.productRatio, draft.productTier, draft.tplId, draft.uploads, mode, quote.chargedCredits]);
 
   /** 选中模板后回到带货图文工作台（并把模板带进 URL，便于分享/刷新） */
   const goWorkspaceWithTemplate = useCallback(
@@ -358,12 +445,7 @@ export default function EcommerceCanvasPage() {
           unitCredits={unitCredits}
           modelLabel={modelLabel}
           memoryActive={memoryActive}
-          memorySurcharge={memoryContext ? quote.chargedCredits - quoteAiUsage({
-            capability: "text_to_image",
-            model: draft.model,
-            outputCount: count,
-            ...(mode === "product" ? { resolutionTier: draft.productTier } : {}),
-          }).chargedCredits : 0}
+          memorySurcharge={getMemoryContextSurcharge(billingCapability, memoryContext)}
           onGenerate={() => void handleGenerate()}
           onClearResults={() => setResults([])}
           onOpenTemplateDetail={id => navigate(`${ROOT}/templates/${id}`)}
