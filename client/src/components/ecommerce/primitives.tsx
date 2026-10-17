@@ -8,6 +8,7 @@
  *   卸载重建 DOM → textarea 失焦、下拉被合上。这在表单密集的页面上是
  *   典型零报错故障：代码跑得好好的，用户刚打字就被弹走。
  */
+import type React from "react";
 import type { ReactNode } from "react";
 import { LIME, type EcommercePalette } from "./shared";
 
@@ -121,8 +122,10 @@ export function Select({
  * 数量步进器。
  *
  * ⚠️ 首版把「生成数量 / 张数」做成了一个常亮且 onClick 为空函数的 Switch，
- *    那是个死按钮：看着可交互，点了什么都不发生，而且永远关不掉。
+ *    那是个死按钮：看着可交互，点了什么都不发生,而且永远关不掉。
  *    数量的真实控件就是这个步进器，所以这里不再套一层假的开关。
+ *
+ * 2026-10-17 用户需求：支持键盘直接输入 1-9 张，不再只能点击 +/-。
  */
 export function Stepper({
   value,
@@ -137,6 +140,43 @@ export function Stepper({
   onChange: (v: number) => void;
   palette: EcommercePalette;
 }) {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    // 只允许数字
+    if (!/^\d*$/.test(raw)) return;
+    
+    if (raw === "") {
+      // 清空时显示空，但不触发 onChange（保持当前值）
+      e.target.value = "";
+      return;
+    }
+    
+    const num = parseInt(raw, 10);
+    if (Number.isNaN(num)) return;
+    
+    // 限制在 [min, max] 范围内
+    const clamped = Math.max(min, Math.min(max, num));
+    onChange(clamped);
+  };
+
+  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    // 失焦时若为空，恢复当前值
+    if (e.target.value === "") {
+      e.target.value = String(value);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // 方向键上下也可以调整数量
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      onChange(Math.min(max, value + 1));
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      onChange(Math.max(min, value - 1));
+    }
+  };
+
   return (
     <div
       className="flex items-center gap-0.5 rounded-md p-0.5"
@@ -144,19 +184,28 @@ export function Stepper({
     >
       <button
         type="button"
-        className="h-6 w-7 rounded text-[14px]"
+        className="h-6 w-7 rounded text-[14px] transition-colors hover:bg-white/5"
         style={{ color: palette.sub }}
         aria-label="减少"
         onClick={() => onChange(Math.max(min, value - 1))}
       >
         −
       </button>
-      <span className="min-w-[30px] text-center text-[13px] font-semibold" style={{ color: palette.text }}>
-        {value}
-      </span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={handleInputChange}
+        onBlur={handleInputBlur}
+        onKeyDown={handleKeyDown}
+        className="h-6 min-w-[30px] max-w-[36px] rounded bg-transparent text-center text-[13px] font-semibold outline-none transition-colors focus:bg-white/5"
+        style={{ color: palette.text }}
+        aria-label="生成数量"
+        data-testid="ecommerce-count-input"
+      />
       <button
         type="button"
-        className="h-6 w-7 rounded text-[14px]"
+        className="h-6 w-7 rounded text-[14px] transition-colors hover:bg-white/5"
         style={{ color: palette.sub }}
         aria-label="增加"
         onClick={() => onChange(Math.min(max, value + 1))}
