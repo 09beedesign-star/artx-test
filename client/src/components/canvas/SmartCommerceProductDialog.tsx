@@ -1210,7 +1210,7 @@ export function SmartCommerceProductDialog({
           "创建真实、干净、有商业质感的产品背景。",
           selectedPicwishTemplate
             ? `电商背景模板：${selectedPicwishTemplate.name}`
-            : "使用 PicWish 默认随机电商背景模板。",
+            : "使用默认随机电商背景模板。",
           `产品构图要求：${selectedComposition.prompt}`,
           ...ecommerceRules,
           ...productProtectionRules,
@@ -1668,7 +1668,7 @@ export function SmartCommerceProductDialog({
                         onClick={() => setBackgroundMode(mode.id)}
                         title={
                           mode.id === "template"
-                            ? "使用 PicWish 电商背景模板库"
+                            ? "使用默认电商背景模板库"
                             : "用自己的提示词，配合 gem 模型按产品图生成背景"
                         }
                       >

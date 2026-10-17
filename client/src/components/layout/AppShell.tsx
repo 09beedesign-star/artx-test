@@ -18,6 +18,8 @@ import InviteDialog from "@/components/workspace/InviteDialog";
 import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
+  Store,
+  PanelLeft, PanelRight,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 
@@ -82,6 +84,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [communityOpen, setCommunityOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  /** 侧边栏折叠：收起后只保留 icon，再次点击展开。 */
+  const [navCollapsed, setNavCollapsed] = useState(false);
   /*
     ⚠️ 打开邀请弹窗的唯一入口。
     不要在别处直接调 setInviteOpen(true) —— 引导的触发挂在这里，
@@ -664,7 +668,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       <button
         onClick={handleClick}
         data-tour-id={tourId}
-        className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+        className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
         style={{
           background: active ? activeBg : "transparent",
           color: active ? activeColor : textSecondary,
@@ -672,9 +676,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         }}
         onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = hoverBg; }}
         onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+        title={navCollapsed ? label : undefined}
       >
         <Icon size={iconSize} strokeWidth={active ? 1.8 : 1.45} style={{ color: "currentColor", flexShrink: 0, opacity: active ? 1 : 0.7 }} />
-        <span className="truncate" style={{ fontSize: 12, fontWeight: active ? 560 : 450, letterSpacing: 0 }}>{label}</span>
+        {navCollapsed ? null : (
+          <span className="truncate" style={{ fontSize: 12, fontWeight: active ? 560 : 450, letterSpacing: 0 }}>{label}</span>
+        )}
       </button>
     );
   };
@@ -685,27 +692,42 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       <aside
         className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width: 180,
+          width: navCollapsed ? 68 : 180,
           background: sidebarBg,
           border: `1px solid ${sidebarBorder}`,
           borderRadius: 16,
           zIndex: 10,
-          transition: "background 0.25s ease",
+          transition: "background 0.25s ease, width 0.22s cubic-bezier(0.23,1,0.32,1)",
         }}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
+        {/* Logo + 侧边栏折叠开关（图标与画布对话框的收起/展开一致） */}
+        <div className={`flex items-center gap-2 pt-5 pb-4 ${navCollapsed ? "justify-center px-2" : "px-4"}`}>
+          {navCollapsed ? null : (
+            <button
+              type="button"
+              className={`${BRAND_LOGO_SIZE} cursor-pointer transition-opacity hover:opacity-85`}
+              onClick={() => navigate("/")}
+              aria-label="ArtXStudio 首页"
+            >
+              <img
+                src={artxStudioLogo}
+                alt="ArtXStudio"
+                className="block h-full w-full object-contain object-left"
+              />
+            </button>
+          )}
           <button
             type="button"
-            className={`${BRAND_LOGO_SIZE} cursor-pointer transition-opacity hover:opacity-85`}
-            onClick={() => navigate("/")}
-            aria-label="ArtXStudio 首页"
+            onClick={() => setNavCollapsed(v => !v)}
+            aria-label={navCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            aria-expanded={!navCollapsed}
+            title={navCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-all"
+            style={{ background: "transparent", color: textSecondary }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
-            <img
-              src={artxStudioLogo}
-              alt="ArtXStudio"
-              className="block h-full w-full object-contain object-left"
-            />
+            {navCollapsed ? <PanelRight size={16} strokeWidth={1.45} /> : <PanelLeft size={16} strokeWidth={1.45} />}
           </button>
         </div>
 
@@ -718,11 +740,13 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} tourId={TOUR_ANCHORS.navInspiration} />
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} tourId={TOUR_ANCHORS.navSkills} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} tourId={TOUR_ANCHORS.navWorkspace} />
+            <NavItem icon={Store} label="电商画布" path="/ecommerce-canvas" iconSize={15} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} tourId={TOUR_ANCHORS.navBilling} />
             <button
               onClick={openInviteDialog}
               data-tour-id={TOUR_ANCHORS.navInvite}
-              className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+              title={navCollapsed ? "邀请好友" : undefined}
+              className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
               style={{
                 background: "transparent",
                 color: textSecondary,
@@ -732,7 +756,9 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
             >
               <Gift size={15} strokeWidth={1.45} style={{ color: "currentColor", flexShrink: 0, opacity: 0.7 }} />
-              <span className="truncate" style={{ fontSize: 12, fontWeight: 450, letterSpacing: 0 }}>邀请好友</span>
+              {navCollapsed ? null : (
+                <span className="truncate" style={{ fontSize: 12, fontWeight: 450, letterSpacing: 0 }}>邀请好友</span>
+              )}
             </button>
           </div>
 
@@ -744,18 +770,22 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         >
           <button
             onClick={openCommunityDialog}
-            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            title={navCollapsed ? "加入社群" : undefined}
+            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
             style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
             <QrCode size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>加入社群</span>
+            {navCollapsed ? null : (
+              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>加入社群</span>
+            )}
           </button>
           <button
             onClick={handleHelpClick}
             aria-current={helpActive ? "page" : undefined}
-            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            title={navCollapsed ? "帮助与反馈" : undefined}
+            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
             style={{
               background: helpActive ? activeBg : "transparent",
               borderRadius: 6,
@@ -769,30 +799,38 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             }}
           >
             <HelpCircle size={14} strokeWidth={helpActive ? 1.8 : 1.45} style={{ flexShrink: 0, opacity: helpActive ? 1 : 0.7 }} />
-            <span className="truncate" style={{ fontSize: 12, fontWeight: helpActive ? 560 : 450, letterSpacing: 0 }}>帮助与反馈</span>
+            {navCollapsed ? null : (
+              <span className="truncate" style={{ fontSize: 12, fontWeight: helpActive ? 560 : 450, letterSpacing: 0 }}>帮助与反馈</span>
+            )}
           </button>
           <button
             onClick={openApiKeyDialog}
-            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            title={navCollapsed ? "API key" : undefined}
+            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
             style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
             <KeyRound size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>API key</span>
+            {navCollapsed ? null : (
+              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>API key</span>
+            )}
           </button>
           <button
             onClick={() => {
               onboarding.resetAll();
               toast.success("新手引导已重置，进入对应页面即可重新观看");
             }}
-            className="w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left"
+            title={navCollapsed ? "新手引导" : undefined}
+            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
             style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
           >
             <Compass size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>新手引导</span>
+            {navCollapsed ? null : (
+              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>新手引导</span>
+            )}
           </button>
         </div>
       </aside>

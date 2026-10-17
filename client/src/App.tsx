@@ -19,6 +19,7 @@ import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
 import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
 import CrossBorderCommercePage from "./pages/CrossBorderCommercePage";
+import EcommerceCanvasPage from "./pages/EcommerceCanvasPage";
 import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
@@ -158,6 +159,17 @@ function AppRoutes() {
       <Route path="/cross-border-commerce">
         <AppShell>
           <CrossBorderCommercePage />
+        </AppShell>
+      </Route>
+
+      {/*
+        电商画布：带货图文 + 智能电商产品图整合入口。
+        用 /* 而非定值 —— 静态托管会把 /ecommerce-canvas 重定向成带尾斜杠的
+        /ecommerce-canvas/，wouter 的定值 path 不匹配尾斜杠，会掉进 NotFound。
+      */}
+      <Route path="/ecommerce-canvas/*">
+        <AppShell>
+          <EcommerceCanvasPage />
         </AppShell>
       </Route>
 

@@ -274,7 +274,7 @@ describe("SmartCommerceProductDialog", () => {
 
   it("uses the selected template or PicWish random background without local background style cards", () => {
     expect(source).toContain("创建真实、干净、有商业质感的产品背景。");
-    expect(source).toContain("使用 PicWish 默认随机电商背景模板。");
+    expect(source).toContain("使用默认随机电商背景模板。");
     expect(source).toContain("电商背景模板：${selectedPicwishTemplate.name}");
     expect(source).toContain("风格只能影响背景");
     expect(source).not.toContain("PRODUCT_BACKGROUND_STYLES");

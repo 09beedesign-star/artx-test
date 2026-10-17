@@ -1,0 +1,596 @@
+/**
+ * 电商画布 · 主工作台（带货图文 / 产品图）
+ *
+ * 左栏参数 + 右栏模板库（post）或空态引导（product）+ 生成结果。
+ *
+ * 【交互口径】本页每一个可点元素都必须有真实结果：
+ *   - 模式 tab        → 跳子路由 /ecommerce-canvas/post | /product
+ *   - 模板「查看全部」→ 跳 /ecommerce-canvas/templates
+ *   - 模板「详情」    → 跳 /ecommerce-canvas/templates/:id
+ *   - 历史记录        → 跳 /ecommerce-canvas/history
+ *   - 结果图          → 打开放大预览浮层
+ *
+ * ⚠️ 首版里「生成数量」「张数」是常亮且 onClick 为空的假 Switch（死按钮）——
+ *    看着可交互、点了什么都不发生、还永远关不掉。这里改成真实的数量控件，
+ *    页面上不再存在「点了没反应」的开关。
+ * ⚠️ 上传区写着「点击或拖拽上传」，首版却只接了点击。这里补上拖拽。
+ */
+import { useRef, useState } from "react";
+import { Link } from "wouter";
+import {
+  ChevronRight,
+  Clock3,
+  Download,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  WandSparkles,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import { ModelSelector } from "@/components/canvas/ModelSelector";
+import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
+import {
+  ECOMMERCE_TPL_CATEGORIES,
+  ECOMMERCE_TEMPLATES,
+  ECOMMERCE_PLATFORMS,
+  ECOMMERCE_MARKETS,
+  ECOMMERCE_LANGUAGES,
+  ECOMMERCE_RATIOS,
+} from "@/data/ecommerce-canvas-templates";
+import { EcommerceTemplateCard } from "./EcommerceTemplateCard";
+import {
+  LIME,
+  downloadImage,
+  type EcommerceDraft,
+  type EcommerceMode,
+  type EcommercePalette,
+} from "./shared";
+import { CountRow, SectionTitle, Select, Switch } from "./primitives";
+import { templateCoverUrl } from "./template-visual";
+
+const MAX_UPLOADS = 5;
+
+type Props = {
+  isDark: boolean;
+  mode: EcommerceMode;
+  palette: EcommercePalette;
+  draft: EcommerceDraft;
+  updateDraft: (
+    patch: Partial<EcommerceDraft> | ((d: EcommerceDraft) => EcommerceDraft),
+  ) => void;
+  generating: boolean;
+  results: string[];
+  /** 本次生成的总积分（单张价 × 张数，取整十） */
+  quoteCredits: number;
+  /** 单张积分（含分辨率系数），用于把总价拆开给用户看 */
+  unitCredits: number;
+  /** 当前模型的平台展示名（label，不是接口 id） */
+  modelLabel: string;
+  onGenerate: () => void;
+  onClearResults: () => void;
+  onOpenTemplateDetail: (id: number) => void;
+  onPreviewResult: (index: number) => void;
+};
+
+export function EcommerceWorkspace({
+  isDark,
+  mode,
+  palette,
+  draft,
+  updateDraft,
+  generating,
+  results,
+  quoteCredits,
+  unitCredits,
+  modelLabel,
+  onGenerate,
+  onClearResults,
+  onOpenTemplateDetail,
+  onPreviewResult,
+}: Props) {
+  const [tplCategory, setTplCategory] = useState("all");
+  const [bgSelectorOpen, setBgSelectorOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const tpl = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId) || null;
+  const visibleTpls = tplCategory === "all"
+    ? ECOMMERCE_TEMPLATES
+    : ECOMMERCE_TEMPLATES.filter(item => item.categoryId === tplCategory);
+  const showResults = results.length > 0 || generating;
+  const count = mode === "post" ? draft.postCount : draft.productCount;
+
+  const chipStyle = (on: boolean) => ({
+    background: on ? "rgba(197,237,71,0.16)" : palette.field,
+    border: `1px solid ${on ? "rgba(197,237,71,0.62)" : palette.border}`,
+    color: on ? LIME : palette.text,
+  });
+
+  function addFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const images = Array.from(files).filter(file => file.type.startsWith("image/"));
+    if (images.length === 0) {
+      toast.error("只支持图片文件");
+      return;
+    }
+    images.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        let overflow = false;
+        updateDraft(prev => {
+          if (prev.uploads.length >= MAX_UPLOADS) {
+            overflow = true;
+            return prev;
+          }
+          return { ...prev, uploads: [...prev.uploads, String(reader.result)] };
+        });
+        if (overflow) toast.error(`同一产品最多 ${MAX_UPLOADS} 张，多余的已忽略`);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleDownloadAll() {
+    if (results.length === 0) return;
+    setDownloadingAll(true);
+    for (let i = 0; i < results.length; i += 1) {
+      // 逐张下载：并发触发多个 a.click() 会被浏览器当成弹窗拦掉
+      // eslint-disable-next-line no-await-in-loop
+      await downloadImage(results[i], `ecommerce-${i + 1}.png`);
+    }
+    setDownloadingAll(false);
+    toast.success(`已保存 ${results.length} 张`);
+  }
+
+  return (
+    <div className="relative flex min-h-full" style={{ background: palette.bg, color: palette.text }}>
+
+      {/* ── 左参数栏 ── */}
+      <aside className="flex w-[340px] shrink-0 flex-col gap-4 overflow-y-auto border-r p-4 pb-6" style={{ borderColor: palette.border }}>
+
+        {/* 面包屑 + 历史记录入口 */}
+        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
+          <Link href="/ecommerce-canvas/post" className="transition-colors hover:opacity-80" style={{ color: palette.sub }}>
+            电商画布
+          </Link>
+          <ChevronRight size={11} />
+          <span style={{ color: palette.text }}>{mode === "post" ? "带货图文" : "产品图"}</span>
+          <Link
+            href="/ecommerce-canvas/history"
+            className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 transition-colors"
+            style={{ border: `1px solid ${palette.border}`, color: palette.sub }}
+            title="查看本次会话的生成记录"
+          >
+            <Clock3 size={11} /> 生成记录
+          </Link>
+        </div>
+
+        {/* 模式切换 */}
+        <div>
+          <div className="grid grid-cols-2 gap-1 rounded-md p-1" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
+            {([["post", "带货图文"], ["product", "产品图"]] as const).map(([m, label]) => (
+              <Link
+                key={m}
+                href={`/ecommerce-canvas/${m}`}
+                className="rounded py-1.5 text-center text-[12px] transition-colors"
+                style={{
+                  background: mode === m ? palette.panelStrong : "transparent",
+                  color: mode === m ? LIME : palette.sub,
+                  boxShadow: mode === m ? "inset 0 0 0 1px rgba(197,237,71,0.3)" : "none",
+                  fontWeight: mode === m ? 500 : 400,
+                }}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
+            {mode === "post"
+              ? "上传商品图，选模板一键生成成套社媒帖子配图与文案，支持单图与多图轮播。"
+              : "与画布「智能电商产品」同链路：上传产品图，选电商背景模板与数量，生成可上架的产品图。"}
+          </p>
+        </div>
+
+        {/* 生成模型（展示名来自平台 label，默认 image2.5 medium，70 积分/张） */}
+        <div>
+          <SectionTitle palette={palette} aside={`${unitCredits} 积分 / 张`}>
+            生成模型
+          </SectionTitle>
+          <ModelSelector model={draft.model} onChange={model => updateDraft({ model })} isDark={isDark} placement="down" />
+        </div>
+
+        {/* 上传 */}
+        <div>
+          <SectionTitle palette={palette} aside={<span className="text-[10px]" style={{ color: "#e24b4a" }}>必选</span>}>
+          上传商品图
+          </SectionTitle>
+          <div
+            onDragOver={event => {
+              event.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={event => {
+              event.preventDefault();
+              setDragOver(false);
+              addFiles(event.dataTransfer?.files || null);
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex min-h-[96px] w-full flex-col items-center justify-center gap-1.5 rounded-md text-[12px] transition-colors"
+              style={{
+                border: `1.5px dashed ${dragOver ? LIME : palette.border}`,
+                color: dragOver ? LIME : palette.sub,
+                background: dragOver ? "rgba(197,237,71,0.08)" : "transparent",
+              }}
+            >
+              <Plus size={18} />
+              <span>点击或拖拽上传</span>
+              <span className="text-[10.5px]">同一产品，最多 {MAX_UPLOADS} 张</span>
+            </button>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={event => {
+              addFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          {draft.uploads.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {draft.uploads.map((src, i) => (
+                <div key={i} className="relative h-[52px] w-[52px] overflow-hidden rounded-md" style={{ border: `1px solid ${palette.border}` }}>
+                  <img src={src} alt={`商品图 ${i + 1}`} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    aria-label="移除"
+                    className="absolute right-[-4px] top-[-4px] flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white"
+                    style={{ background: "#e24b4a" }}
+                    onClick={() => updateDraft(prev => ({ ...prev, uploads: prev.uploads.filter((_, j) => j !== i) }))}
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {/* 生成设置（带货图文）／电商背景模板（产品图） */}
+        {mode === "post" ? (
+          <div>
+            <SectionTitle palette={palette}>生成设置</SectionTitle>
+            <div className="mb-2 grid grid-cols-2 gap-2">
+              <Select value={draft.platform} options={ECOMMERCE_PLATFORMS} onChange={platform => updateDraft({ platform })} isDark={isDark} palette={palette} />
+              <Select value={draft.market} options={ECOMMERCE_MARKETS} onChange={market => updateDraft({ market })} isDark={isDark} palette={palette} />
+              <Select value={draft.language} options={ECOMMERCE_LANGUAGES} onChange={language => updateDraft({ language })} isDark={isDark} palette={palette} />
+              <Select value={draft.postRatio} options={ECOMMERCE_RATIOS} onChange={postRatio => updateDraft({ postRatio })} isDark={isDark} palette={palette} />
+            </div>
+            <Switch
+              on={draft.noTextOnImage}
+              onToggle={() => updateDraft(prev => ({ ...prev, noTextOnImage: !prev.noTextOnImage }))}
+              label="图片不加文字"
+              desc="图片突出产品使用场景，不添加文字。"
+              isDark={isDark}
+              palette={palette}
+            />
+          </div>
+        ) : (
+          <div>
+            <SectionTitle palette={palette} aside={draft.bgTemplate ? draft.bgTemplate.name : "默认随机"}>
+              电商背景模板
+            </SectionTitle>
+            <button
+              type="button"
+              className="w-full rounded-md px-3 py-2 text-left text-[12px]"
+              style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+              onClick={() => setBgSelectorOpen(true)}
+            >
+              {draft.bgTemplate
+                ? `已选：${draft.bgTemplate.name}（${draft.bgTemplate.category}）`
+                : "使用默认电商背景模板 · 点击挑选"}
+            </button>
+            <div className="mt-3 grid grid-cols-4 gap-1.5">
+              {(["1:1", "3:4", "9:16", "16:9"] as const).map(r => (
+                <button key={r} type="button" className="rounded-md py-1.5 text-[11px]" style={chipStyle(draft.productRatio === r)} onClick={() => updateDraft({ productRatio: r })}>
+                  {r}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+              {(["1k", "2k", "4k"] as const).map(t => (
+                <button key={t} type="button" className="rounded-md py-1.5 text-[11px] uppercase" style={chipStyle(draft.productTier === t)} onClick={() => updateDraft({ productTier: t })}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3">
+              <CountRow
+                label="生成数量"
+                desc={`1 - 8 张，${modelLabel} 单张 ${unitCredits} 积分${draft.productTier === "1k" ? "" : `（${draft.productTier} 分辨率）`}。`}
+                value={draft.productCount}
+                min={1}
+                max={8}
+                onChange={productCount => updateDraft({ productCount })}
+                palette={palette}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 卖点 */}
+        <div>
+          <SectionTitle palette={palette}>商品卖点 &amp; 要求</SectionTitle>
+          <div className="relative">
+            <textarea
+              value={draft.sellingPoints}
+              onChange={event => updateDraft({ sellingPoints: event.target.value })}
+              placeholder={"建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数"}
+              className="min-h-[96px] w-full resize-y rounded-md p-2.5 pr-20 text-[12px] leading-relaxed outline-none"
+              style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-2 flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px]"
+              style={{ background: "rgba(197,237,71,0.11)", border: "1px solid rgba(197,237,71,0.3)", color: LIME }}
+              onClick={() => {
+                updateDraft({
+                  sellingPoints:
+                    "产品名称：（从商品图提取）\n核心卖点：（材质 / 功能 / 续航等）\n适用人群：（目标用户）\n期望场景：（使用环境）\n具体参数：（尺寸 / 规格）",
+                });
+                toast.info("已填入卖点框架，替换为真实信息后生成更精准");
+              }}
+            >
+              <WandSparkles size={11} /> AI 帮写
+            </button>
+          </div>
+        </div>
+
+        {/* 选择模板（带货图文） */}
+        {mode === "post" ? (
+          <div>
+            <SectionTitle palette={palette}>选择模板</SectionTitle>
+            {tpl ? (
+              <div className="flex items-center gap-2.5 rounded-md p-2.5" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
+                {templateCoverUrl(tpl.id) ? (
+                  <img
+                    src={templateCoverUrl(tpl.id)!}
+                    alt=""
+                    className="h-[52px] w-[66px] shrink-0 rounded object-cover"
+                    style={{ background: "linear-gradient(150deg,#4a5068,#2b3044)" }}
+                  />
+                ) : (
+                  <div className="h-[52px] w-10 shrink-0 rounded" style={{ background: "linear-gradient(150deg,#4a5068,#2b3044)" }} />
+                )}
+                <div className="min-w-0">
+                  <div className="truncate text-[12px] font-medium" style={{ color: palette.text }}>{tpl.name}</div>
+                  <div className="truncate text-[11px]" style={{ color: palette.sub }}>{tpl.flow}</div>
+                </div>
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 text-[11px]"
+                  style={{ color: palette.sub }}
+                  onClick={() => updateDraft({ tplId: null })}
+                >
+                  移除
+                </button>
+              </div>
+            ) : (
+              <div
+                className="flex flex-col items-center gap-2 rounded-md border border-dashed p-2.5 text-center text-[12px]"
+                style={{ borderColor: palette.border, color: palette.sub }}
+              >
+                <span>暂未选择模板</span>
+                {/*
+                  ⚠️ 首版这里只是一句静态提示，用户看到「没选模板」却没有任何
+                     可点的入口，只能自己回右栏翻。补一个真实跳转。
+                */}
+                <Link
+                  href="/ecommerce-canvas/templates"
+                  className="rounded-md px-2.5 py-1 text-[11px] font-medium"
+                  style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+                >
+                  去模板库挑一个
+                </Link>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {/* 附加功能（带货图文） */}
+        {mode === "post" ? (
+          <div>
+            <SectionTitle palette={palette}>附加功能</SectionTitle>
+            <div className="flex flex-col gap-2">
+              <Switch
+                on={draft.withCopy}
+                onToggle={() => updateDraft(prev => ({ ...prev, withCopy: !prev.withCopy }))}
+                label="社媒帖子发布文案"
+                desc="随图生成标题、正文与话题标签。"
+                isDark={isDark}
+                palette={palette}
+              />
+              <CountRow
+                label="张数"
+                desc={`热门图文多为 6 张，${modelLabel} 单张 ${unitCredits} 积分。`}
+                value={draft.postCount}
+                min={3}
+                max={9}
+                onChange={postCount => updateDraft({ postCount })}
+                palette={palette}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {/* 生成 */}
+        <div className="mt-auto border-t pt-4" style={{ borderColor: palette.border }}>
+          <div className="mb-2 flex items-center justify-between text-[11px]" style={{ color: palette.sub }}>
+            <span>
+              {modelLabel} {unitCredits} 积分/张 × {count} 张 = {quoteCredits} 积分
+            </span>
+            <span className="shrink-0 pl-2">口径同全站</span>
+          </div>
+          <button
+            type="button"
+            disabled={generating}
+            onClick={onGenerate}
+            className="flex w-full items-center justify-center gap-2 rounded-md py-3 text-[14px] font-semibold transition-all disabled:opacity-55"
+            style={{ background: LIME, color: "#1a1a1a" }}
+          >
+            {generating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            {generating ? "生成中…" : mode === "post" ? "生成带货图文" : "生成产品图"}
+            <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: "rgba(0,0,0,0.14)" }}>
+              共 {count} 张 · {quoteCredits} 积分
+            </span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ── 右侧：模板库 / 生成结果 ── */}
+      <main className="relative min-w-0 flex-1 overflow-y-auto p-5">
+        {showResults ? (
+          <div>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="text-[14px] font-semibold">生成结果</div>
+              <span className="text-[11px]" style={{ color: palette.sub }}>
+                共 {generating ? count : results.length} 张
+              </span>
+              <button
+                type="button"
+                className="rounded-md px-3 py-1.5 text-[12px]"
+                style={{ border: `1px solid ${palette.border}`, color: palette.text }}
+                onClick={onClearResults}
+              >
+                ← {mode === "post" ? "返回模板库" : "返回"}
+              </button>
+              <button
+                type="button"
+                disabled={generating || results.length === 0 || downloadingAll}
+                onClick={() => void handleDownloadAll()}
+                className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-45"
+                style={{ border: `1px solid ${palette.border}`, color: palette.text }}
+              >
+                {downloadingAll ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                下载全部
+              </button>
+              <button
+                type="button"
+                disabled={generating}
+                onClick={onGenerate}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-45"
+                style={{ border: `1px solid ${palette.border}`, color: palette.text }}
+              >
+                <RefreshCw size={12} /> 重新生成
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
+              {generating
+                ? Array.from({ length: count }).map((_, i) => (
+                    <div key={i} className="flex aspect-[3/4] items-center justify-center rounded-[10px]" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
+                      <Loader2 size={20} className="animate-spin" style={{ color: LIME }} />
+                    </div>
+                  ))
+                : results.map((src, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="overflow-hidden rounded-[10px]"
+                      style={{ border: `1px solid ${palette.border}` }}
+                      onClick={() => onPreviewResult(i)}
+                      title="点击放大预览"
+                    >
+                      <img src={src} alt={`结果 ${i + 1}`} className="aspect-[3/4] w-full object-cover" />
+                    </button>
+                  ))}
+            </div>
+          </div>
+        ) : mode === "post" ? (
+          <div>
+            <div className="mb-1 flex items-baseline gap-2">
+              <div className="text-[14px] font-semibold">模板库</div>
+              <div className="text-[11px]" style={{ color: palette.sub }}>选择一个分镜模板，生成节奏更可控</div>
+              {/*
+                「查看全部」—— 首版右栏只有一排卡片，翻完全部 49 个模板要
+                 靠横向 chips 一格一格切。这里给一个真实进入二级页的出口。
+              */}
+              <Link
+                href="/ecommerce-canvas/templates"
+                className="ml-auto flex items-center gap-0.5 text-[12px]"
+                style={{ color: LIME }}
+              >
+                查看全部 <ChevronRight size={12} />
+              </Link>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+              {ECOMMERCE_TPL_CATEGORIES.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-[12px]"
+                  style={chipStyle(tplCategory === c.id)}
+                  onClick={() => setTplCategory(c.id)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
+              {visibleTpls.map((item, i) => (
+                <EcommerceTemplateCard
+                  key={item.id}
+                  template={item}
+                  index={i}
+                  selected={draft.tplId === item.id}
+                  palette={palette}
+                  onSelect={picked => updateDraft({ tplId: picked.id })}
+                  onOpenDetail={picked => onOpenTemplateDetail(picked.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <div className="max-w-sm rounded-xl p-6 text-center" style={{ background: palette.panelStrong, border: `1px solid ${palette.border}` }}>
+              <Sparkles size={22} style={{ color: LIME }} className="mx-auto" />
+              <div className="mt-2 text-[14px] font-semibold">产品图模式</div>
+              <p className="mt-1.5 text-[12px] leading-relaxed" style={{ color: palette.sub }}>
+                上传产品图并在左侧挑选电商背景模板，生成结果将显示在这里。
+                背景模板库与画布「智能电商产品」同源。
+              </p>
+              <button
+                type="button"
+                className="mt-3 rounded-md px-3 py-1.5 text-[12px] font-medium"
+                style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+                onClick={() => setBgSelectorOpen(true)}
+              >
+                挑选电商背景模板
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 电商背景模板选择浮层（复用画布组件） */}
+        {bgSelectorOpen ? (
+          <div className="absolute inset-0 z-20">
+            <PicwishBackgroundSelector
+              isDark={isDark}
+              selectedTemplate={draft.bgTemplate}
+              onSelect={bgTemplate => updateDraft({ bgTemplate })}
+              onClose={() => setBgSelectorOpen(false)}
+            />
+          </div>
+        ) : null}
+      </main>
+    </div>
+  );
+}
