@@ -19,7 +19,7 @@ import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store,
-  PanelLeft, PanelRight,
+  PanelLeft, PanelRight, Brain,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 
@@ -741,6 +741,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} tourId={TOUR_ANCHORS.navSkills} />
             <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} tourId={TOUR_ANCHORS.navWorkspace} />
             <NavItem icon={Store} label="电商画布" path="/ecommerce-canvas" iconSize={15} />
+            <NavItem icon={Brain} label="长期记忆" path="/memory" iconSize={15} />
             <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} tourId={TOUR_ANCHORS.navBilling} />
             <button
               onClick={openInviteDialog}

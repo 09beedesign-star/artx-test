@@ -172,6 +172,18 @@ describe("assertStripKeptSource", () => {
   /**
    * 用真实的 server/index.ts 当样本：它是全项目受旧实现伤害最重的文件。
    * 📌 判据：拿合成样本测"能过"没意义，必须拿真实的坏样本测"能拦住"。
+   *
+   * ⚠️⚠️ 但「能拦住」的判据**不能是该文件恰好被吃掉超过 30%**。
+   *    原先就是那样写的，而这个比例会随文件增长自然漂移：
+   *    2026-10-17 往 index.ts 新增约 6KB 不含块注释起始符的代码后，
+   *    旧正则的损失率从 33.0% 掉到 29.1%，这条断言莫名变红 ——
+   *    而剥离函数本身一个字符都没改。
+   *    📌 **检测器的判据绑在业务文件体积上 = 任何无关改动都能让它随机变色。**
+   *
+   * ✅ 正向用真实文件（保证新实现在真实复杂度下也不越界），
+   *    反向在真实文件后接一段确定性坏样本
+   *    （含 image 通配 MIME 字面量 + 应保留的代码），
+   *    让判据回到「贪心正则会吃掉本该保留的源码」本身。
    */
   it("would have caught the legacy implementation on server/index.ts", async () => {
     const { readFileSync } = await import("node:fs");
@@ -182,7 +194,13 @@ describe("assertStripKeptSource", () => {
     expect(() => assertStripKeptSource(raw, stripSourceComments(raw))).not.toThrow();
 
     // 旧实现：必须被拦住。
-    const legacy = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-    expect(() => assertStripKeptSource(raw, legacy)).toThrow(/吃掉了/);
+    const victim = `const keep = ${"1 + ".repeat(4000)}1;`;
+    const sample = `${raw}\nconst mime = "image/*";\n${victim}\n/* 真注释 */\n`;
+    expect(stripSourceComments(sample)).toContain(victim);
+    const legacy = sample
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(legacy).not.toContain(victim);
+    expect(() => assertStripKeptSource(sample, legacy)).toThrow(/吃掉了/);
   });
 });

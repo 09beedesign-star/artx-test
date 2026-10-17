@@ -61,6 +61,21 @@ export type OrchestrateRequest = {
    *   shared/image-models.ts 的 SMART_TEXT_EDIT_AI_MODEL_ID）。
    */
   textApplyMode?: "ai" | "local";
+  /**
+   * 按账号的分层记忆（长期设计习惯 + 项目记忆 + 近期提示词）。
+   *
+   * ⚠️⚠️⚠️ **由服务端自己从库里取并填进来，绝不接受客户端传值。**
+   * 它会被拼进发给上游的提示词，客户端可写就等于任何人都能
+   * 往别人的生成里注入内容。身份恒取自会话，见 server/index.ts 的注入点。
+   *
+   * ⚠️ 必须是**独立字段而不是直接拼进 input.prompt**：
+   * shared/prompt-size-intent.ts 会从提示词里解析「4K / 高清 / A4」这类尺寸意图。
+   * 用户的长期记忆里只要写过一句「我习惯出 4K 图」，
+   * 拼进 prompt 就会被当成**本次**的尺寸要求 —— 每一张图都悄悄按 4K 出、
+   * 按 4K 计费，而界面报价仍是 1K。零报错，账单翻三倍。
+   * 📌 判据：**凡是会被下游正则扫描的字段，都不能往里塞"背景信息"。**
+   */
+  userMemory?: string;
 };
 
 export type OrchestrateResponse = {
@@ -119,12 +134,23 @@ function firstImageBase64(images?: Array<{ src: string }>) {
 }
 
 function buildPrompt(input: OrchestrateRequest, brandPrompt: string, skillPrompt = "") {
+  /*
+   * 顺序即优先级，**本次指令必须在最后**。
+   *
+   * 记忆排在前面、用户这一次说的话排在最后，是因为上游对
+   * 「最靠后的指令」权重更高。反过来写（记忆在后）会出现
+   * 用户明说「这次不要用蓝色」却仍然出蓝色 ——
+   * 📌 记忆的定位是「没说的时候照这个来」，不是「覆盖用户本次要求」。
+   */
   return [
     skillPrompt ? `能力说明：\n${skillPrompt}` : "",
+    input.userMemory ? input.userMemory : "",
     brandPrompt ? `品牌约束：\n${brandPrompt}` : "",
     input.prompt || "",
   ].filter(Boolean).join("\n\n").trim();
 }
+
+export const __testBuildPrompt = buildPrompt;
 
 function resolveImageEditReferences(
   input: Pick<OrchestrateRequest, "images" | "operation">,

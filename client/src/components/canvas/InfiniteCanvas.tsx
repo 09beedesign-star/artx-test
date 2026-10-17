@@ -133,6 +133,7 @@ import {
   Square,
   PenLine,
   ImagePlus,
+  Brain,
   Images,
   Video,
   Captions,
@@ -210,6 +211,16 @@ import {
   type RegionSelectRect,
 } from "./region-select-mask";
 import { Switch } from "@/components/ui/switch";
+import {
+  USER_MEMORY_CHANGED_EVENT,
+  broadcastUserMemoryChange,
+  fetchUserMemory,
+  saveUserMemory,
+} from "@/lib/user-memory-client";
+import {
+  listUserMemorySourcesByPriority,
+  type UserMemoryDocument,
+} from "@shared/user-memory";
 
 // 「井号 + 方框」图标 — 创建画板专用
 function CreateCanvasIcon({ size = 17 }: { size?: number }) {
@@ -21520,6 +21531,21 @@ function CanvasAssistantPanel({
   // 外部图片正悬停在提示词框上方 → 亮起输入框专属的拖拽指引区。
   // 与 dragOverComposerSegmentId（内部标签重排）是两件事，不能复用同一个状态。
   const [isComposerImageDragOver, setIsComposerImageDragOver] = useState(false);
+  /**
+   * 上下文记忆开关（输入框右上角的大脑图标）。
+   *
+   * ⚠️ 默认 **false** —— 用户原话是「默认用户点击激活这个按钮之后就会开启上下文」，
+   *    即**点击后开启**，不是一上来就开着。记忆会把过去的偏好带进每次生成，
+   *    对结果有实质影响，必须由用户显式打开。
+   *
+   * ⚠️⚠️ 真值在**服务端**（/api/user/memory），这里只是镜像：
+   *    服务端据此决定是否注入上下文。只存前端的话服务端读不到，
+   *    开关就是个装饰品 —— 点了有动画、实际没生效，且零报错。
+   */
+  const [memoryContextEnabled, setMemoryContextEnabled] = useState(false);
+  const [memoryContextBusy, setMemoryContextBusy] = useState(false);
+  const [memoryDoc, setMemoryDoc] = useState<UserMemoryDocument | null>(null);
+  const [memoryContextHovered, setMemoryContextHovered] = useState(false);
   const composerInputRefs = useRef<
     Record<string, HTMLInputElement | HTMLTextAreaElement | HTMLElement | null>
   >({});
@@ -21580,6 +21606,101 @@ function CanvasAssistantPanel({
   const isProgrammaticFocusActive = useCallback(
     () => Date.now() < programmaticFocusUntilRef.current,
     []
+  );
+
+  /*
+   * 进场同步一次服务端的开关真值，并订阅跨页面变更。
+   *
+   * ⚠️ 必须订阅事件：开关在个人中心也能被改（那里是长期记忆页面），
+   *    各自只读一次接口的话，在一处改了另一处不刷新 ——
+   *    表现是「我明明开了，另一个页面还显示关」。
+   */
+  useEffect(() => {
+    let alive = true;
+    void fetchUserMemory()
+      .then(document => {
+        if (!alive) return;
+        setMemoryContextEnabled(document.contextEnabled);
+        // 存整份文档：记忆里写的分辨率要参与尺寸仲裁（见 memoryContext）。
+        setMemoryDoc(document);
+      })
+      // 读不到就保持默认关闭：这里不该弹错，用户没主动做任何操作。
+      .catch(() => undefined);
+
+    const handleChange = (event: Event) => {
+      // broadcastUserMemoryChange 派发的是完整 UserMemoryDocument。
+      const detail = (event as CustomEvent).detail as Partial<UserMemoryDocument> | undefined;
+      if (!detail) return;
+      if (typeof detail.contextEnabled === "boolean") {
+        setMemoryContextEnabled(detail.contextEnabled);
+      }
+      if (typeof detail.longTerm === "string") {
+        setMemoryDoc(detail as UserMemoryDocument);
+      }
+    };
+    window.addEventListener(USER_MEMORY_CHANGED_EVENT, handleChange);
+    return () => {
+      alive = false;
+      window.removeEventListener(USER_MEMORY_CHANGED_EVENT, handleChange);
+    };
+  }, []);
+
+  /**
+   * 分层记忆来源 —— 只用于前端尺寸仲裁。
+   * 优先级：本次提示词 > 近期对话（新→旧）> 项目约束 > 长期记忆 > 选择器。
+   * 用户在记忆里写了「4K」「16:9」，没在本次提示词里提，就按记忆出图；
+   * 对话与长期冲突（同一维度）时以对话为准（2026-10-17 用户拍板）。
+   * ⚠️ 不拼进 prompt：服务端 withUserMemory 会单独注入，这里拼了就重复注入。
+   * ⚠️ 筛选口径（projectId / 开关）必须与服务端 withUserMemory 一致，
+   *    否则「按 4K 出图」与「模型看到的记忆」不是同一份。
+   */
+  const memorySources = useMemo(
+    () =>
+      memoryDoc
+        ? listUserMemorySourcesByPriority({
+            document: memoryDoc,
+            projectId,
+            includeRecentPrompts: memoryContextEnabled,
+          })
+        : [],
+    [memoryDoc, memoryContextEnabled, projectId]
+  );
+
+  /**
+   * 切换上下文记忆开关。
+   *
+   * ⚠️⚠️ **先写服务端、成功后才改本地状态**（不做乐观更新）。
+   *    乐观更新在这里是有害的：开关的唯一作用就是让服务端注入上下文，
+   *    若写失败而前端已经亮起，用户会以为记忆开着、实际完全没生效 ——
+   *    📌「操作成功」≠「结果可用」，这个开关的"可用"就等于服务端那一位。
+   */
+  const handleToggleMemoryContext = useCallback(
+    async (next: boolean) => {
+      if (memoryContextBusy) return;
+      setMemoryContextBusy(true);
+      try {
+        const document = await saveUserMemory({ contextEnabled: next });
+        setMemoryContextEnabled(document.contextEnabled);
+        broadcastUserMemoryChange(document);
+        if (document.contextEnabled) {
+          toast("您已开启上下文记忆，可以更好地帮助理解您的意图", {
+            description:
+              "后续对话与出图会带上你的长期设计习惯、当前项目风格和最近用过的提示词。可在个人中心编辑长期记忆。",
+          });
+        } else {
+          toast("已关闭上下文记忆", {
+            description: "本次起不再带入历史偏好。个人中心写的长期记忆仍然生效。",
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "开关保存失败";
+        // 失败必须说出来：静默失败会让用户以为开了，实际没开。
+        toast("上下文记忆开关没保存成功", { description: message });
+      } finally {
+        setMemoryContextBusy(false);
+      }
+    },
+    [memoryContextBusy]
   );
   // 提示词框左下角「+上传」按钮：隐藏的 file input 与它的 hover 态
   const composerUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -24709,6 +24830,7 @@ function CanvasAssistantPanel({
          */
         const promptSizeDecision = resolveOutputSizeFromPromptAndSelector({
           prompt: rawSubmittedComposerPrompt,
+          memorySources,
           selectorRatio: assistantImageRatio,
           resolvedSelectorRatio: resolveImageRatio(skillRatio),
         });
@@ -25033,6 +25155,7 @@ function CanvasAssistantPanel({
          */
         const promptSizeDecision = resolveOutputSizeFromPromptAndSelector({
           prompt: rawSubmittedComposerPrompt,
+          memorySources,
           selectorRatio: assistantImageRatio,
           resolvedSelectorRatio: resolveImageRatio(assistantImageRatio),
         });
@@ -25903,6 +26026,76 @@ function CanvasAssistantPanel({
                   </div>
                 </div>
               )}
+              {/*
+                上下文记忆开关 —— 输入框右上角的大脑图标 + Switch。
+
+                ⚠️ 用 absolute 而不是塞进 contextLabel 那一行：
+                   contextLabel 是条件渲染的，挂进去会在没有 label 时整块消失。
+                   📌 「开」在 A 分支「关」在 B 分支，这类入口必然时有时无。
+
+                ⚠️ 必须带 nodrag/nopan 并 stopPropagation：
+                   这块浮在画布之上，不拦事件的话点击会穿透到画布，
+                   表现是「点开关没反应，画布反而被拖动了」。
+              */}
+              <div
+                className="nodrag nopan absolute flex items-center gap-1.5 rounded-[var(--radius-pill)] px-2 py-1"
+                style={{
+                  top: 6,
+                  right: 8,
+                  zIndex: 30,
+                  background: memoryContextEnabled
+                    ? "rgba(197,237,71,0.16)"
+                    : isDark
+                      ? "oklch(1 0 0 / 6%)"
+                      : "oklch(0 0 0 / 5%)",
+                  border: `1px solid ${memoryContextEnabled ? "rgba(197,237,71,0.45)" : border}`,
+                  opacity: memoryContextBusy ? 0.6 : 1,
+                  transition: "background 160ms, border-color 160ms",
+                }}
+                title={
+                  memoryContextEnabled
+                    ? "上下文记忆已开启：会带上你的长期设计习惯、当前项目风格与最近用过的提示词"
+                    : "开启上下文记忆：让模型记住你的设计习惯与项目风格"
+                }
+                onMouseEnter={() => setMemoryContextHovered(true)}
+                onMouseLeave={() => setMemoryContextHovered(false)}
+                onPointerDown={event => event.stopPropagation()}
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <Brain
+                  size={13}
+                  style={{
+                    color: memoryContextEnabled
+                      ? "#C5ED47"
+                      : memoryContextHovered
+                        ? text
+                        : sub,
+                    flexShrink: 0,
+                  }}
+                />
+                {/*
+                  文案在 hover 或开启时才出现，收起时只留图标，
+                  避免常驻占掉输入框顶部宽度。
+                */}
+                {(memoryContextHovered || memoryContextEnabled) && (
+                  <span
+                    className="type-caption whitespace-nowrap"
+                    style={{ color: memoryContextEnabled ? "#C5ED47" : sub }}
+                  >
+                    上下文记忆
+                  </span>
+                )}
+                <Switch
+                  checked={memoryContextEnabled}
+                  disabled={memoryContextBusy}
+                  aria-label="上下文记忆开关"
+                  data-testid="composer-memory-switch"
+                  className="h-[14px] w-[26px]"
+                  onCheckedChange={next => {
+                    void handleToggleMemoryContext(next);
+                  }}
+                />
+              </div>
               {contextLabel && (
                 <div className="mb-2 flex items-center gap-1.5">
                   <span
@@ -25932,6 +26125,16 @@ function CanvasAssistantPanel({
                   scrollbarColor: `${isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.20)"} transparent`,
                   scrollbarGutter: "stable",
                   overscrollBehavior: "contain",
+                  /*
+                   * 给右上角的「上下文记忆」开关让出一行高度。
+                   *
+                   * ⚠️ 开关是 absolute 的，不占布局 —— 不加这行留白，
+                   *    它会直接压在用户输入的第一行文字上面：
+                   *    文字看着被挡住一截，但点击仍能落到文字上，
+                   *    是最容易被当成"渲染 bug"的一类遮挡。
+                   *    📌 absolute 元素不占位，所以必须手动补偿它的高度。
+                   */
+                  paddingTop: 26,
                   // 这里曾经在有 skill 时把左内边距归零，用来抵消 skill 标签
                   // 自带的 4px 左外边距。现在两类标签的横向外边距已统一为 2px，
                   // 再做这个补偿反而会让整块内容比无 skill 时左移，

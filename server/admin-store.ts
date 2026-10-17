@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, isHighQualityImageModel, isImageModelAllowedForFreePlan, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, getMemoryContextSurcharge, isHighQualityImageModel, isImageModelAllowedForFreePlan, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -352,6 +352,8 @@ type AiUsageRecordInput = {
    * 不传视作 "1k"（与分档计费上线前的行为一致）。
    */
   resolutionTier?: string;
+  /** 用户开启记忆时的上下文，有内容时计费加收附加费。 */
+  userMemoryContext?: string;
   estimatedCost?: number;
   chargedCredits?: number;
 };
@@ -1815,6 +1817,8 @@ export async function assertUserCanAffordAiUsage(input: {
   /** 用户选的目标像素；有则按真实档位估价，无则按 1K 保底。 */
   targetWidth?: number;
   targetHeight?: number;
+  /** 用户记忆上下文，有值时报价会加收附加费。 */
+  userMemoryContext?: string;
 }) {
   const data = await loadAdminData();
   const user = data.users.find((item) => item.id === input.userId);
@@ -1826,6 +1830,7 @@ export async function assertUserCanAffordAiUsage(input: {
     outputCount: input.outputCount || 1,
     planId: getPlanIdFromUserPlan(user?.plan),
     model: input.model,
+    userMemoryContext: input.userMemoryContext,
     /**
      * 出图单价受分辨率影响（2K ×2.14 / 4K ×2.71）。
      * 事前阶段拿不到成品的真实像素，只能用用户选的目标尺寸估 ——
@@ -2035,6 +2040,8 @@ function quoteAiUsageFromData(data: AdminData, input: {
   model?: string;
   /** 出图分辨率档位，只对 text_to_image 生效。不传恒按 1k 计（与改造前一致）。 */
   resolutionTier?: string;
+  /** 用户的长期记忆上下文，有内容时加收固定附加费。 */
+  userMemoryContext?: string;
 }) {
   const policies = data.aiBillingPolicies?.length ? data.aiBillingPolicies : AI_CREDIT_POLICIES;
   const discounts = data.aiPlanDiscounts?.length ? data.aiPlanDiscounts : AI_PLAN_DISCOUNTS;
@@ -2070,7 +2077,8 @@ function quoteAiUsageFromData(data: AdminData, input: {
     policy,
     discount,
     resolutionPolicy,
-    chargedCredits: Math.max(1, Math.round(scaledCredits / 10) * 10),
+    chargedCredits: Math.max(1, Math.round(scaledCredits / 10) * 10)
+      + getMemoryContextSurcharge(input.capability, input.userMemoryContext),
     estimatedCost: Number((
       (modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit)
       * (policy.billingUnit === "per_image" ? outputCount : 1)
@@ -6066,6 +6074,7 @@ export async function quoteAdminAiUsage(input: {
   outputCount?: number;
   planId?: string;
   model?: string;
+  userMemoryContext?: string;
 }) {
   const data = await loadAdminData();
   return quoteAiUsageFromData(data, input);
@@ -6180,6 +6189,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       planId: getPlanIdFromUserPlan(user.plan),
       model: input.model,
       resolutionTier: input.resolutionTier,
+      userMemoryContext: input.userMemoryContext,
     })
     : null;
   const chargedCredits = input.status === "success"

@@ -27,10 +27,12 @@ import {
   Sparkles,
   WandSparkles,
   X,
+  Brain,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ModelSelector } from "@/components/canvas/ModelSelector";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   ECOMMERCE_TPL_CATEGORIES,
   ECOMMERCE_TEMPLATES,
@@ -68,6 +70,10 @@ type Props = {
   unitCredits: number;
   /** 当前模型的平台展示名（label，不是接口 id） */
   modelLabel: string;
+  /** 长期记忆是否生效（contextEnabled 或 longTerm 非空） */
+  memoryActive: boolean;
+  /** 记忆附加费（积分），0 表示未开启或不消费记忆 */
+  memorySurcharge: number;
   onGenerate: () => void;
   onClearResults: () => void;
   onOpenTemplateDetail: (id: number) => void;
@@ -85,6 +91,8 @@ export function EcommerceWorkspace({
   quoteCredits,
   unitCredits,
   modelLabel,
+  memoryActive,
+  memorySurcharge,
   onGenerate,
   onClearResults,
   onOpenTemplateDetail,
@@ -272,9 +280,46 @@ export function EcommerceWorkspace({
             </button>
           </div>
           <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
-            {modelLabel} {unitCredits} 积分/张 × {count} 张 = {quoteCredits} 积分 ·
+            {modelLabel} {unitCredits} 积分/张 × {count} 张
+            {memorySurcharge > 0 ? ` + 记忆 ${memorySurcharge}` : ""} = {quoteCredits} 积分 ·
             融合左侧上传图、设置、卖点{mode === "post" ? "与模板" : "与背景模板"}一起生成
           </div>
+          {/*
+            长期记忆提示条（用户 2026-10-17 指定）：开启时在板块内明确告知；
+            hover 大脑图标出 tooltip，指引去个人中心编辑。
+            ⚠️ 用 Radix Tooltip 而不是 title 属性：title 有 ~1s 延迟且样式不可控，
+               用户要的是"hover 即出现的 toast 式浮层"。
+          */}
+          {memoryActive && (
+            <div
+              data-testid="ecommerce-memory-notice"
+              className="mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px]"
+              style={{
+                background: "rgba(197,237,71,0.10)",
+                border: "1px solid rgba(197,237,71,0.35)",
+                color: LIME,
+              }}
+            >
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="长期记忆说明"
+                    data-testid="ecommerce-memory-icon"
+                    className="flex shrink-0 cursor-help items-center"
+                  >
+                    <Brain size={13} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="max-w-[240px] leading-relaxed">
+                  开启记忆可以了解您的出图习惯，如需编辑长期记忆，请在
+                  <Link href="/profile" className="mx-0.5 underline">个人中心</Link>
+                  下编辑你的长期记忆。
+                </TooltipContent>
+              </Tooltip>
+              <span>您已开启长期记忆</span>
+            </div>
+          )}
         </div>
 
         {/* 上传 */}

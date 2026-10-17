@@ -26,6 +26,7 @@ import {
   upsertWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
+import { saveProjectMemory } from "@/lib/user-memory-client";
 
 // ── Types ──────────────────────────────────────────────────────
 interface WsProject {
@@ -410,10 +411,19 @@ export default function WorkspaceDashboard() {
 
   const confirmDelete = useCallback(() => {
     if (!deleteConfirm) return;
-    setProjects(ps => ps.filter(p => !deleteConfirm!.includes(p.id)));
-    removeWorkspaceProjectHistory(deleteConfirm);
+    const ids = deleteConfirm;
+    setProjects(ps => ps.filter(p => !ids.includes(p.id)));
+    removeWorkspaceProjectHistory(ids);
     setDeleteConfirm(null);
-    toast(`已删除 ${deleteConfirm.length} 个项目`);
+    toast(`已删除 ${ids.length} 个项目`);
+    // 项目/对话记忆归属于该项目：项目删除 → 记忆文档一并删除（note 为空即删除）。
+    // 后台执行，不阻塞删除反馈；未登录或网络失败只记日志。
+    void Promise.allSettled(
+      ids.map(projectId => saveProjectMemory({ projectId, note: "" }))
+    ).then(results => {
+      const failed = results.filter(r => r.status === "rejected").length;
+      if (failed) console.warn(`[memory] ${failed} 个项目记忆删除失败`);
+    });
   }, [deleteConfirm]);
 
   const handleOpenProject = useCallback((id: string) => {

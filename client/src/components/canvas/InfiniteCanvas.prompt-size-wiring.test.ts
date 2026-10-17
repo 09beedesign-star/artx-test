@@ -73,10 +73,33 @@ describe("prompt size intent wiring", () => {
       expect(raw.length).toBeGreaterThan(1000);
       expect(() => assertStripKeptSource(raw, stripSourceComments(raw))).not.toThrow();
 
-      // 反向：旧的贪心实现必须被这个闸门拦下，否则闸门本身是摆设。
+      /*
+       * 反向：旧的贪心实现必须被这个闸门拦下，否则闸门本身是摆设。
+       *
+       * ⚠️⚠️ 这里**不能**直接拿 server/index.ts 原样去跑旧正则。
+       *    原先那样写过，判据实际是「该文件恰好被吃掉超过 30%」——
+       *    而这个比例会随文件增长**自然漂移**：
+       *    2026-10-17 往 index.ts 新增约 6KB 不含块注释起始符的代码后，
+       *    损失率从 33.0% 掉到 29.1%，这条反向断言就莫名变红了。
+       *    📌 判据：**检测器的判据不能绑在业务文件的体积或比例上**，
+       *       否则任何无关改动都会让它随机变红或变绿。
+       *
+       * ✅ 改成在真实文件后面接一段**确定性的坏样本**：
+       *    一个含 image 通配 MIME 字面量的字符串 + 一大段本应保留的代码。
+       *    贪心正则会把那个 MIME 里的斜杠星号当成块注释开头，
+       *    一路吞到后面第一个块注释结束符，把这段代码整块吃掉；
+       *    正确实现则一个字符都不少。
+       *    这样判据回到「贪心正则会吃掉本该保留的源码」本身。
+       */
       if (file === SERVER_INDEX) {
-        const legacy = raw.replace(/\/\*[\s\S]*?\*\//g, "");
-        expect(() => assertStripKeptSource(raw, legacy)).toThrow(/吃掉了/);
+        const victim = `const keep = ${"1 + ".repeat(4000)}1;`;
+        const sample = `${raw}\nconst mime = "image/*";\n${victim}\n/* 真注释 */\n`;
+        // 正确实现：受害代码必须完整保留。
+        expect(stripSourceComments(sample)).toContain(victim);
+        // 旧实现：把 MIME 里的斜杠星号当注释开头，吞掉 victim —— 必须被闸门拦住。
+        const legacy = sample.replace(/\/\*[\s\S]*?\*\//g, "");
+        expect(legacy).not.toContain(victim);
+        expect(() => assertStripKeptSource(sample, legacy)).toThrow(/吃掉了/);
       }
     }
   });
@@ -100,7 +123,16 @@ describe("prompt size intent wiring", () => {
     for (const block of decisionBlocks || []) {
       expect(block).toContain("prompt: rawSubmittedComposerPrompt");
       expect(block).not.toContain("prompt: finalImagePrompt");
+      // 2026-10-17：记忆里写的分辨率是回退层。技能/非技能两条出口都必须带上，
+      // 只接一条 = 挂着技能时记忆分辨率静默失效。
+      // 必须传分层来源（对话 > 项目 > 长期），不能传拼好的整段文本：
+      // 整段文本长期记忆在最前，从头扫 = 长期永远赢，与用户要求相反。
+      expect(block).toMatch(/\bmemorySources\b/);
+      expect(block).not.toMatch(/\bmemoryContext\b/);
     }
+    // 来源必须来自完整记忆文档，而不是只存 contextEnabled 布尔。
+    expect(source).toContain("listUserMemorySourcesByPriority({");
+    expect(source).toContain("setMemoryDoc(document)");
 
     // 裁决结果必须真的进 payload 的 ratio，而不是算完就丢。
     expect(source).toContain(": promptSizeDecision.ratio");

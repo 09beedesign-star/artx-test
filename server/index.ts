@@ -9,6 +9,13 @@ import { resolveBackgroundImageTaskCapability } from "./background-image-capabil
 import { createBrandKit, deleteBrandKit, getBrandKit, listBrandKits, parseBrandKitFromImage } from "./brand-kit";
 import { getWorkspaceSyncDocument, mergeWorkspaceSyncDocument } from "./workspace-sync-store";
 import {
+  getUserMemoryDocument,
+  recordPromptMemory,
+  saveProjectMemory,
+  updateUserMemorySettings,
+} from "./user-memory-store";
+import { buildUserMemoryContext } from "../shared/user-memory";
+import {
   failInterruptedBackgroundImageTasks,
   getBackgroundImageTask,
   saveBackgroundImageTask,
@@ -734,6 +741,99 @@ function createAiReservationId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * 从请求体里读「本次归属哪个项目 / 画布」。
+ *
+ * 记忆按项目分桶，拿不到 projectId 就只用全局那层（长期记忆），
+ * 不会把别的项目的风格串进来。
+ */
+function requestedMemoryProjectId(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const body = input as Record<string, unknown>;
+  const raw = body.projectId ?? body.canvasId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
+/**
+ * 从请求里提取已注入的用户记忆上下文。
+ * 
+ * ⚠️ 客户端不要传这个字段 —— `withUserMemory` 里会剥掉它自己注入一份。
+ * 这个函数只取决定传给计费的值，供报价、余额校验、扣费共用同一数字。
+ */
+function requestedUserMemoryContext(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const body = input as Record<string, unknown>;
+  return typeof body.userMemory === "string" && body.userMemory.trim() ? body.userMemory.trim() : undefined;
+}
+
+/**
+ * 给一次 AI 请求注入该账号的分层记忆。
+ *
+ * ⚠️⚠️⚠️ **注入必须发生在服务端，不能只在前端拼。**
+ * 生图有三个出口（/api/images/generate、/api/images/tasks、/api/ai/orchestrate），
+ * 只改前端某一个调用处 = 另外两条链路悄悄没有记忆，且零报错 ——
+ * 这是本项目踩过十四次的「同一份逻辑的多个出口」事故族。
+ * 📌 所以记忆只认一个事实源：这里。
+ *
+ * ⚠️ `userMemory` 刻意写成**独立字段**，不拼进 `prompt`：
+ *    prompt 会被 shared/prompt-size-intent.ts 扫描尺寸意图，
+ *    记忆里一句「我习惯 4K」就会让每张图都按 4K 计费。
+ *
+ * ⚠️ 请求体里客户端传来的 userMemory 一律**丢弃并覆盖** ——
+ *    否则任何人都能伪造别人的记忆内容注入提示词。
+ */
+async function withUserMemory<T extends Record<string, unknown>>(
+  user: SessionUser,
+  body: T
+): Promise<T & { userMemory?: string }> {
+  // 客户端传什么都不作数，先剥掉。
+  const { userMemory: _ignored, ...rest } = (body || {}) as Record<string, unknown>;
+  try {
+    const memory = await getUserMemoryDocument(user.id);
+    const context = buildUserMemoryContext({
+      document: memory,
+      projectId: requestedMemoryProjectId(body),
+      /*
+       * 近期提示词这一层只在用户打开画布开关后才带。
+       * 长期记忆（用户亲手写的规则）**不受开关影响** ——
+       * 它是显式声明，用户写下来就是要它一直生效。
+       */
+      includeRecentPrompts: memory.contextEnabled,
+    });
+    if (!context) return rest as T;
+    return { ...(rest as T), userMemory: context };
+  } catch (error) {
+    /*
+     * ⚠️ 记忆读失败**不能让整次生成失败**：它是增强项，不是必需项。
+     *    但必须留日志，否则「记忆静默失效」会被当成模型不听话，
+     *    排查方向完全跑偏。
+     */
+    console.warn("[user-memory] 读取失败，本次按无记忆处理", error);
+    return rest as T;
+  }
+}
+
+/**
+ * 出图/对话成功后把这次的提示词记进记忆。
+ *
+ * ⚠️ 用**用户原始提示词**（req.body.prompt），不是注入后的完整提示词 ——
+ *    后者含上一轮的记忆，记回去会自我累积，几轮后记忆里全是自己的复制品。
+ * ⚠️ 失败不影响主流程：返回值被忽略时异常会冒泡，所以这里显式 catch。
+ */
+async function rememberPromptQuietly(user: SessionUser, body: unknown) {
+  try {
+    const raw = body && typeof body === "object" ? (body as Record<string, unknown>).prompt : "";
+    if (typeof raw !== "string" || !raw.trim()) return;
+    await recordPromptMemory(user.id, {
+      prompt: raw,
+      ...(requestedMemoryProjectId(body) ? { projectId: requestedMemoryProjectId(body)! } : {}),
+      createdAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn("[user-memory] 提示词记录失败", error);
+  }
+}
+
 async function reserveAiRouteUsage(input: {
   user: SessionUser;
   tracking: AiRouteTracking;
@@ -747,10 +847,12 @@ async function reserveAiRouteUsage(input: {
     outputCount,
     capabilityKey: input.tracking.capabilityKey,
   });
+  const userMemoryContext = requestedUserMemoryContext(input.request);
   const quote = await quoteAdminAiUsage({
     capability: input.tracking.capabilityKey,
     outputCount,
     model: input.tracking.model,
+    userMemoryContext,
   });
   /**
    * ⚠️ 事前余额校验，必须夹在报价之后、发请求之前。
@@ -764,6 +866,7 @@ async function reserveAiRouteUsage(input: {
     capabilityKey: input.tracking.capabilityKey,
     outputCount,
     model: input.tracking.model,
+    userMemoryContext,
     ...(targetSize ? { targetWidth: targetSize.width, targetHeight: targetSize.height } : {}),
   });
   const taskId = input.taskId || createAiReservationId("ai-request");
@@ -821,12 +924,14 @@ async function recordAiRouteUsage(input: {
   status: "success" | "failed";
   result?: unknown;
   error?: string;
+  request?: unknown;
 }) {
   const outputUnits = input.status === "success"
     ? input.tracking.outputUnits?.(input.result) || getImageOutputUnits(input.result)
     : 0;
   const providerTaskIds = input.tracking.providerTaskIds?.(input.result) || getProviderTaskIds(input.result);
   const tokenUsage = providerTokenUsage(input.result);
+  const userMemoryContext = requestedUserMemoryContext(input.request);
   const record = await recordAiUsage({
     userId: input.user.id,
     username: input.user.username,
@@ -849,6 +954,7 @@ async function recordAiRouteUsage(input: {
     providerTaskIds,
     inputTokens: tokenUsage.promptTokens,
     outputTokens: tokenUsage.completionTokens,
+    userMemoryContext,
   });
 
   if (input.status !== "success") {
@@ -939,10 +1045,29 @@ async function handleTrackedAiRequest<T>(
     user = await requireSessionUser(req, res);
     if (!user) return;
     assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
+    /*
+     * ⚠️⚠️⚠️ 记忆注入收口在这里 —— 13 条 AI 路由共用这一个入口。
+     *
+     * 刻意**直接改写 req.body**，而不是把记忆作为参数传给 handler：
+     * 各路由的 handler 自己去读 req.body（`generateImages(req.body)`），
+     * 走参数的话每个 handler 都要记得接一次，漏一个就是一条没有记忆的链路，
+     * 且零报错 —— 正是「同一份逻辑的多个出口」这个踩过十四次的坑。
+     * 📌 改写入口对象 = 新增路由自动继承，不需要任何人记得接。
+     *
+     * 放在预扣费**之前**：报价 / 余额校验 / 真实扣费都要看到同一份记忆，
+     * 才会一致地加收记忆附加费（2026-10-17 用户拍板：成本由用户承担）。
+     * 附加费只对 MEMORY_CONSUMING_CAPABILITIES 生效（抠图等不读提示词的不收）。
+     * ⚠️ 记忆走独立字段，**不影响分辨率档位**（尺寸意图只读用户原话）。
+     */
+    if (req.body && typeof req.body === "object") {
+      req.body = await withUserMemory(user, req.body as Record<string, unknown>);
+    }
     reservation = await reserveAiRouteUsage({ user, tracking, request: req.body });
     const result = await handler(user);
-    await recordAiRouteUsage({ user, tracking, startedAt, status: "success", result });
+    await recordAiRouteUsage({ user, tracking, startedAt, status: "success", result, request: req.body });
     successRecorded = true;
+    // 记忆只记成功的那次：失败的提示词记回去会污染后续参考。
+    await rememberPromptQuietly(user, req.body);
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : tracking.failureMessage;
@@ -1559,6 +1684,11 @@ async function startServer() {
     let reservation: AiUsageReservation;
     try {
       assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
+      // 与 handleTrackedAiRequest / orchestrate 同口径：先注入记忆再报价，
+      // 否则这条后台出图路线既不带记忆、也不收附加费（多出口事故族）。
+      if (req.body && typeof req.body === "object") {
+        req.body = await withUserMemory(user, req.body as Record<string, unknown>);
+      }
       reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body, taskId });
     } catch (error) {
   const billingError = error instanceof AiBillingError ? error : null;
@@ -1593,6 +1723,7 @@ async function startServer() {
           startedAt: task.createdAt,
           status: "success",
           result,
+          request: req.body,
         });
         await saveBackgroundImageTask({
           ...task,
@@ -1912,6 +2043,14 @@ async function startServer() {
         failureMessage: "AI orchestration failed",
       };
       assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
+      /*
+       * ⚠️⚠️⚠️ orchestrate **不走** handleTrackedAiRequest，所以这里必须
+       * 单独注入一次记忆。漏了这一处的后果是「画布对话有记忆、编排链路没有」，
+       * 且零报错 —— 正是「同一份逻辑的多个出口」这个踩过十四次的坑。
+       */
+      if (req.body && typeof req.body === "object") {
+        req.body = await withUserMemory(user, req.body as Record<string, unknown>);
+      }
       reservation = await reserveAiRouteUsage({ user, tracking: preflightTracking, request: req.body });
       const result = await orchestrator.run(req.body);
       if (result.images?.length) {
@@ -1936,8 +2075,10 @@ async function startServer() {
           startedAt,
           status: "success",
           result: storedResult,
+          request: req.body,
         });
         successRecorded = true;
+        await rememberPromptQuietly(user, req.body);
         res.json(storedResult);
         return;
       }
@@ -1957,8 +2098,10 @@ async function startServer() {
         startedAt,
         status: "success",
         result,
+        request: req.body,
       });
       successRecorded = true;
+      await rememberPromptQuietly(user, req.body);
       res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI orchestration failed";
@@ -2073,6 +2216,76 @@ async function startServer() {
       res.json({ document });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Workspace sync failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 按账号的长期记忆 / 上下文开关。
+   *
+   * ⚠️⚠️ 用户身份**恒取自会话**（requireSessionUser），绝不接受请求体里的 userId ——
+   *    否则任何登录用户都能读写别人的设计习惯，还能借此往别人的
+   *    出图提示词里注入内容。与 /api/workspace/sync 是同一条防线。
+   */
+  app.get("/api/user/memory", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const document = await getUserMemoryDocument(user.id);
+      res.json({ document });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "User memory read failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * ⚠️ **patch 语义，不是整份替换。**
+   *    个人中心只管长期记忆文本、画布开关只管开关，二者是两个独立界面。
+   *    按整份替换的话，用户在个人中心按一次保存就会把项目记忆和
+   *    历史提示词全部清空，且零报错。锁在 server/user-memory-store.test.ts。
+   */
+  app.put("/api/user/memory", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+      const document = await updateUserMemorySettings(user.id, {
+        ...(body.longTerm !== undefined ? { longTerm: body.longTerm } : {}),
+        // 四维度长期记忆（长期记忆页 / 个人中心共用），逐字段 patch。
+        ...(body.projectMemory !== undefined ? { projectMemory: body.projectMemory } : {}),
+        ...(body.skill !== undefined ? { skill: body.skill } : {}),
+        ...(body.generalRules !== undefined ? { generalRules: body.generalRules } : {}),
+        ...(body.regularMemory !== undefined ? { regularMemory: body.regularMemory } : {}),
+        ...(body.contextEnabled !== undefined ? { contextEnabled: body.contextEnabled } : {}),
+      });
+      res.json({ document });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "User memory save failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /** 记一条项目记忆（同 projectId 覆盖；note 为空等于删除）。 */
+  app.put("/api/user/memory/project", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+      const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+      if (!projectId) {
+        res.status(400).json({ error: "Missing projectId" });
+        return;
+      }
+      const document = await saveProjectMemory(user.id, {
+        projectId,
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        note: typeof body.note === "string" ? body.note : "",
+        updatedAt: new Date().toISOString(),
+      });
+      res.json({ document });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Project memory save failed";
       res.status(500).json({ error: message });
     }
   });
@@ -2305,16 +2518,23 @@ async function startServer() {
               failureMessage: "MCP image generation failed",
             };
             assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
+            // MCP 出图和普通出图走同一套记忆和计费，不然会漏掉记忆成本。
+            const mcpBody = {
+              prompt: args.prompt,
+              ...(typeof args.projectId === "string" && args.projectId.trim() ? { projectId: args.projectId } : {}),
+            };
+            const bodyWithMemory = await withUserMemory(user, mcpBody);
             reservation = await reserveAiRouteUsage({
               user,
               tracking,
-              request: { count: Math.max(1, Math.min(9, Number(args.count || 1))) },
+              request: { ...bodyWithMemory, count: Math.max(1, Math.min(9, Number(args.count || 1))) },
             });
             const result = await orchestrator.run({
               capability: "text_to_image",
               intent: "text_to_image",
               operation: "generate",
               prompt,
+              userMemory: bodyWithMemory.userMemory,
               model: modelForRun,
               ratio: typeof args.ratio === "string" ? args.ratio : undefined,
               count: Math.max(1, Math.min(9, Number(args.count || 1))),
@@ -2337,8 +2557,10 @@ async function startServer() {
               startedAt,
               status: "success",
               result: storedResult,
+              request: bodyWithMemory,
             });
             successRecorded = true;
+            await rememberPromptQuietly(user, mcpBody);
             const publicImages = (storedResult.images || []).map((image, index) => ({
               ...image,
               index,

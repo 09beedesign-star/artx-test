@@ -7,6 +7,7 @@ import {
   resolveImageRatio,
   SUPPORTED_IMAGE_RATIOS,
 } from "../../../shared/image-ratios";
+import { listUserMemorySourcesByPriority } from "../../../shared/user-memory";
 
 /**
  * 需求（用户原文）：
@@ -177,5 +178,169 @@ describe("prompt size intent", () => {
     if (decision) {
       expect(Math.max(decision.width, decision.height)).toBeLessThanOrEqual(8192);
     }
+  });
+
+  describe("对话记忆优先于长期记忆（2026-10-17 用户拍板）", () => {
+    /**
+     * 用户原话：「单个对话记忆的优先级会高于长期对话。如果用户在单个对话的记录当中
+     * 提到的内容与长期记忆相冲突，优先以用户对话的记忆为主要判断依据。」
+     */
+    const doc = (longTerm: string, prompts: string[]) => ({
+      longTerm,
+      projects: [],
+      recentPrompts: prompts.map((prompt, i) => ({
+        prompt,
+        projectId: "p1",
+        // 下标越小越新。
+        createdAt: `2026-10-17T0${9 - i}:00:00.000Z`,
+      })),
+    });
+    const decide = (longTerm: string, prompts: string[], prompt = "画一张产品图") =>
+      resolveOutputSizeFromPromptAndSelector({
+        prompt,
+        memorySources: listUserMemorySourcesByPriority({
+          document: doc(longTerm, prompts),
+          projectId: "p1",
+          includeRecentPrompts: true,
+        }),
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+
+    it("同一维度冲突：对话 2K 胜过长期 4K", () => {
+      const result = decide("我习惯出 4K 图", ["这次都用 2K 就行"]);
+      expect(result.source).toBe("memory");
+      expect(result.memoryLayers?.resolution).toBe("recent");
+      expect(Math.max(result.width!, result.height!)).toBe(2560);
+    });
+
+    it("同一维度冲突：对话 16:9 胜过长期 9:16", () => {
+      const result = decide("默认竖版 9:16", ["后面都做 16:9 横版"]);
+      expect(result.ratio).toBe("16:9");
+      expect(result.memoryLayers?.shape).toBe("recent");
+    });
+
+    it("不同维度不算冲突：对话给比例、长期给分辨率 → 两者合并", () => {
+      // 只按「整条」裁决的话，长期的 4K 会被一句只提比例的对话静默吞掉。
+      const result = decide("我习惯出 4K 图", ["后面都做 16:9"]);
+      expect(result.ratio).toBe("16:9");
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+      expect(result.width).toBeGreaterThan(result.height!);
+      expect(result.memoryLayers).toEqual({ shape: "recent", resolution: "longTerm" });
+    });
+
+    it("多条对话之间：越新越优先", () => {
+      const result = decide("", ["改成 4K", "先用 2K"]);
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+    });
+
+    it("对话没提尺寸 → 回落长期记忆", () => {
+      const result = decide("我习惯出 4K 图", ["换个暖色调"]);
+      expect(result.memoryLayers?.resolution).toBe("longTerm");
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+    });
+
+    it("本次提示词仍然压过对话与长期记忆", () => {
+      const result = decide("我习惯出 4K 图", ["这次都用 2K 就行"], "出一张 8K 的");
+      expect(result.source).toBe("prompt");
+      expect(Math.max(result.width!, result.height!)).toBe(7680);
+    });
+
+    it("记忆开关关闭时对话层不参与，只认长期", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "画一张产品图",
+        memorySources: listUserMemorySourcesByPriority({
+          document: doc("我习惯出 4K 图", ["这次都用 2K 就行"]),
+          projectId: "p1",
+          includeRecentPrompts: false,
+        }),
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+      expect(result.memoryLayers?.resolution).toBe("longTerm");
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+    });
+
+    it("分层来源都没提尺寸 → 选择器，不被标题文字误命中", () => {
+      const result = decide("喜欢明亮的配色", ["科技感海报"]);
+      expect(result.source).toBe("selector");
+      expect(result.ratio).toBe("1:1");
+    });
+  });
+
+  describe("memory-driven resolution fallback (2026-10-17)", () => {
+    /**
+     * 用户需求：「如果用户将分辨率写入长期记忆或者对话记忆中，
+     * 那么记忆体应该默认按照用户长期记忆的分辨率去生成对应分辨率的图片。」
+     *
+     * 明确：「默认」= 回退，不是覆盖。
+     * 优先级：提示词尺寸 > 记忆尺寸 > 选择器比例 > auto。
+     */
+    it("prompt size overrides memory size", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "给我来张4K图",
+        memoryContext: "用户偏好 16:9 的 8K 超高清图片",
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+      expect(result.source).toBe("prompt");
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+    });
+
+    it("memory size acts as fallback when prompt has no size intent", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "画个科技风的手机界面",
+        memoryContext: "【用户长期设计习惯】\n我喜欢 4K 的竖版海报，比例 9:16。",
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+      expect(result.source).toBe("memory");
+      expect(result.ratio).toBe("9:16");
+      // 竖图的长边在高度。
+      expect(Math.max(result.width!, result.height!)).toBe(3840);
+      expect(result.height).toBeGreaterThan(result.width!);
+    });
+
+    it("selector ratio is used when prompt and memory both lack size intent", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "简洁的产品页面",
+        memoryContext: "【用户长期设计习惯】\n我喜欢扁平化，用户友好的设计。",
+        selectorRatio: "21:9",
+        resolvedSelectorRatio: "21:9",
+      });
+      expect(result.source).toBe("selector");
+      expect(result.ratio).toBe("21:9");
+      expect(result.width).toBeUndefined();
+      expect(result.height).toBeUndefined();
+    });
+
+    it("memory section headers alone do not trigger a match", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "画个产品图",
+        memoryContext:
+          "【用户长期设计习惯】（用户本人设定，优先级最高；与本次指令冲突时以本次指令为准）\n" +
+          "喜欢明亮的配色。\n" +
+          "【当前项目已确认的风格与约束】\n" +
+          "- 配色：蓝色系\n" +
+          "【该用户近期用过的提示词】（仅作风格参考，不要直接照搬内容）\n" +
+          "- 科技感海报",
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+      expect(result.source).toBe("selector");
+      expect(result.ratio).toBe("1:1");
+    });
+
+    it("memory with both ratio and resolution tier returns both", () => {
+      const result = resolveOutputSizeFromPromptAndSelector({
+        prompt: "产品展示图",
+        memoryContext: "我偏好 16:9 的 2K 高清图",
+        selectorRatio: "1:1",
+        resolvedSelectorRatio: "1:1",
+      });
+      expect(result.source).toBe("memory");
+      expect(result.ratio).toBe("16:9");
+      expect(Math.max(result.width!, result.height!)).toBe(2560);
+    });
   });
 });

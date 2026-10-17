@@ -20,6 +20,7 @@ import InspirationPage from "./pages/InspirationPage";
 import SkillsPage from "./pages/SkillsPage";
 import CrossBorderCommercePage from "./pages/CrossBorderCommercePage";
 import EcommerceCanvasPage from "./pages/EcommerceCanvasPage";
+import LongTermMemoryPage from "./pages/LongTermMemoryPage";
 import AssetsPage from "./pages/AssetsPage";
 import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
@@ -174,6 +175,15 @@ function AppRoutes() {
         <AppShell>
           <EcommerceCanvasPage />
         </AppShell>
+      </Route>
+
+      {/* 长期记忆：跟随账号的通用记忆（项目记忆 / Skill / 通用规则 / 常规记忆 四维度） */}
+      <Route path="/memory">
+        <RequireLogin>
+          <AppShell>
+            <LongTermMemoryPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 素材库 */}

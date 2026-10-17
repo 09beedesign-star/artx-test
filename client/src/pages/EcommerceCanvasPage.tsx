@@ -42,6 +42,8 @@ import { generateImages } from "@/lib/ai";
 import { IMAGE_AI_MODELS } from "@/lib/workspace-data";
 import { quoteAiUsage } from "@shared/ai-credit-policy";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
+import { fetchUserMemory, USER_MEMORY_CHANGED_EVENT } from "@/lib/user-memory-client";
+import { buildUserMemoryContext, type UserMemoryDocument } from "@shared/user-memory";
 import {
   ECOMMERCE_TEMPLATES,
   ECOMMERCE_PLATFORMS,
@@ -142,6 +144,46 @@ export default function EcommerceCanvasPage() {
     updateDraft(prev => (prev.tplId === id ? prev : { ...prev, tplId: id }));
   }, [tplParam, updateDraft]);
 
+  /*
+    长期记忆状态（只读，开关在画布输入框 / 个人中心）。
+    ⚠️ 电商出图走 /api/images/generate → handleTrackedAiRequest → withUserMemory，
+       服务端会注入记忆并加收附加费。前端报价必须用**同一条判据**
+       （buildUserMemoryContext 非空），否则按钮写 70、实扣 75，零报错。
+       电商画布不传 projectId，与服务端口径一致。
+  */
+  const [memoryDoc, setMemoryDoc] = useState<UserMemoryDocument | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchUserMemory()
+      .then(doc => {
+        if (!cancelled) setMemoryDoc(doc);
+      })
+      .catch(() => {
+        // 读失败只影响提示条和报价展示，不阻塞出图。
+      });
+    const onChange = (event: Event) => {
+      const doc = (event as CustomEvent<UserMemoryDocument>).detail;
+      if (doc) setMemoryDoc(doc);
+    };
+    window.addEventListener(USER_MEMORY_CHANGED_EVENT, onChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(USER_MEMORY_CHANGED_EVENT, onChange);
+    };
+  }, []);
+  const memoryContext = useMemo(
+    () =>
+      memoryDoc
+        ? buildUserMemoryContext({
+            document: memoryDoc,
+            includeRecentPrompts: memoryDoc.contextEnabled,
+          })
+        : "",
+    [memoryDoc],
+  );
+  /** 提示条是否展示：开关开着，或者长期记忆实际会被注入。 */
+  const memoryActive = Boolean(memoryDoc?.contextEnabled || memoryContext);
+
   const count = mode === "post" ? draft.postCount : draft.productCount;
   const quote = useMemo(
     () =>
@@ -150,8 +192,9 @@ export default function EcommerceCanvasPage() {
         model: draft.model,
         outputCount: count,
         ...(mode === "product" ? { resolutionTier: draft.productTier } : {}),
+        userMemoryContext: memoryContext,
       }),
-    [draft.model, count, mode, draft.productTier],
+    [draft.model, count, mode, draft.productTier, memoryContext],
   );
   /**
    * 单张价（含分辨率系数）。按钮上的总价 = 单张价 × 张数再取整十，
@@ -314,6 +357,13 @@ export default function EcommerceCanvasPage() {
           quoteCredits={quote.chargedCredits}
           unitCredits={unitCredits}
           modelLabel={modelLabel}
+          memoryActive={memoryActive}
+          memorySurcharge={memoryContext ? quote.chargedCredits - quoteAiUsage({
+            capability: "text_to_image",
+            model: draft.model,
+            outputCount: count,
+            ...(mode === "product" ? { resolutionTier: draft.productTier } : {}),
+          }).chargedCredits : 0}
           onGenerate={() => void handleGenerate()}
           onClearResults={() => setResults([])}
           onOpenTemplateDetail={id => navigate(`${ROOT}/templates/${id}`)}

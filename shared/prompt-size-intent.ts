@@ -7,6 +7,12 @@
  *     也必须优先按用户提示词所提到的语义输出对应尺寸和分辨率。
  *     若提示词没有相关文字，则按画幅 icon 下用户自主设定的参数生成。」
  *
+ * 【2026-10-17 记忆驱动的分辨率】用户需求原文：
+ *   「如果用户将分辨率写入长期记忆或者对话记忆中，那么记忆体应该默认按照
+ *     用户长期记忆的分辨率去生成对应分辨率的图片。」
+ *   「单个对话记忆的优先级会高于长期对话。如果用户在单个对话的记录当中提到的
+ *     内容与长期记忆相冲突，优先以用户对话的记忆为主要判断依据。」
+ *
  * ── 与既有模块的分工（⚠️ 别再写第四份比例正则）─────────────────
  *
  * shared/edit-aspect-lock.ts 已经有 parseExplicitRatioFromPrompt（解析 xx:xx），
@@ -26,12 +32,13 @@
  * 上游图片 API 只接受固定档位（最大 1536 长边，见 image-generation.ts
  * 的 ratioToSize）。所以「4K」不可能靠传参让上游直接出 —— 它出 1536，
  * 然后服务端落库前用 sharp 等比放大到目标像素
- * （__testResolveHighDefinitionTargetSize + 归一化那一步）。
+ * (__testResolveHighDefinitionTargetSize + 归一化那一步)。
  * 📌 因此本模块必须给出**具体像素**，只给「4k」这个标签是没人能消费的。
  */
 
 import { parseExplicitRatioFromPrompt, parseRatioToDimensions } from "./edit-aspect-lock";
 import { SUPPORTED_IMAGE_RATIOS } from "./image-ratios";
+import type { UserMemorySource } from "./user-memory";
 
 /** 印刷换算用的标准分辨率（每英寸像素）。印刷品的行业惯例是 300。 */
 export const PRINT_DPI = 300;
@@ -344,28 +351,118 @@ export function parsePromptSizeIntent(
  *
  * 这是需求第二条的**裁决函数**，也是唯一应该被调用方使用的入口。
  *
- * 优先级（顺序不能调）：
+ * 优先级（顺序不能调，2026-10-17 加入记忆层）：
  *   1. 提示词里提到的尺寸/分辨率 —— 即时意图最强，
  *      **即使画幅 icon 不是 auto 也要盖过它**（用户原文的硬要求）
- *   2. 画幅选择器的非 auto 值
- *   3. auto → 由 resolveImageRatio 决定（调用方传进来）
+ *   2. 记忆里写的尺寸/分辨率 —— 用户设定的默认值（没提到时才用）
+ *   3. 画幅选择器的非 auto 值
+ *   4. auto → 由 resolveImageRatio 决定（调用方传进来）
  *
  * @param prompt 用户提示词
+ * @param memoryContext 长期记忆 / 对话记忆（2026-10-17 新增）
  * @param selectorRatio 画幅选择器里的值（可能是 "auto"）
  * @param resolvedSelectorRatio 选择器经 resolveImageRatio 归一化后的比例，
  *        用于「提示词只说了分辨率没说形状」时补形状。
  */
+/** 意图里是否带了「分辨率」这一维（档位 / 像素 / 高清）。 */
+function hasResolutionDimension(intent: PromptSizeIntent): boolean {
+  return intent.matched.some(key => /^\d+k$|px$|^hd$/.test(key));
+}
+
+/**
+ * 记忆层的尺寸裁决 —— 按维度取最高优先级来源。
+ *
+ * 2026-10-17 用户拍板：对话记忆 > 长期记忆；冲突时以对话记忆为准。
+ *
+ * ⚠️⚠️ 「冲突」必须按**维度**判断，不能按「整条」判断：
+ *   近期对话说「16:9」、长期记忆说「4K」—— 两者说的是不同维度，并不冲突，
+ *   正确结果是 16:9 的 4K。若按「最高优先级来源整条胜出」，长期记忆的 4K
+ *   会被一句只提了比例的对话静默吞掉，用户写的规则凭空失效、零报错。
+ *   只有同一维度两边都提了（对话 2K vs 长期 4K），才由对话胜出。
+ *
+ * @param sources 已按优先级（高 → 低）排好的来源，见 listUserMemorySourcesByPriority。
+ */
+export function resolveSizeFromMemorySources(
+  sources: UserMemorySource[],
+  resolvedSelectorRatio: string
+): {
+  ratio: string;
+  width: number;
+  height: number;
+  source: "memory";
+  memoryLayers: { shape?: UserMemorySource["layer"]; resolution?: UserMemorySource["layer"] };
+  matched: string[];
+} | null {
+  type Hit = { intent: PromptSizeIntent; layer: UserMemorySource["layer"] };
+  let shape: Hit | undefined;
+  let resolution: Hit | undefined;
+
+  for (const item of sources) {
+    if (shape && resolution) break;
+    const intent = parsePromptSizeIntent(item.text);
+    if (!intent) continue;
+    if (!shape && intent.ratio) shape = { intent, layer: item.layer };
+    if (!resolution && hasResolutionDimension(intent)) {
+      resolution = { intent, layer: item.layer };
+    }
+  }
+
+  if (!shape && !resolution) return null;
+
+  const sameEntry = Boolean(shape && resolution && shape.intent === resolution.intent);
+  const ratio = shape ? shape.intent.ratio : resolvedSelectorRatio;
+  const matched = sameEntry
+    ? shape!.intent.matched
+    : [...(shape?.intent.matched ?? []), ...(resolution?.intent.matched ?? [])];
+
+  let width: number;
+  let height: number;
+  if (shape && (!resolution || sameEntry)) {
+    // 只有形状，或形状与分辨率出自同一条 → 原样采用该条算好的像素。
+    width = shape.intent.width;
+    height = shape.intent.height;
+  } else {
+    // 分辨率来自另一条（或根本没有形状）→ 用胜出的形状 + 胜出的长边重算。
+    const longSide = Math.max(resolution!.intent.width, resolution!.intent.height);
+    const base = shape
+      ? { width: shape.intent.width, height: shape.intent.height }
+      : parseRatioToDimensions(resolvedSelectorRatio) || { width: 1, height: 1 };
+    ({ width, height } = scaleToLongSide(base.width, base.height, longSide));
+  }
+
+  return {
+    ratio,
+    width,
+    height,
+    source: "memory",
+    memoryLayers: {
+      ...(shape ? { shape: shape.layer } : {}),
+      ...(resolution ? { resolution: resolution.layer } : {}),
+    },
+    matched,
+  };
+}
+
 export function resolveOutputSizeFromPromptAndSelector(input: {
   prompt?: string | null;
+  /**
+   * 分层记忆来源（高 → 低），由 listUserMemorySourcesByPriority 生成。
+   * 给了它就按「对话 > 项目 > 长期」逐维度裁决，memoryContext 不再参与。
+   */
+  memorySources?: UserMemorySource[] | null;
+  /** 兼容旧调用：整段记忆文本（无分层信息）。 */
+  memoryContext?: string | null;
   selectorRatio?: string | null;
   resolvedSelectorRatio: string;
 }): {
   ratio: string;
   width?: number;
   height?: number;
-  source: "prompt" | "selector";
+  source: "prompt" | "memory" | "selector";
+  memoryLayers?: { shape?: UserMemorySource["layer"]; resolution?: UserMemorySource["layer"] };
   matched: string[];
 } {
+  // 优先级 1：当前提示词
   const intent = parsePromptSizeIntent(input.prompt);
 
   if (intent) {
@@ -410,7 +507,62 @@ export function resolveOutputSizeFromPromptAndSelector(input: {
     };
   }
 
-  // 提示词没提 → 完全按画幅 icon 下用户自主设定的参数（需求原文第二句）。
+  // 优先级 2：记忆。分层来源优先（对话 > 项目 > 长期），逐维度裁决。
+  if (input.memorySources && input.memorySources.length > 0) {
+    const merged = resolveSizeFromMemorySources(
+      input.memorySources,
+      input.resolvedSelectorRatio
+    );
+    if (merged) return merged;
+    // 分层来源都没提尺寸 → 直接回落选择器。
+    // ⚠️ 不再去扫 memoryContext：它是同一批内容拼成的文本，
+    //    再扫一次只会以「长期在前」的错误顺序把结果找回来。
+    return {
+      ratio: input.resolvedSelectorRatio,
+      source: "selector",
+      matched: [],
+    };
+  }
+
+  // 兼容：只给了整段 memoryContext（无分层信息）时按整段解析。
+  const memoryIntent = parsePromptSizeIntent(input.memoryContext);
+  if (memoryIntent) {
+    if (!memoryIntent.ratio) {
+      const dimensions = parseRatioToDimensions(input.resolvedSelectorRatio);
+      const longSide = Math.max(memoryIntent.width, memoryIntent.height);
+      if (dimensions) {
+        const sized = scaleToLongSide(
+          dimensions.width,
+          dimensions.height,
+          longSide
+        );
+        return {
+          ratio: input.resolvedSelectorRatio,
+          width: sized.width,
+          height: sized.height,
+          source: "memory",
+          matched: memoryIntent.matched,
+        };
+      }
+      return {
+        ratio: input.resolvedSelectorRatio,
+        width: longSide,
+        height: longSide,
+        source: "memory",
+        matched: memoryIntent.matched,
+      };
+    }
+
+    return {
+      ratio: memoryIntent.ratio,
+      width: memoryIntent.width,
+      height: memoryIntent.height,
+      source: "memory",
+      matched: memoryIntent.matched,
+    };
+  }
+
+  // 优先级 3/4：提示词和记忆都没提 → 完全按画幅 icon（需求原文第二句）。
   return {
     ratio: input.resolvedSelectorRatio,
     source: "selector",

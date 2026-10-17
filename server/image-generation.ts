@@ -101,6 +101,18 @@ type ImageGenerateInput = {
    */
   targetWidth?: number;
   targetHeight?: number;
+  /**
+   * 按账号的分层记忆，由服务端注入（server/index.ts 的 withUserMemory）。
+   *
+   * ⚠️⚠️⚠️ 必须在下方真的**拼进发给上游的提示词**里才算生效。
+   * 只在类型上加字段、不在 generateImages 里消费 = 典型的「透传但没被消费」，
+   * 表现是「个人中心写了习惯，出图完全不理」且零报错。
+   *
+   * ⚠️ 它是**独立字段**而不是提前拼进 prompt：prompt 会被
+   * shared/prompt-size-intent.ts 扫描尺寸意图，记忆里一句「我习惯 4K」
+   * 会让每张图都按 4K 出、按 4K 计费，界面报价却仍是 1K。
+   */
+  userMemory?: string;
 };
 
 type RemoveBackgroundInput = {
@@ -926,8 +938,21 @@ export const __testBuildImageModelCatalog = listImageModelCatalog;
 
 function buildPrompt(input: ImageGenerateInput) {
   const stylePrefix = input.style ? `风格：${input.style}\n` : "";
-  return `${stylePrefix}${input.prompt.trim()}`;
+  /*
+   * 账号记忆排在风格与本次提示词**之前**。
+   *
+   * 顺序即优先级：上游对最靠后的内容权重更高，用户这一次说的话
+   * 必须压过记忆。反过来写会出现「我这次明说不要蓝色，它还是给蓝色」——
+   * 📌 记忆的定位是「没说的时候照这个来」，不是覆盖本次要求。
+   *
+   * ⚠️ 这里是 generateImages 的唯一提示词收口（VOD 与中转站两条分支
+   *    都调它），改这一处即覆盖两条链路。
+   */
+  const memoryPrefix = input.userMemory ? `${input.userMemory.trim()}\n\n` : "";
+  return `${memoryPrefix}${stylePrefix}${input.prompt.trim()}`;
 }
+
+export const __testBuildImagePrompt = buildPrompt;
 
 function toAbsoluteUrl(url: string, baseUrl: string) {
   if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;

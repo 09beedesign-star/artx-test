@@ -439,6 +439,44 @@ export function resolveImageResolutionTier(width?: number, height?: number): AiI
   return matched?.tier || DEFAULT_IMAGE_RESOLUTION_TIER;
 }
 
+/**
+ * 开启上下文记忆的固定附加费（积分）。
+ * 
+ * 成本构成：约 500 token 长期画像 + 1500 token 项目摘要 + 1000 token 检索片段 = 3000 token，
+ * 按 gpt-4o 输入价（$5/MTok）≈ $0.015/次，换算成积分约 5。
+ * 
+ * 📌 平台选择固定价而非按实际 token 数浮动：
+ *    - 用户端：固定价让成本透明可预测，不会「用着用着突然贵了」。
+ *    - 平台端：平摊成本简单，记忆控制在预算内即可，不需要每次实时计费。
+ * 
+ * 2026-10-17 用户拍板：「记忆成本由用户承担，不是平台吃」。
+ */
+export const MEMORY_CONTEXT_SURCHARGE_CREDITS = 5;
+
+/**
+ * 真正会把记忆送进模型的能力。
+ *
+ * ⚠️ 记忆会被注入到很多路由的请求体里（抠图/去水印/扩图也走同一个收口），
+ *    但这些能力的上游根本不读提示词 —— 记忆注入了也没人用。
+ *    对它们收附加费 = 白扣用户的钱。只有下游确实消费了 userMemory 的能力才收：
+ *    - text_to_image：image-generation.ts buildPrompt + orchestrator buildPrompt
+ *    - text_generation：orchestrator buildPrompt
+ *    新增消费点时必须同步加进这里，否则就是平台白吃成本。
+ */
+export const MEMORY_CONSUMING_CAPABILITIES: readonly AiBillingCapability[] = [
+  "text_to_image",
+  "text_generation",
+];
+
+/**
+ * 记忆附加费的唯一计算口径。shared/quoteAiUsage 与 server 的
+ * quoteAiUsageFromData（生产链路）必须都调它 —— 只改一份等于没改。
+ */
+export function getMemoryContextSurcharge(capability: AiBillingCapability, userMemoryContext?: string) {
+  if (!userMemoryContext?.trim()) return 0;
+  return MEMORY_CONSUMING_CAPABILITIES.includes(capability) ? MEMORY_CONTEXT_SURCHARGE_CREDITS : 0;
+}
+
 export function quoteAiUsage(input: {
   capability: AiBillingCapability;
   outputCount?: number;
@@ -451,6 +489,12 @@ export function quoteAiUsage(input: {
    * 这是刻意的：没有声明分辨率的历史调用点一分钱都不该变。
    */
   resolutionTier?: string;
+  /**
+   * 用户的长期记忆上下文。有内容且 `contextEnabled` 时加收固定附加费。
+   * 
+   * ⚠️ 服务端注入，客户端不要传这个字段。
+   */
+  userMemoryContext?: string;
 }) {
   const policy = getAiBillingPolicy(input.capability);
   const discount = getAiPlanDiscount(input.planId);
@@ -477,7 +521,8 @@ export function quoteAiUsage(input: {
    * 也让用户无法心算「我还能出几张」。
    */
   const scaledCredits = rawCredits * discountMultiplier * resolutionPolicy.creditsMultiplier;
-  const chargedCredits = Math.max(1, Math.round(scaledCredits / 10) * 10);
+  const memorySurcharge = getMemoryContextSurcharge(input.capability, input.userMemoryContext);
+  const chargedCredits = Math.max(1, Math.round(scaledCredits / 10) * 10) + memorySurcharge;
   const estimatedCost = Number((
     (modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit)
     * (policy.billingUnit === "per_image" ? outputCount : 1)
