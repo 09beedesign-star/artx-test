@@ -260,7 +260,7 @@ export function EcommerceWorkspace({
 
         {/* 生成模型（展示名来自平台 label，默认 image2.5 medium，70 积分/张） */}
         <div>
-          <SectionTitle palette={palette} aside={`${unitCredits} 积分 / 张`}>
+          <SectionTitle palette={palette} aside={mode === "product" ? "多张同价" : `${unitCredits} 积分 / 张`}>
             生成模型
           </SectionTitle>
           {/*
@@ -287,9 +287,15 @@ export function EcommerceWorkspace({
             </button>
           </div>
           <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
-            {modelLabel} {unitCredits} 积分/张 × {count} 张
-            {memorySurcharge > 0 ? ` + 记忆 ${memorySurcharge}` : ""} = {quoteCredits} 积分 ·
-            融合左侧上传图、设置、卖点{mode === "post" ? "与模板" : "与背景模板"}一起生成
+            {mode === "product" ? (
+              <>{modelLabel} · 批次计费，1 - 8 张总积分相同 · 融合左侧上传图、设置、卖点与背景模板一起生成</>
+            ) : (
+              <>
+                {modelLabel} {unitCredits} 积分/张 × {count} 张
+                {memorySurcharge > 0 ? ` + 记忆 ${memorySurcharge}` : ""} = {quoteCredits} 积分 ·
+                融合左侧上传图、设置、卖点与模板一起生成
+              </>
+            )}
           </div>
           {/*
             长期记忆提示条（用户 2026-10-17 指定）：开启时在板块内明确告知；
@@ -464,7 +470,7 @@ export function EcommerceWorkspace({
             <div className="mt-3">
               <CountRow
                 label="生成数量"
-                desc={`1 - 8 张，${modelLabel} 单张 ${unitCredits} 积分${draft.productTier === "1k" ? "" : `（${draft.productTier} 分辨率）`}。`}
+                desc={`1 - 8 张，${modelLabel}${draft.productTier === "1k" ? "" : `（${draft.productTier} 分辨率）`}，张数越多单张越划算。`}
                 value={draft.productCount}
                 min={1}
                 max={8}
