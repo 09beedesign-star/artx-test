@@ -394,12 +394,14 @@ export function EcommerceWorkspace({
           {draft.uploads.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-2">
               {draft.uploads.map((src, i) => (
-                <div key={i} className="relative h-[52px] w-[52px] overflow-hidden rounded-md" style={{ border: `1px solid ${palette.border}` }}>
-                  <img src={src} alt={`商品图 ${i + 1}`} className="h-full w-full object-cover" />
+                <div key={i} className="relative h-[52px] w-[52px]">
+                  <div className="h-full w-full overflow-hidden rounded-md" style={{ border: `1px solid ${palette.border}` }}>
+                    <img src={src} alt={`商品图 ${i + 1}`} className="h-full w-full object-cover" />
+                  </div>
                   <button
                     type="button"
                     aria-label="移除"
-                    className="absolute right-[-4px] top-[-4px] flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white"
+                    className="absolute right-[-4px] top-[-4px] flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-white transition-transform hover:scale-110"
                     style={{ background: "#e24b4a" }}
                     onClick={() => updateDraft(prev => ({ ...prev, uploads: prev.uploads.filter((_, j) => j !== i) }))}
                   >
