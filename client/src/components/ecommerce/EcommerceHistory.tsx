@@ -41,8 +41,9 @@ function formatTime(ts: number) {
 
 export function EcommerceHistory({ palette, entries, onOpen, onRemove, onClear }: Props) {
   return (
-    <div className="relative flex min-h-full" style={{ background: palette.bg, color: palette.text }}>
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col p-5">
+    // ⚠️ h-full + overflow-y-auto：AppShell 内容区 overflow-hidden，min-h-full 会让超出部分被切掉、滚不动。
+    <div className="ecommerce-scroll relative flex h-full overflow-y-auto" style={{ background: palette.bg, color: palette.text }}>
+      <div className="mx-auto flex h-fit w-full max-w-[1080px] flex-col p-5">
         {/* 面包屑 + 返回工作台 */}
         <div className="mb-3 flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
           <Link href="/ecommerce-canvas/post" className="transition-colors hover:opacity-80" style={{ color: palette.sub }}>

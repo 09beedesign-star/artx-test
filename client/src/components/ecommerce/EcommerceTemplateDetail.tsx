@@ -39,7 +39,7 @@ export function EcommerceTemplateDetail({ template, palette, onUse }: Props) {
 
   if (!template) {
     return (
-      <div className="flex min-h-full items-center justify-center p-8" style={{ background: palette.bg, color: palette.text }}>
+      <div className="flex h-full items-center justify-center overflow-y-auto p-8" style={{ background: palette.bg, color: palette.text }}>
         <div className="max-w-sm rounded-xl p-6 text-center" style={{ background: palette.panelStrong, border: `1px solid ${palette.border}` }}>
           <Sparkles size={22} style={{ color: LIME }} className="mx-auto" />
           <div className="mt-2 text-[14px] font-semibold">模板不存在</div>
@@ -65,8 +65,9 @@ export function EcommerceTemplateDetail({ template, palette, onUse }: Props) {
   const next = ECOMMERCE_TEMPLATES[index + 1];
 
   return (
-    <div className="relative flex min-h-full" style={{ background: palette.bg, color: palette.text }}>
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col p-5">
+    // ⚠️ h-full + overflow-y-auto：AppShell 内容区 overflow-hidden，min-h-full 会让超出部分被切掉、滚不动。
+    <div className="ecommerce-scroll relative flex h-full overflow-y-auto" style={{ background: palette.bg, color: palette.text }}>
+      <div className="mx-auto flex h-fit w-full max-w-[1080px] flex-col p-5">
         {/* 面包屑 + 返回 */}
         <div className="mb-3 flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
           <Link href="/ecommerce-canvas/post" className="transition-colors hover:opacity-80" style={{ color: palette.sub }}>

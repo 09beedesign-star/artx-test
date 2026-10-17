@@ -16,7 +16,14 @@ export function PicwishBackgroundSelector({ isDark, selectedTemplate, onSelect, 
   useEffect(() => {
     let alive = true;
     listPicWishBackgroundTemplates().then(items => alive && setTemplates(items)).catch(reason => {
-      if (alive) setError(reason instanceof Error ? reason.message : "背景模板加载失败");
+      if (!alive) return;
+      // 静态环境下的 CORS 错误给出友好提示
+      const message = reason instanceof Error ? reason.message : String(reason);
+      if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("CORS")) {
+        setError("此功能需要完整的后端环境，静态预览暂不可用");
+      } else {
+        setError(message || "背景模板加载失败");
+      }
     });
     return () => { alive = false; };
   }, []);
@@ -34,7 +41,7 @@ export function PicwishBackgroundSelector({ isDark, selectedTemplate, onSelect, 
       {categories.map(item => <button key={item} type="button" className="shrink-0 rounded-md px-2.5 py-1.5 text-[10px] font-semibold" style={{ background: category === item ? "rgba(197,237,71,0.16)" : surface, border: `1px solid ${category === item ? "rgba(197,237,71,0.62)" : border}` }} onClick={() => setCategory(item)}>{item}</button>)}
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto p-5">
-      {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
+      {error ? <div className="rounded-md border p-4 text-center" style={{ borderColor: border, background: surface }}><p className="text-[11px] text-amber-400">{error}</p></div> : null}
       {!error && templates.length === 0 ? <div className="flex h-36 items-center justify-center gap-2 text-[11px] opacity-60"><LoaderCircle className="animate-spin" size={15} />加载背景模板</div> : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{visible.map(template => {
         const active = selectedTemplate?.id === template.id;

@@ -14,8 +14,11 @@ type Props = {
   index: number;
   selected: boolean;
   palette: EcommercePalette;
-  /** 选中该模板（工作台里是「直接选中并留在当前页」） */
-  onSelect: (template: EcommerceTpl) => void;
+  /**
+   * 选中该模板（工作台里是「直接选中并留在当前页」）。
+   * 第二个参数是封面元素，供工作台做「飞入左栏」动画取起点。
+   */
+  onSelect: (template: EcommerceTpl, coverEl: HTMLElement | null) => void;
   /** 进入模板详情二级页 */
   onOpenDetail: (template: EcommerceTpl) => void;
 };
@@ -47,10 +50,13 @@ export function EcommerceTemplateCard({
         type="button"
         aria-pressed={selected}
         className="block w-full text-left"
-        onClick={() => onSelect(template)}
+        onClick={event => {
+          const coverEl = (event.currentTarget as HTMLElement).querySelector<HTMLElement>("[data-tpl-cover]");
+          onSelect(template, coverEl);
+        }}
       >
         {cover ? (
-          <div className="aspect-[9/7] p-[3px]">
+          <div className="aspect-[9/7] p-[3px]" data-tpl-cover>
             <img
               src={cover}
               alt={`${template.name} 示例`}

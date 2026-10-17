@@ -95,6 +95,44 @@ export function EcommerceWorkspace({
   const [dragOver, setDragOver] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const leftScrollRef = useRef<HTMLDivElement>(null);
+  const tplSlotRef = useRef<HTMLImageElement>(null);
+  const tplSectionRef = useRef<HTMLDivElement>(null);
+  /** 正在飞向左栏的模板封面（FLIP 动画用的临时克隆）。 */
+  const [flying, setFlying] = useState<{ src: string; from: DOMRect; to: DOMRect | null } | null>(null);
+  const [slotPulse, setSlotPulse] = useState(0);
+
+  /**
+   * 选中模板：把卡片封面「移动 + 缩放」飞进左栏「选择模板」卡片。
+   *
+   * ⚠️ 目标卡片可能在左栏可视区之外（左栏能滚动），所以先把左栏滚到目标处，
+   *    等一帧拿到滚动后的真实位置再起飞，否则克隆会飞到屏幕外。
+   * ⚠️ 尊重 prefers-reduced-motion：系统要求减少动效时直接选中，不飞。
+   */
+  function selectTemplateWithFlight(picked: { id: number }, sourceEl: HTMLElement | null) {
+    const cover = templateCoverUrl(picked.id);
+    const reduce = typeof window !== "undefined"
+      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    updateDraft({ tplId: picked.id });
+    // ⚠️ 用 section 而不是 slot 做滚动锚点：之前没选过模板时，slot 要等这次重渲染后才存在。
+    const section = tplSectionRef.current;
+    if (!cover || !sourceEl || !section || reduce) {
+      setSlotPulse(n => n + 1);
+      return;
+    }
+    const from = sourceEl.getBoundingClientRect();
+    section.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setFlying({ src: cover, from, to: null });
+    // 等滚动开始稳定后再取落点（smooth scroll 约 300ms）
+    window.setTimeout(() => {
+      const to = tplSlotRef.current?.getBoundingClientRect() || null;
+      setFlying(prev => (prev ? { ...prev, to } : prev));
+    }, 260);
+    window.setTimeout(() => {
+      setFlying(null);
+      setSlotPulse(n => n + 1);
+    }, 260 + 620);
+  }
 
   const tpl = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId) || null;
   const visibleTpls = tplCategory === "all"
@@ -146,10 +184,21 @@ export function EcommerceWorkspace({
   }
 
   return (
-    <div className="relative flex min-h-full" style={{ background: palette.bg, color: palette.text }}>
+    <div className="relative flex h-full" style={{ background: palette.bg, color: palette.text }}>
 
       {/* ── 左参数栏 ── */}
-      <aside className="flex w-[340px] shrink-0 flex-col gap-4 overflow-y-auto border-r p-4 pb-6" style={{ borderColor: palette.border }}>
+      <aside
+        className="flex w-[340px] shrink-0 flex-col overflow-hidden border-r"
+        style={{ borderColor: palette.border }}
+      >
+        {/*
+          ⚠️ 滚动必须落在这一层（flex-1 + min-h-0 + overflow-y-auto）。
+             之前 aside 自身是 overflow-y-auto 但没有确定高度，
+             外层是 min-h-full 会被内容撑开 → 永远不出现滚动条，
+             底部内容被 AppShell 的 overflow-hidden 直接切掉（2026-10-17 截图事故）。
+        */}
+        <div ref={leftScrollRef} className="ecommerce-scroll min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-6">
+          <div className="flex flex-col gap-4">
 
         {/* 面包屑 + 历史记录入口 */}
         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
@@ -199,7 +248,33 @@ export function EcommerceWorkspace({
           <SectionTitle palette={palette} aside={`${unitCredits} 积分 / 张`}>
             生成模型
           </SectionTitle>
-          <ModelSelector model={draft.model} onChange={model => updateDraft({ model })} isDark={isDark} placement="down" />
+          {/*
+            生成按钮放在模型选择器右侧（用户 2026-10-17 指定）。
+            ⚠️ 原先放在左栏最底部，小屏下被浏览器边缘截断、根本点不到。
+            点击 = 把左栏全部输入（上传图 + 平台/市场/语言/比例 + 卖点 + 模板 + 模型）
+            融合成一次生成，校验与拼 prompt 都在 EcommerceCanvasPage.handleGenerate。
+          */}
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <ModelSelector model={draft.model} onChange={model => updateDraft({ model })} isDark={isDark} placement="down" />
+            </div>
+            <button
+              type="button"
+              data-testid="ecommerce-generate"
+              disabled={generating}
+              onClick={onGenerate}
+              title={`融合上传图、生成设置、卖点${mode === "post" ? "、模板" : "、背景模板"}与所选模型生成`}
+              className="flex shrink-0 items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-55"
+              style={{ background: LIME, color: "#1a1a1a" }}
+            >
+              {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {generating ? "生成中…" : "生成"}
+            </button>
+          </div>
+          <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
+            {modelLabel} {unitCredits} 积分/张 × {count} 张 = {quoteCredits} 积分 ·
+            融合左侧上传图、设置、卖点{mode === "post" ? "与模板" : "与背景模板"}一起生成
+          </div>
         </div>
 
         {/* 上传 */}
@@ -355,14 +430,21 @@ export function EcommerceWorkspace({
           </div>
         </div>
 
-        {/* 选择模板（带货图文） */}
-        {mode === "post" ? (
-          <div>
+          {/* 选择模板（带货图文） */}
+          {mode === "post" ? (
+            <div ref={tplSectionRef}>
             <SectionTitle palette={palette}>选择模板</SectionTitle>
             {tpl ? (
-              <div className="flex items-center gap-2.5 rounded-md p-2.5" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
+              <div
+                key={`slot-${tpl.id}-${slotPulse}`}
+                data-testid="ecommerce-selected-template"
+                className={`flex items-center gap-2.5 rounded-md p-2.5${slotPulse ? " ecommerce-slot-pulse" : ""}`}
+                style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
+              >
                 {templateCoverUrl(tpl.id) ? (
                   <img
+                    ref={tplSlotRef}
+                    data-tpl-slot
                     src={templateCoverUrl(tpl.id)!}
                     alt=""
                     className="h-[52px] w-[66px] shrink-0 rounded object-cover"
@@ -432,32 +514,16 @@ export function EcommerceWorkspace({
           </div>
         ) : null}
 
-        {/* 生成 */}
-        <div className="mt-auto border-t pt-4" style={{ borderColor: palette.border }}>
-          <div className="mb-2 flex items-center justify-between text-[11px]" style={{ color: palette.sub }}>
-            <span>
-              {modelLabel} {unitCredits} 积分/张 × {count} 张 = {quoteCredits} 积分
-            </span>
-            <span className="shrink-0 pl-2">口径同全站</span>
           </div>
-          <button
-            type="button"
-            disabled={generating}
-            onClick={onGenerate}
-            className="flex w-full items-center justify-center gap-2 rounded-md py-3 text-[14px] font-semibold transition-all disabled:opacity-55"
-            style={{ background: LIME, color: "#1a1a1a" }}
-          >
-            {generating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {generating ? "生成中…" : mode === "post" ? "生成带货图文" : "生成产品图"}
-            <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: "rgba(0,0,0,0.14)" }}>
-              共 {count} 张 · {quoteCredits} 积分
-            </span>
-          </button>
         </div>
       </aside>
 
       {/* ── 右侧：模板库 / 生成结果 ── */}
-      <main className="relative min-w-0 flex-1 overflow-y-auto p-5">
+      {/*
+        ⚠️ h-full + overflow-y-auto：AppShell 的内容区是 overflow-hidden，
+           这里不自带滚动的话，模板库第二屏以下鼠标滚轮完全滚不动。
+      */}
+      <main className="ecommerce-scroll relative h-full min-w-0 flex-1 overflow-y-auto p-5">
         {showResults ? (
           <div>
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -552,7 +618,7 @@ export function EcommerceWorkspace({
                   index={i}
                   selected={draft.tplId === item.id}
                   palette={palette}
-                  onSelect={picked => updateDraft({ tplId: picked.id })}
+                  onSelect={selectTemplateWithFlight}
                   onOpenDetail={picked => onOpenTemplateDetail(picked.id)}
                 />
               ))}
@@ -591,6 +657,53 @@ export function EcommerceWorkspace({
           </div>
         ) : null}
       </main>
+
+      {/*
+        模板封面飞行克隆：FLIP 动画，起点在工作台卡片，终点在左栏选择区。
+        ⚠️ fixed 定位 + pointer-events-none，不影响页面原布局与点击。
+      */}
+      {flying && flying.to ? (
+        <div
+          className="pointer-events-none fixed z-50 overflow-hidden rounded-md"
+          style={{
+            left: flying.from.left,
+            top: flying.from.top,
+            width: flying.from.width,
+            height: flying.from.height,
+            boxShadow: "0 4px 24px rgba(197,237,71,0.22)",
+            // ⚠️ 必须左上角为原点：默认 center 时 scale 会让位移量算错，落点偏移。
+            transformOrigin: "top left",
+            animation: "ecommerce-fly-to-slot 620ms cubic-bezier(0.2,0,0,1) forwards",
+            "--fly-tx": `${flying.to.left - flying.from.left}px`,
+            "--fly-ty": `${flying.to.top - flying.from.top}px`,
+            "--fly-sx": (flying.to.width / flying.from.width).toString(),
+            "--fly-sy": (flying.to.height / flying.from.height).toString(),
+          } as React.CSSProperties}
+        >
+          <img
+            src={flying.src}
+            alt=""
+            loading="eager"
+            className="h-full w-full rounded object-cover"
+          />
+        </div>
+      ) : null}
+
+      <style>{`
+        @keyframes ecommerce-fly-to-slot {
+          to {
+            transform: translate(var(--fly-tx), var(--fly-ty)) scale(var(--fly-sx), var(--fly-sy));
+          }
+        }
+        @keyframes ecommerce-slot-pulse {
+          0%, 100% { transform: scale(1); }
+          30% { transform: scale(0.97); }
+          60% { transform: scale(1.01); }
+        }
+        .ecommerce-slot-pulse {
+          animation: ecommerce-slot-pulse 460ms ease-out;
+        }
+      `}</style>
     </div>
   );
 }

@@ -45,8 +45,16 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
   }, [category, keyword]);
 
   return (
-    <div className="relative flex min-h-full" style={{ background: palette.bg, color: palette.text }}>
-      <div className="flex min-h-full w-full flex-col p-5">
+    /*
+      ⚠️ h-full + 内层 overflow-y-auto：AppShell 内容区是 overflow-hidden，
+         原先 min-h-full 会被 49 张卡片撑高、多出的部分被直接切掉，
+         鼠标滚轮完全滚不动（2026-10-17 用户反馈）。
+    */
+    <div className="relative flex h-full" style={{ background: palette.bg, color: palette.text }}>
+      <div
+        data-testid="ecommerce-gallery-scroll"
+        className="ecommerce-scroll flex h-full w-full flex-col overflow-y-auto p-5"
+      >
         {/* 面包屑 + 返回工作台 */}
         <div className="mb-3 flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
           <Link href="/ecommerce-canvas/post" className="transition-colors hover:opacity-80" style={{ color: palette.sub }}>
