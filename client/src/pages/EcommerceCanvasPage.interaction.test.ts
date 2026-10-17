@@ -39,14 +39,42 @@ const shellSource = readFileSync(
 );
 
 describe("电商画布：父路由挂载", () => {
-  it("App 里注册的是 /ecommerce-canvas/* 通配路由，不是定值路由", () => {
+  it("App 里注册的是 /ecommerce-canvas/*? 可选通配路由", () => {
     /*
-      ⚠️ 定值 path 不吃尾斜杠：静态托管（含发布用的静态产物）会把
-         /ecommerce-canvas 重定向成 /ecommerce-canvas/，定值 path 不匹配，
-         页面会掉进 NotFound —— 线上就是这么白的，且控制台零报错。
+      ⚠️ 定值 path 不吃尾斜杠（静态托管会 301 成 /ecommerce-canvas/）；
+      ⚠️ /* 不吃无斜杠的 /ecommerce-canvas —— 侧栏入口就是这个地址，
+         2026-10-17 线上站内点击直接 404。只有 /*? 两头都能匹配。
     */
-    expect(appSource).toContain('<Route path="/ecommerce-canvas/*">');
+    expect(appSource).toContain('<Route path="/ecommerce-canvas/*?">');
     expect(appSource).not.toContain('<Route path="/ecommerce-canvas">');
+    expect(appSource).not.toContain('<Route path="/ecommerce-canvas/*">');
+  });
+
+  it("该 path 用 wouter 实际的匹配器能命中侧栏入口、尾斜杠和所有子页", async () => {
+    // 用 wouter 自己依赖的 regexparam 编译（从 wouter 包目录解析，pnpm 下它不在顶层），
+    // 测的是真实匹配结果而不是字符串。
+    const { createRequire } = await import("node:module");
+    const { pathToFileURL } = await import("node:url");
+    const requireFromWouter = createRequire(createRequire(import.meta.url).resolve("wouter"));
+    const regexparamEntry = requireFromWouter.resolve("regexparam");
+    const { parse } = await import(pathToFileURL(regexparamEntry).href);
+    const { pattern } = parse("/ecommerce-canvas/*?");
+    for (const url of [
+      "/ecommerce-canvas",
+      "/ecommerce-canvas/",
+      "/ecommerce-canvas/post",
+      "/ecommerce-canvas/product",
+      "/ecommerce-canvas/templates",
+      "/ecommerce-canvas/templates/3",
+      "/ecommerce-canvas/history",
+    ]) {
+      expect(pattern.test(url), url).toBe(true);
+    }
+    expect(pattern.test("/ecommerce-canvasx")).toBe(false);
+  });
+
+  it("侧栏入口地址必须能被路由命中", () => {
+    expect(shellSource).toContain('path="/ecommerce-canvas"');
   });
 
   it("路由里挂的是 EcommerceCanvasPage，且包在 AppShell 里（保留侧边栏）", () => {

@@ -3,7 +3,7 @@
  *
  * 「AI 带货图文」+ 原「智能电商产品」的整合入口（左侧边栏「电商画布」）。
  *
- * 【子路由】父路由注册的是 /ecommerce-canvas/*，这里再分发：
+ * 【子路由】父路由注册的是 /ecommerce-canvas/*?（可选通配，见 App.tsx），这里再分发：
  *   /ecommerce-canvas                  → 带货图文工作台（默认）
  *   /ecommerce-canvas/post             → 带货图文工作台
  *   /ecommerce-canvas/product          → 产品图工作台

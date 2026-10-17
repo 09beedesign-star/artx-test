@@ -164,10 +164,13 @@ function AppRoutes() {
 
       {/*
         电商画布：带货图文 + 智能电商产品图整合入口。
-        用 /* 而非定值 —— 静态托管会把 /ecommerce-canvas 重定向成带尾斜杠的
-        /ecommerce-canvas/，wouter 的定值 path 不匹配尾斜杠，会掉进 NotFound。
+        必须用 /*?（可选通配）：
+        - 定值 path 不匹配静态托管 301 出来的尾斜杠 /ecommerce-canvas/；
+        - 而 /* 编译成 ^/ecommerce-canvas/(.*)，**不匹配不带斜杠的 /ecommerce-canvas** ——
+          侧栏入口正是这个地址，站内点击直接掉进 NotFound（2026-10-17 线上 404 事故）。
+        /*? 三种形态都能匹配，且不会误吞 /ecommerce-canvasx。
       */}
-      <Route path="/ecommerce-canvas/*">
+      <Route path="/ecommerce-canvas/*?">
         <AppShell>
           <EcommerceCanvasPage />
         </AppShell>
