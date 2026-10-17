@@ -471,6 +471,9 @@ export function EcommerceWorkspace({
                 onChange={productCount => updateDraft({ productCount })}
                 palette={palette}
               />
+              <div className="mt-2 rounded-md px-2.5 py-2 text-[10.5px] leading-relaxed" style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.sub }}>
+                💡 产品图模式采用<span style={{ color: palette.text, fontWeight: 500 }}>批次计费</span>：生成 1 张和 8 张消耗的总积分相同。<span style={{ color: LIME }}>建议一次生成多张</span>，单张成本更低。
+              </div>
             </div>
           </div>
         )}

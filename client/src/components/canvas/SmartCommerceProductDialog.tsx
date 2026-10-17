@@ -2393,6 +2393,9 @@ export function SmartCommerceProductDialog({
                     </button>
                   ))}
                 </div>
+                <div className="mt-2 rounded-md px-2.5 py-2 text-[10px] leading-relaxed" style={{ background: colors.surfaceStrong, border: `1px solid ${colors.border}`, color: colors.muted }}>
+                  💡 智能产品采用<span style={{ color: colors.text, fontWeight: 500 }}>批次计费</span>：生成 1 张和 8 张消耗的总积分相同。<span style={{ color: colors.accent }}>建议一次生成多张</span>，单张成本更低。
+                </div>
               </div>
 
               {hasDispatched ? (
