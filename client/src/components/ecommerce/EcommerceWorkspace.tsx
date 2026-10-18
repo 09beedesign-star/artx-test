@@ -443,16 +443,52 @@ export function EcommerceWorkspace({
           <div>
             <SectionTitle palette={palette}>生成设置</SectionTitle>
             <div className="mb-2 grid grid-cols-2 gap-2">
-              <Select value={draft.platform} options={ECOMMERCE_PLATFORMS} onChange={platform => updateDraft({ platform })} isDark={isDark} palette={palette} />
-              <Select value={draft.market} options={ECOMMERCE_MARKETS} onChange={market => updateDraft({ market })} isDark={isDark} palette={palette} />
-              <Select value={draft.language} options={ECOMMERCE_LANGUAGES} onChange={language => updateDraft({ language })} isDark={isDark} palette={palette} />
-              <Select
-                value={draft.postRatio}
-                options={ECOMMERCE_RATIOS}
-                onChange={postRatio => updateDraft({ postRatio, userModifiedPostRatio: true })}
-                isDark={isDark}
-                palette={palette}
-              />
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Select value={draft.platform} options={ECOMMERCE_PLATFORMS} onChange={platform => updateDraft({ platform })} isDark={isDark} palette={palette} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="max-w-[220px] text-[11px] leading-relaxed">
+投放平台：AI 会参考该平台的常见视觉风格来构图和排版（如 TikTok 偏动感、小红书偏生活感）
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Select value={draft.market} options={ECOMMERCE_MARKETS} onChange={market => updateDraft({ market })} isDark={isDark} palette={palette} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="max-w-[220px] text-[11px] leading-relaxed">
+目标市场：AI 会让场景、模特和道具更贴近当地审美与生活习惯
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Select value={draft.language} options={ECOMMERCE_LANGUAGES} onChange={language => updateDraft({ language })} isDark={isDark} palette={palette} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="max-w-[220px] text-[11px] leading-relaxed">
+文案语言：图片里如果出现标题或卖点文字，会用这种语言书写
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Select
+                      value={draft.postRatio}
+                      options={ECOMMERCE_RATIOS}
+                      onChange={postRatio => updateDraft({ postRatio, userModifiedPostRatio: true })}
+                      isDark={isDark}
+                      palette={palette}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="max-w-[220px] text-[11px] leading-relaxed">
+图片比例：决定生成图片的宽高比例，按发布位置选择（如 3:4 适合信息流，9:16 适合全屏）
+                </TooltipContent>
+              </Tooltip>
             </div>
             {/*
               2026-10-18 用户拍板：去掉「图片不加文字」开关——它会和「商品卖点 & 要求」里
