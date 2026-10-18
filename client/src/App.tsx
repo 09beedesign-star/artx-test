@@ -32,6 +32,7 @@ import CreditGrantNotification from "./components/billing/CreditGrantNotificatio
 import BillingDialogProvider from "./components/billing/BillingDialogProvider";
 import InsufficientCreditsDialog from "./components/billing/InsufficientCreditsDialog";
 import { startWorkspaceAutoSync } from "./lib/workspace-sync";
+import { addEcommerceHistoryEntry, smartCommerceEntryFromTask } from "./lib/image-gen-history";
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -96,6 +97,26 @@ function AppRoutes() {
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
     return startWorkspaceAutoSync();
+  }, [isAuthenticated, user?.id]);
+
+  /*
+   * 智能产品历史记录全局监听。
+   *
+   * InfiniteCanvas 生成完成时 dispatch("image-generator-submit", { ...payload, status:"completed", images })；
+   * 智能产品的 style 是 "智能产品图结果"（InfiniteCanvas:29791），每次生成一个记录，按账号隔离。
+   *
+   * 弹窗生成后 1 秒关闭 → 无法自己监听，只能在上层捕获。
+   * 后台轮询恢复会对同一 generationId 再发一次 completed → 追加时按 id 去重。
+   */
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const entry = smartCommerceEntryFromTask(detail);
+      if (entry) addEcommerceHistoryEntry(user.id, entry, "smart-commerce");
+    };
+    window.addEventListener("image-generator-submit", listener);
+    return () => window.removeEventListener("image-generator-submit", listener);
   }, [isAuthenticated, user?.id]);
 
   return (

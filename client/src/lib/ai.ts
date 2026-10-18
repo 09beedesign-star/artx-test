@@ -163,7 +163,16 @@ function getAiAssetBaseUrl() {
   // 这个文件，前端直接图裂。空串必须原样保留，让浏览器按同源解析。
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".trycloudflare.com") ||
+      hostname.endsWith(".loca.lt") ||
+      hostname.endsWith(".lhr.life")
+    ) {
+      return "";
+    }
   }
   return ART_X_TEST_AI_API_BASE_URL;
 }
@@ -245,6 +254,11 @@ export type AiModelEntitlementsResponse = ApiErrorResponse & {
   imageModels: AiModelEntitlement[];
 };
 
+/** 导出给非 AI 调用的同口径接口（如 /api/uploads/expiry），避免各处自己猜 base。 */
+export function getAiApiBaseUrlForClient() {
+  return getAiApiBaseUrl();
+}
+
 function getAiApiBaseUrl() {
   if (aiApiBaseOverride) return aiApiBaseOverride;
   const configured = (
@@ -271,7 +285,16 @@ function getAiApiBaseUrl() {
   if (normalized) return normalized;
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return "";
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".trycloudflare.com") ||
+      hostname.endsWith(".loca.lt") ||
+      hostname.endsWith(".lhr.life")
+    ) {
+      return "";
+    }
   }
   return ART_X_TEST_AI_API_BASE_URL;
 }
@@ -896,6 +919,7 @@ export async function createProductBackground({
   customHeight,
   skillId,
   model = DEFAULT_IMAGE_MODEL_ID,
+  generationId,
 }: {
   imageSrc: string;
   backgroundReferenceSrc?: string;
@@ -911,8 +935,32 @@ export async function createProductBackground({
   customHeight?: number;
   skillId?: string;
   model?: string;
+  generationId?: string;
 }) {
   requireAiAuth();
+  
+  if (generationId) {
+    return runImageGenerationTask({
+      taskId: generationId,
+      capability: "smart_background",
+      operation: "create-background",
+      imageSrc,
+      backgroundReferenceSrc,
+      backgroundReferenceName,
+      prompt,
+      style,
+      composition,
+      sceneType,
+      ratio: resolveImageRatio(ratio),
+      resolution,
+      count,
+      customWidth,
+      customHeight,
+      skillId,
+      model,
+    });
+  }
+  
   const result = await postProductBackground({
     imageSrc,
     backgroundReferenceSrc,

@@ -624,6 +624,7 @@ import {
   removeImageWatermark,
   requestAiAuth,
   runImageGenerationTask,
+  waitForImageGenerationTask,
   searchReferenceImages,
   startBackgroundImageGeneration,
   type ImageGenerationTaskInput,
@@ -652,6 +653,12 @@ import {
   updateWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
+import {
+  isInRecoveryWindow,
+  hasPromptedThisSession,
+  markPromptedThisSession,
+  recoveryBatchSignature,
+} from "@/lib/task-recovery-window";
 import {
   CONVERSATION_FALLBACK_TITLE,
   canvasConversationIndexKey,
@@ -6776,6 +6783,9 @@ function AssetNodeComponent({
   const isGenerationFailed = Boolean(
     (data as { isGenerationFailed?: boolean }).isGenerationFailed
   );
+  const isGenerationInterrupted = Boolean(
+    (data as { isGenerationInterrupted?: boolean }).isGenerationInterrupted
+  );
   const isRemovingBackground = Boolean(
     (data as { isRemovingBackground?: boolean }).isRemovingBackground
   );
@@ -6788,6 +6798,7 @@ function AssetNodeComponent({
   const isAiProcessingImage =
     isGeneratingImage ||
     isGenerationFailed ||
+    isGenerationInterrupted ||
     isRemovingBackground ||
     isErasingImage;
   /**
@@ -6805,15 +6816,17 @@ function AssetNodeComponent({
     .processingTitle ||
     (isInPlaceRepainting
       ? "AI 局部重绘中"
-      : isGenerationFailed
-        ? "生成图片失败"
-        : isGeneratingImage
-          ? "正在开足马力为您生成图片"
-          : isErasingImage
-            ? "AI 擦除中"
-            : isRemovingBackground
-              ? "AI 去背景中"
-              : "AI 处理中")) as string;
+      : isGenerationInterrupted
+        ? "图片生成中断"
+        : isGenerationFailed
+          ? "生成图片失败"
+          : isGeneratingImage
+            ? "正在开足马力为您生成图片"
+            : isErasingImage
+              ? "AI 擦除中"
+              : isRemovingBackground
+                ? "AI 去背景中"
+                : "AI 处理中")) as string;
   const processingSubtitle = ((data as { processingSubtitle?: string })
     .processingSubtitle || "") as string;
   /**
@@ -6829,10 +6842,11 @@ function AssetNodeComponent({
     : "rgba(255,255,255,0.30)";
   const processingTextShadow = "0 1px 8px rgba(0,0,0,0.55)";
   const processingLines = (() => {
+    if (isGenerationInterrupted) return ["图片生成中断"];
     if (isGenerationFailed) return ["生成图片失败"];
     /*
      * ⚠️ 就地重绘必须排在 `isGeneratingImage` **之前**：
-     *    它同时满足 isGeneratingImage，排在后面就永远轮不到 ——
+     *    它同时满足 isGeneratingImage,排在后面就永远轮不到 ——
      *    表现为用户点局部重绘、图被模糊了、字却写着「正在开足马力为您生成图片」。
      */
     if (isInPlaceRepainting) return ["AI 局部重绘中", "正在按你的指令重绘这张图"];
@@ -13938,6 +13952,14 @@ type ImageGeneratorPayload = {
   inPlaceRepaintNodeId?: string;
   /** 调用方显式声明这是一次局部重绘（A|B 对比滑杆用，见 repaint-compare.ts）。 */
   localRepaint?: boolean;
+  /**
+   * 逐张出图的子任务 id（2026-10-18，智能产品提示词模式）。
+   *
+   * 有值 = 这批图由前端循环逐张提交到服务端任务队列，每张一个 id。
+   * 刷新后恢复走「静默轮询子任务」分支：不弹「是否继续」、不重发；
+   * 有图就回填，一张都没有就直接删节点（用户 2026-10-18 拍板）。
+   */
+  subTaskIds?: string[];
 };
 
 type ImageRegenerateRequestDetail = {
@@ -15041,6 +15063,28 @@ async function consumeCompletedImageGenerationTasks(projectId: string) {
           };
     })
   );
+}
+
+/**
+ * 用户取消恢复时，标记所有未消费的任务为已消费。
+ * 任务不会被删除，后台完成后仍可写入历史，避免积分浪费。
+ */
+function cancelPendingTaskRecovery(projectId: string) {
+  const tasks = readPersistedImageGenerationTasks();
+  const now = Date.now();
+  let changed = false;
+  const next = tasks.map(task => {
+    if (
+      (task.projectId || "p1") === (projectId || "p1") &&
+      !task.consumedAt &&
+      (task.status === "pending" || task.status === "completed")
+    ) {
+      changed = true;
+      return { ...task, consumedAt: now, updatedAt: now };
+    }
+    return task;
+  });
+  if (changed) writePersistedImageGenerationTasks(next);
 }
 
 function readPendingImageGenerationTasks(projectId: string) {
@@ -27608,6 +27652,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   } = useReactFlow();
   const reactFlowStore = useStoreApi();
   const viewport = useViewport();
+  const pageLoadTimeRef = useRef(Date.now());
+  /** 「是否继续」恢复提示是否还开着（开着时禁止 effect 重跑绕过提示自动恢复）。 */
+  const recoveryPromptOpenRef = useRef(false);
+  /** 正在静默恢复的智能产品提示词批次（防 effect 重跑起重复轮询器）。 */
+  const silentRecoveryInFlightRef = useRef(new Set<string>());
   // 云端留存提醒弹窗：阻断式，必须点「我知道了」或「不再提醒」才关闭。
   const [cloudRetentionDialogOpen, setCloudRetentionDialogOpen] =
     useState(false);
@@ -28575,6 +28624,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       maxResultCount = 4,
       model = DEFAULT_IMAGE_AI_MODEL_ID,
       backgroundTaskInput,
+      subTaskIds,
       throwOnFailure = false,
       inPlaceRepaintNodeId,
       localRepaint,
@@ -28594,6 +28644,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       maxResultCount?: number;
       model?: string;
       backgroundTaskInput?: Omit<ImageGenerationTaskInput, "taskId">;
+      /** 逐张子任务 id（见 ImageGeneratorPayload.subTaskIds）。 */
+      subTaskIds?: string[];
       /**
        * 就地局部重绘的目标节点 id（2026-09-21）。
        *
@@ -28696,6 +28748,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               taskId: generationId,
             }
           : undefined,
+        subTaskIds: subTaskIds?.length ? subTaskIds : undefined,
       };
       activeForegroundImageTaskIdsRef.current.add(generationId);
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
@@ -29785,7 +29838,24 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         })
       );
       const smartProductCount = Math.max(1, Math.min(Number(detail.count) || 1, 9));
+      /**
+       * 提示词模式可恢复（2026-10-18）。
+       *
+       * 每张图用独立子任务 id `${generationId}-img${i}` 传给 editImageWithPrompt → 走异步任务链路，
+       * 服务端有记录。刷新重进时 ensureBackgroundImageGeneration 识别 subTaskIds，**静默**轮询：
+       * 拿到图就回填；一张都拿不到就直接把节点删掉、不给任何提示（用户 2026-10-18 拍板）。
+       * ⚠️ 恢复只轮询、绝不重发（防重复扣费）：刷新时还没轮到的子任务服务端查无此任务，按「无图」处理。
+       */
+      const smartGenerationId = `智能产品图结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const promptModeSubTaskIds = isPromptMode
+        ? Array.from(
+            { length: smartProductCount },
+            (_, index) => `${smartGenerationId}-img${index}`
+          )
+        : undefined;
       await runDerivedImageGeneration({
+        generationId: smartGenerationId,
+        subTaskIds: promptModeSubTaskIds,
         sourceNode,
         prompt: smartProductPrompt,
         style: "智能产品图结果",
@@ -29800,10 +29870,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         model: isPromptMode
           ? SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID
           : DEFAULT_IMAGE_AI_MODEL_ID,
-        // 提示词模式不能带 backgroundTaskInput：
-        // runDerivedImageGeneration 里 backgroundTaskInput 的优先级高于 run()
-        // （:23225 的三元），一旦带上就会被后台任务链路接管、回到 PicWish 分支，
-        // 下面的 run() 根本不会执行。
+        // 提示词模式不能带单个 backgroundTaskInput（会被后台任务链路接管、回到 PicWish 分支）；
+        // 改为传多任务输入数组 promptModeTaskInputs，让 runDerivedImageGeneration 在 run() 里逐张调用。
         backgroundTaskInput: isPromptMode
           ? undefined
           : {
@@ -29853,6 +29921,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           for (let index = 0; index < smartProductCount; index += 1) {
             try {
               const single = await editImageWithPrompt({
+                // 独立子任务 id → 走异步任务链路，刷新后可按 subTaskIds 静默恢复。
+                generationId: promptModeSubTaskIds?.[index],
                 imageSrc: detail.imageSrc,
                 model: SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID,
                 // 多张时给每张加差异化指令，否则同一提示词会得到几乎一样的图。
@@ -32588,28 +32658,229 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       isRestoringRef.current
     )
       return;
+    
     let cancelled = false;
-    readPendingImageGenerationTasks(projectId).forEach(task => {
-      ensureBackgroundImageGeneration(task);
-    });
-    consumeCompletedImageGenerationTasks(projectId).then(completedTasks => {
-      if (cancelled || completedTasks.length === 0) return;
-      completedTasks.forEach(task => {
-        window.dispatchEvent(
-          new CustomEvent("image-generator-submit", {
-            detail: {
-              ...task,
-              projectId,
-              status: "completed",
-            },
-          })
-        );
+    const allTasks = readPersistedImageGenerationTasks();
+    // 智能产品提示词模式的子任务（静默恢复，不弹提示）
+    const smartProductSubTaskBatches = allTasks.filter(
+      t =>
+        (t.projectId || "p1") === (projectId || "p1") &&
+        t.status === "pending" &&
+        !t.consumedAt &&
+        t.subTaskIds?.length
+    );
+    // 其他正常任务（可能弹提示）
+    const pendingTasks = readPendingImageGenerationTasks(projectId).filter(
+      t => !t.subTaskIds?.length
+    );
+    const hasPendingTasks = pendingTasks.length > 0;
+    
+    // 1. 先处理智能产品提示词模式的静默恢复
+    smartProductSubTaskBatches.forEach(batch => {
+      // ⚠️ 前台循环还在跑（没刷新、只是 effect 因 canvasRestoreTick 重跑）→ 不能并发轮询。
+      if (activeForegroundImageTaskIdsRef.current.has(batch.generationId)) return;
+      // ⚠️ effect 重跑时同一批不能起第二个轮询器（否则回填两次 / 删两次）。
+      if (silentRecoveryInFlightRef.current.has(batch.generationId)) return;
+      silentRecoveryInFlightRef.current.add(batch.generationId);
+      (async () => {
+        const subTaskIds = batch.subTaskIds || [];
+        const recovered: Array<{ src: string; width: number; height: number }> = [];
+        for (const subId of subTaskIds) {
+          try {
+            const subTask = await waitForImageGenerationTask(subId);
+            if (subTask?.images?.length) {
+              recovered.push(...subTask.images.map(img => ({
+                src: img.src || "",
+                width: img.width || 1024,
+                height: img.height || 1024,
+              })));
+            }
+          } catch {
+            /* 服务端已超时或不存在，忽略这张 */
+          }
+        }
+        
+        // 至少拿到一张 → 回填节点并标记已消费
+        if (recovered.length > 0) {
+          markImageGenerationTaskConsumed(projectId, batch.generationId);
+          window.dispatchEvent(
+            new CustomEvent("image-generator-submit", {
+              detail: {
+                ...batch,
+                projectId,
+                status: "completed",
+                images: recovered,
+              },
+            })
+          );
+        } else {
+          // 一张都没拿到 → 删节点
+          markImageGenerationTaskConsumed(projectId, batch.generationId);
+          setNodes(nds =>
+            nds.filter(node => {
+              if (node.type !== "asset") return true;
+              const data = node.data as Record<string, unknown>;
+              return data.generationId !== batch.generationId;
+            })
+          );
+        }
+      })().finally(() => {
+        silentRecoveryInFlightRef.current.delete(batch.generationId);
       });
     });
+    
+    // 2. 处理其他任务的恢复提示
+    const scope = "workspace";
+    const signature = recoveryBatchSignature(
+      pendingTasks.map(t => t.generationId).filter((id): id is string => !!id)
+    );
+    
+    // 如果有未完成的任务,并且在2分钟窗口内,且本次会话还未提示过这一批
+    if (
+      (hasPendingTasks) &&
+      isInRecoveryWindow(pageLoadTimeRef.current) &&
+      !hasPromptedThisSession(scope, signature)
+    ) {
+      markPromptedThisSession(scope, signature);
+      
+      // ⚠️ 先不消费已完成任务 —— 只在用户点「继续」或关闭提示时才消费,否则丢失。
+      // 这里只检查有多少已完成任务，用于提示总数。
+      {
+        const completedTaskCount = readPersistedImageGenerationTasks().filter(
+          t =>
+            (t.projectId || "p1") === (projectId || "p1") &&
+            t.status === "completed" &&
+            !t.consumedAt
+        ).length;
+        const totalCount = pendingTasks.length + completedTaskCount;
+        recoveryPromptOpenRef.current = true;
+        // 继续 / 取消 / 划走 / 自动关闭 只能生效一次。
+        let settled = false;
+        const settle = () => {
+          if (settled) return false;
+          settled = true;
+          recoveryPromptOpenRef.current = false;
+          return true;
+        };
+        
+        const handleContinue = async () => {
+          if (!settle()) return;
+          // 继续:恢复pending任务并派发completed任务
+          pendingTasks.forEach(task => {
+            ensureBackgroundImageGeneration(task);
+          });
+          
+          const completedTasks = await consumeCompletedImageGenerationTasks(projectId);
+          completedTasks.forEach(task => {
+            window.dispatchEvent(
+              new CustomEvent("image-generator-submit", {
+                detail: {
+                  ...task,
+                  projectId,
+                  status: "completed",
+                },
+              })
+            );
+          });
+          
+          if (pendingTasks.length > 0) {
+            toast.success(`正在恢复 ${pendingTasks.length} 张未完成的图片`, {
+              description: "后台任务已自动继续生成",
+              duration: 3000,
+            });
+          }
+          if (completedTasks.length > 0 && !hasPendingTasks) {
+            toast.success(`已恢复 ${completedTasks.length} 张已完成的图片`, {
+              duration: 3000,
+            });
+          }
+        };
+        
+        const handleCancel = async () => {
+          if (!settle()) return;
+          // 取消:标记所有任务为已消费,并将节点标记为中断
+          cancelPendingTaskRecovery(projectId);
+          const completedTasks = await consumeCompletedImageGenerationTasks(projectId);
+          
+          const allGenerationIds = [
+            ...pendingTasks.map(t => t.generationId),
+            ...completedTasks.map(t => t.generationId),
+          ];
+          
+          setNodes(nds =>
+            nds.map(node => {
+              if (node.type !== "asset") return node;
+              const data = node.data as Record<string, unknown>;
+              const generationId = data.generationId as string | undefined;
+              
+              if (generationId && allGenerationIds.includes(generationId)) {
+                return {
+                  ...node,
+                  data: {
+                    ...data,
+                    isGeneratingImage: false,
+                    isGenerationInterrupted: true,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+          
+          toast.info("已取消图片恢复");
+        };
+        
+        toast.info(`您上次有 ${totalCount} 张图片未完成，是否继续？`, {
+          duration: 15000,
+          action: {
+            label: "继续",
+            onClick: handleContinue,
+          },
+          cancel: {
+            label: "取消",
+            onClick: handleCancel,
+          },
+          // ⚠️ 用户不点、只是划走或15秒后自动关闭 → 当作「继续」处理，保证已完成的结果不丢。
+          onAutoClose: () => void handleContinue(),
+          onDismiss: () => void handleContinue(),
+        });
+      }
+    } else {
+      // ⚠️ 提示还开着时 effect 因 canvasRestoreTick 重跑 → 不能绕过提示直接自动恢复。
+      if (recoveryPromptOpenRef.current) return;
+      // 不在窗口内或已提示过,自动恢复(保留原有逻辑)
+      if (hasPendingTasks) {
+        toast.info(`正在恢复 ${pendingTasks.length} 张未完成的图片`, {
+          description: "后台任务已自动继续生成",
+          duration: 5000,
+        });
+      }
+      pendingTasks.forEach(task => {
+        ensureBackgroundImageGeneration(task);
+      });
+      consumeCompletedImageGenerationTasks(projectId).then(completedTasks => {
+        if (cancelled || completedTasks.length === 0) return;
+        if (completedTasks.length > 0 && !hasPendingTasks) {
+          toast.success(`已恢复 ${completedTasks.length} 张已完成的图片`);
+        }
+        completedTasks.forEach(task => {
+          window.dispatchEvent(
+            new CustomEvent("image-generator-submit", {
+              detail: {
+                ...task,
+                projectId,
+                status: "completed",
+              },
+            })
+          );
+        });
+      });
+    }
+    
     return () => {
       cancelled = true;
     };
-  }, [canvasRestoreTick, ensureBackgroundImageGeneration, projectId]);
+  }, [canvasRestoreTick, ensureBackgroundImageGeneration, projectId, setNodes]);
 
   const failTimedOutImageGenerationNodes = useCallback(() => {
     const now = Date.now();

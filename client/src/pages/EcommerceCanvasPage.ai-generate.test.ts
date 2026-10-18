@@ -25,7 +25,12 @@ const pageSource = readFileSync(
 
 describe("EcommerceCanvasPage — AI 生成底层逻辑（2026-10-17 修复）", () => {
   it("1. 导入了 createProductBackground 和 editImageWithPrompt（AI 能力源头与智能产品一致）", () => {
-    expect(pageSource).toContain('import { createProductBackground, editImageWithPrompt } from "@/lib/ai"');
+    // 只锁「从 @/lib/ai 导入了这两个能力」，不锁整行字面量（2026-10-18 断点恢复追加了 waitForImageGenerationTask）。
+    const aiImport = pageSource.match(/import \{([^}]*)\} from "@\/lib\/ai"/);
+    expect(aiImport).not.toBeNull();
+    const names = aiImport![1].split(",").map(s => s.trim());
+    expect(names).toContain("createProductBackground");
+    expect(names).toContain("editImageWithPrompt");
   });
 
   it("2. buildPrompt 包含产品保护规则（PRODUCT_PROTECTION_RULES）", () => {

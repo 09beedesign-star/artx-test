@@ -34,11 +34,12 @@
  * - **产品图模式**：用户上传的商品图 + 选择的背景模板 → 调用 `createProductBackground`（智能产品的模板模式同源链路），真正做图生图
  * - **带货图文模式**：卖点 + 分镜模板 + 商品图作为源图 → 循环调用 `editImageWithPrompt`（image_edit）
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Redirect, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useTheme } from "@/contexts/ThemeContext";
-import { createProductBackground, editImageWithPrompt } from "@/lib/ai";
+import { useAuth } from "@/contexts/AuthContext";
+import { createProductBackground, editImageWithPrompt, waitForImageGenerationTask } from "@/lib/ai";
 import { IMAGE_AI_MODELS } from "@/lib/workspace-data";
 import { getMemoryContextSurcharge, quoteAiUsage } from "@shared/ai-credit-policy";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
@@ -72,14 +73,39 @@ import {
   type EcommerceHistoryEntry,
 } from "@/components/ecommerce/EcommerceHistory";
 import { EcommerceResultLightbox } from "@/components/ecommerce/EcommerceResultLightbox";
+import { EcommerceCanvasPresetPanel } from "@/components/ecommerce/EcommerceCanvasPresetPanel";
+import {
+  mergeEcommerceCanvasPreset,
+  readActiveEcommerceCanvasPresetId,
+  readEcommerceCanvasPresets,
+} from "@/lib/ecommerce-canvas-presets";
+import {
+  addEcommerceHistoryEntry,
+  deleteEcommerceHistoryEntry,
+  clearEcommerceHistory,
+  readEcommerceHistory,
+} from "@/lib/image-gen-history";
+import {
+  persistEcommerceTask,
+  markEcommerceTaskBackgroundStarted,
+  markEcommerceTaskCompleted,
+  markEcommerceTaskFailed,
+  readPendingEcommerceTasks,
+  consumeCompletedEcommerceTasks,
+  cancelPendingEcommerceTaskRecovery,
+} from "@/lib/ecommerce-task-persistence";
+import {
+  isInRecoveryWindow,
+  hasPromptedThisSession,
+  markPromptedThisSession,
+  recoveryBatchSignature,
+} from "@/lib/task-recovery-window";
 
 // 2026-10-17 用户拍板：电商板块默认用 70 积分/张的全站默认档（image2.5 medium）。
 // banana 2.1（vod-gg36）300 积分/张、按 70 收会亏本，只作可选项。
 const DEFAULT_MODEL_ID = DEFAULT_IMAGE_MODEL_ID;
 const ROOT = "/ecommerce-canvas";
 const TEMPLATE_PREFIX = "templates/";
-/** 生成记录最多保留条数（只存图片 URL，不存原图） */
-const HISTORY_LIMIT = 20;
 
 function createDefaultDraft(): EcommerceDraft {
   return {
@@ -118,17 +144,212 @@ function parseRoute(location: string) {
 export default function EcommerceCanvasPage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const { user } = useAuth();
+  const accountId = user?.id ?? null;
   const [location, navigate] = useLocation();
   const palette = useMemo(() => ecommercePalette(isDark), [isDark]);
 
   const { sub, params } = useMemo(() => parseRoute(location), [location]);
-  const mode: EcommerceMode = sub === "product" ? "product" : "post";
+  const mode: EcommerceMode = sub === "post" ? "post" : "product";
+
+  // 页面加载时间,用于2分钟恢复窗口判断
+  const pageLoadTimeRef = useRef(Date.now());
 
   const [draft, setDraft] = useState<EcommerceDraft>(createDefaultDraft);
-  const [generating, setGenerating] = useState(false);
-  const [results, setResults] = useState<string[]>([]);
-  const [history, setHistory] = useState<EcommerceHistoryEntry[]>([]);
+  /*
+   * 生成状态与结果按模式各存一份（2026-10-18）：原先页面级共用一个 generating/results，
+   * 带货图文生成中切到产品图，产品图也显示「正在生成」，结果也会串到另一个模式。
+   * 生成时记住 startedMode，结束只写回发起它的那个模式。
+   */
+  const [generatingByMode, setGeneratingByMode] = useState<Record<EcommerceMode, boolean>>({ product: false, post: false });
+  const [resultsByMode, setResultsByMode] = useState<Record<EcommerceMode, string[]>>({ product: [], post: [] });
+  const generating = generatingByMode[mode];
+  const results = resultsByMode[mode];
+  const setModeGenerating = useCallback((target: EcommerceMode, value: boolean) => {
+    setGeneratingByMode(prev => ({ ...prev, [target]: value }));
+  }, []);
+  const setModeResults = useCallback((target: EcommerceMode, value: string[]) => {
+    setResultsByMode(prev => ({ ...prev, [target]: value }));
+    // 有了新结果（哪怕是清空）就不再是「中断」态。
+    setInterruptedByMode(prev => (prev[target] ? { ...prev, [target]: false } : prev));
+  }, []);
+  /**
+   * 「图片生成中断」态（2026-10-18）：用户在恢复提示里点了「取消」后，
+   * 结果区要显式写出中断，而不是安静地回到空白。重新生成 / 清空结果即消失。
+   */
+  const [interruptedByMode, setInterruptedByMode] = useState<Record<EcommerceMode, boolean>>({ product: false, post: false });
+  const interrupted = interruptedByMode[mode];
+  const [history, setHistory] = useState<EcommerceHistoryEntry[]>(() => readEcommerceHistory(accountId));
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  /**
+   * 生成记录持久化在 localStorage（image-gen-history），刷新不丢；账号切换重读。
+   * 过期清理在 EcommerceHistory 里按服务端下发的 retentionDays 做。
+   */
+  useEffect(() => {
+    setHistory(readEcommerceHistory(accountId));
+  }, [accountId]);
+
+  /**
+   * 任务断点恢复（2026-10-18）：用户刷新页面或关闭后重新进入,
+   * 在 2 分钟内提示恢复未完成的任务。
+   */
+  useEffect(() => {
+    if (!accountId) return;
+    
+    // ⚠️ 任务按账号存、不分模式 → scope 也不能带 mode，否则切换产品图/带货图文会重复弹窗。
+    const scope = "ecommerce-canvas";
+    const pendingTasks = readPendingEcommerceTasks(accountId);
+    const completedTasks = consumeCompletedEcommerceTasks(accountId);
+    const signature = recoveryBatchSignature(pendingTasks.map(t => t.generationId));
+    
+    // 后台已经跑完的结果直接回填（已扣费、无需再问）。
+    // ⚠️ consume 已经把它们标为已消费，这里不回填就永远丢了 —— 不能再加「无 pending 才回填」的条件。
+    if (completedTasks.length > 0) {
+      completedTasks.forEach(task => {
+        if (task.images && task.images.length > 0) {
+          setModeResults(task.mode, task.images);
+          const entry: EcommerceHistoryEntry = {
+            id: task.generationId,
+            mode: task.mode,
+            model: task.model,
+            count: task.count,
+            credits: 0, // 恢复的任务不显示积分(已在首次生成时扣除)
+            templateName: "",
+            backgroundName: "",
+            prompt: task.prompt,
+            images: task.images,
+            createdAt: Date.now(),
+          };
+          setHistory(addEcommerceHistoryEntry(accountId, entry));
+        }
+      });
+      toast.success(`已恢复 ${completedTasks.length} 个任务的结果`);
+    }
+    
+    // 有未完成任务 + 在恢复窗口内 + 本次会话未提示过这批 → 弹提示
+    if (
+      pendingTasks.length > 0 &&
+      isInRecoveryWindow(pageLoadTimeRef.current) &&
+      !hasPromptedThisSession(scope, signature)
+    ) {
+      markPromptedThisSession(scope, signature);
+      
+      // 继续 / 取消 / 划走 / 自动关闭 只能生效一次（sonner 关闭时还会再触发 onDismiss）。
+      let settled = false;
+      const settle = () => {
+        if (settled) return false;
+        settled = true;
+        return true;
+      };
+      const handleContinue = async () => {
+        if (!settle()) return;
+        const modes = Array.from(new Set(pendingTasks.map(t => t.mode)));
+        modes.forEach(m => setModeGenerating(m, true));
+        try {
+          for (const task of pendingTasks) {
+            if (task.mode === "product" && task.backgroundTaskInput) {
+              // 产品模式：恢复单个任务
+              try {
+                const result = await waitForImageGenerationTask(task.generationId);
+                const urls = (result.images || []).map(img => img.src).filter(Boolean);
+                markEcommerceTaskCompleted(accountId, task.generationId, urls);
+                setModeResults(task.mode, urls);
+                const entry: EcommerceHistoryEntry = {
+                  id: task.generationId,
+                  mode: task.mode,
+                  model: task.model,
+                  count: task.count,
+                  credits: 0,
+                  templateName: "",
+                  backgroundName: "",
+                  prompt: task.prompt,
+                  images: urls,
+                  createdAt: Date.now(),
+                };
+                setHistory(addEcommerceHistoryEntry(accountId, entry));
+              } catch (error) {
+                markEcommerceTaskFailed(
+                  accountId,
+                  task.generationId,
+                  error instanceof Error ? error.message : "恢复失败"
+                );
+              }
+            } else if (task.mode === "post") {
+              // 带货图文模式：每张图独立任务,需要轮询所有子任务
+              const imageTaskIds = Array.from({ length: task.count }, (_, i) => `${task.generationId}-img${i}`);
+              const collected: string[] = [];
+              for (const imageTaskId of imageTaskIds) {
+                try {
+                  const result = await waitForImageGenerationTask(imageTaskId);
+                  const src = result.images[0]?.src;
+                  if (src) collected.push(src);
+                } catch (error) {
+                  console.warn(`恢复图片 ${imageTaskId} 失败:`, error);
+                }
+              }
+              if (collected.length > 0) {
+                markEcommerceTaskCompleted(accountId, task.generationId, collected);
+                setModeResults(task.mode, collected);
+                const entry: EcommerceHistoryEntry = {
+                  id: task.generationId,
+                  mode: task.mode,
+                  model: task.model,
+                  count: collected.length,
+                  credits: 0,
+                  templateName: "",
+                  backgroundName: "",
+                  prompt: task.prompt,
+                  images: collected,
+                  createdAt: Date.now(),
+                };
+                setHistory(addEcommerceHistoryEntry(accountId, entry));
+              } else {
+                markEcommerceTaskFailed(accountId, task.generationId, "所有图片均恢复失败");
+              }
+            }
+          }
+          toast.success(`已恢复 ${pendingTasks.length} 个任务`);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "恢复失败");
+        } finally {
+          modes.forEach(m => setModeGenerating(m, false));
+        }
+      };
+      
+      const handleCancel = () => {
+        if (!settle()) return;
+        cancelPendingEcommerceTaskRecovery(accountId);
+        const modes = Array.from(new Set(pendingTasks.map(t => t.mode)));
+        setInterruptedByMode(prev => {
+          const next = { ...prev };
+          modes.forEach(m => {
+            next[m] = true;
+          });
+          return next;
+        });
+        toast.info("已取消恢复，图片生成中断");
+      };
+      
+      toast(
+        `您上次有 ${pendingTasks.length} 个任务未完成，是否继续？`,
+        {
+          duration: 15000,
+          action: {
+            label: "继续",
+            onClick: handleContinue,
+          },
+          cancel: {
+            label: "取消",
+            onClick: handleCancel,
+        },
+        // ⚠️ 用户不点、只是划走或15秒后自动关闭 → 当作「继续」处理，保证已完成的结果不丢。
+        onAutoClose: () => void handleContinue(),
+        onDismiss: () => void handleContinue(),
+      }
+    );
+    }
+  }, [accountId, setModeGenerating, setModeResults]);
 
   const updateDraft = useCallback(
     (patch: Partial<EcommerceDraft> | ((d: EcommerceDraft) => EcommerceDraft)) => {
@@ -136,6 +357,20 @@ export default function EcommerceCanvasPage() {
     },
     [],
   );
+
+  /**
+   * 进入电商画布时自动套用上次激活的参数预设（与智能产品同口径）。
+   *
+   * ⚠️ 依赖带 accountId：会话内换账号要重读，否则 B 账号看到 A 账号的预设。
+   * ⚠️ 走 mergeEcommerceCanvasPreset 唯一合并口：用户已手选的分辨率/画幅比不被覆盖。
+   */
+  useEffect(() => {
+    const activeId = readActiveEcommerceCanvasPresetId(accountId);
+    if (!activeId) return;
+    const active = readEcommerceCanvasPresets(accountId).find(item => item.id === activeId);
+    if (!active) return;
+    setDraft(prev => mergeEcommerceCanvasPreset(prev, active.payload));
+  }, [accountId]);
 
   /*
     从模板库 / 详情页带 ?tpl=<id> 回来时，把模板写进草稿。
@@ -324,27 +559,32 @@ export default function EcommerceCanvasPage() {
       toast.error("请先上传商品图");
       return;
     }
-    setGenerating(true);
-    setResults([]);
     const startedMode = mode;
+    setModeGenerating(startedMode, true);
+    setModeResults(startedMode, []);
     const startedCount = count;
     const startedCredits = quote.chargedCredits;
     const startedPrompt = buildPrompt();
     const startedTemplateName = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId)?.name || "";
     const startedBackgroundName = draft.bgTemplate?.name || "";
+    const generationId = `ec-${startedMode}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    
     try {
       let urls: string[];
       if (startedMode === "product") {
         /*
-         * 🔧 产品图模式（2026-10-17）：照搬智能产品「模板模式」底层链路。
-         * createProductBackground → smart_background（PicWish 抠图 + 按 sceneType 套背景），
-         * 商品主体来自用户上传图，不经文生图，因此不会出现「和商品无关」的图。
-         * 参数口径与 InfiniteCanvas 的 smart-commerce-product-create 处理器逐项一致：
-         * 一次调用带 count，per_request 计费（480/次），没选模板时 sceneType 留空 = 随机默认背景。
+         * 🔧 产品图模式（2026-10-18）：走异步任务（smart_background），可断点恢复。
+         * createProductBackground + generationId → 走 runImageGenerationTask（等同智能产品的模板模式）。
+         * 一次调用带 count，per_request 计费（480/次）。
+         * 参数与 InfiniteCanvas smart-commerce-product-create 逐项一致，计费也一致。
          */
-        // 1K 不显式传像素（与智能产品一致：1K 交给 ratio + resolution 由服务端定尺寸），2K/4K 才传。
         const productSize = draft.productTier !== "1k" ? pixelSize(draft.productRatio, draft.productTier) : null;
-        const response = await createProductBackground({
+        
+        // 先持久化任务（含 backgroundTaskInput，以便断点恢复）
+        const backgroundTaskInput = {
+          taskId: generationId,
+          capability: "smart_background" as const,
+          operation: "create-background" as const,
           imageSrc: draft.uploads[0],
           prompt: startedPrompt,
           style: draft.bgTemplate?.name || "默认电商背景模板",
@@ -355,20 +595,51 @@ export default function EcommerceCanvasPage() {
           customWidth: productSize?.targetWidth,
           customHeight: productSize?.targetHeight,
           model: draft.model,
+        };
+        
+        persistEcommerceTask(accountId, {
+          generationId,
+          mode: "product",
+          prompt: startedPrompt,
+          model: draft.model,
+          count: startedCount,
+          sourceImageSrc: draft.uploads[0],
+          backgroundTaskInput,
         });
+        
+        markEcommerceTaskBackgroundStarted(accountId, generationId);
+        
+        let response: Awaited<ReturnType<typeof createProductBackground>>;
+        try {
+          response = await createProductBackground({
+            generationId, // 传 generationId 走异步路径
+            imageSrc: draft.uploads[0],
+            prompt: startedPrompt,
+            style: draft.bgTemplate?.name || "默认电商背景模板",
+            sceneType: draft.bgTemplate?.id,
+            ratio: draft.productRatio,
+            resolution: draft.productTier as "1k" | "2k" | "4k",
+            count: startedCount,
+            customWidth: productSize?.targetWidth,
+            customHeight: productSize?.targetHeight,
+            model: draft.model,
+          });
+        } catch (error) {
+          // ⚠️ 不标失败会让它一直留在 pending，下次进来又弹「是否继续」去捞一个注定失败的任务。
+          markEcommerceTaskFailed(
+            accountId,
+            generationId,
+            error instanceof Error ? error.message : "生成失败",
+          );
+          throw error;
+        }
         urls = (response.images || []).map(image => image.src).filter(Boolean);
+        markEcommerceTaskCompleted(accountId, generationId, urls);
       } else {
         /*
-         * 🔧 带货图文模式（2026-10-17）：照搬智能产品「提示词模式」底层链路。
-         * editImageWithPrompt → image_edit：商品图作为 **源图**（不是可有可无的参考图），
-         * 模型在商品图基础上按分镜重建场景，所以出图一定是用户的商品。
-         *
-         * 与 InfiniteCanvas smart-commerce-product-create 提示词分支逐项一致：
-         *   - image_edit 一次只回 1 张 → 循环 N 次
-         *   - 每张追加差异化指令，否则同一提示词会出几乎一样的图
-         *   - 逐张容错：失败的跳过，至少拿到 1 张就算成功，全军覆没才抛错
-         * 额外做法：把模板分镜（全景 → 特写 → 收尾）按张分配，让一套图有叙事节奏。
-         * 其余上传图（第 2~5 张）作为补充参考，标注为同一商品的其他角度。
+         * 🔧 带货图文模式（2026-10-18）：走异步任务（image_edit），可断点恢复。
+         * editImageWithPrompt 逐张传 generationId → 走 runImageGenerationTask。
+         * 每张 180 积分，真的按张计。逐张容错：失败的跳过，至少拿到 1 张就算成功。
          */
         const tpl = ECOMMERCE_TEMPLATES.find(item => item.id === draft.tplId);
         const shots = tpl ? splitFlow(tpl.flow) : [];
@@ -377,6 +648,20 @@ export default function EcommerceCanvasPage() {
           src,
           title: `same product, another angle ${i + 2}`,
         }));
+        
+        // 先持久化任务（post 模式每张图有独立 taskId，批次用 generationId 关联）
+        persistEcommerceTask(accountId, {
+          generationId,
+          mode: "post",
+          prompt: startedPrompt,
+          model: draft.model,
+          count: startedCount,
+          sourceImageSrc: draft.uploads[0],
+          // post 模式没有统一的 backgroundTaskInput，因为每张图参数不同
+        });
+        
+        markEcommerceTaskBackgroundStarted(accountId, generationId);
+        
         const collected: string[] = [];
         let lastError: unknown = null;
         for (let index = 0; index < startedCount; index += 1) {
@@ -384,7 +669,9 @@ export default function EcommerceCanvasPage() {
             ? shots[Math.min(shots.length - 1, Math.floor((index * shots.length) / startedCount))]
             : "";
           try {
+            const imageTaskId = `${generationId}-img${index}`;
             const single = await editImageWithPrompt({
+              generationId: imageTaskId, // 每张图传独立的 taskId
               imageSrc: draft.uploads[0],
               model: draft.model,
               prompt: [
@@ -403,36 +690,34 @@ export default function EcommerceCanvasPage() {
           }
         }
         if (collected.length === 0) {
+          markEcommerceTaskFailed(accountId, generationId, lastError instanceof Error ? lastError.message : "图片模型未返回可用图片");
           throw lastError instanceof Error ? lastError : new Error("图片模型未返回可用图片");
         }
         urls = collected;
+        markEcommerceTaskCompleted(accountId, generationId, urls);
       }
       if (urls.length === 0) throw new Error("生成结果为空，请重试");
-      setResults(urls);
-      setHistory(prev =>
-        [
-          {
-            id: `ec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            mode: startedMode,
-            model: draft.model,
-            count: startedCount,
-            credits: startedCredits,
-            templateName: startedTemplateName,
-            backgroundName: startedBackgroundName,
-            prompt: startedPrompt,
-            images: urls,
-            createdAt: Date.now(),
-          },
-          ...prev,
-        ].slice(0, HISTORY_LIMIT),
-      );
+      setModeResults(startedMode, urls);
+      const newEntry: EcommerceHistoryEntry = {
+        id: `ec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        mode: startedMode,
+        model: draft.model,
+        count: startedCount,
+        credits: startedCredits,
+        templateName: startedTemplateName,
+        backgroundName: startedBackgroundName,
+        prompt: startedPrompt,
+        images: urls,
+        createdAt: Date.now(),
+      };
+      setHistory(addEcommerceHistoryEntry(accountId, newEntry));
       toast.success(`生成完成：${urls.length} 张`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "生成失败，请重试");
     } finally {
-      setGenerating(false);
+      setModeGenerating(startedMode, false);
     }
-  }, [count, draft.bgTemplate, draft.model, draft.postRatio, draft.productRatio, draft.productTier, draft.tplId, draft.uploads, mode, quote.chargedCredits]);
+  }, [count, draft.bgTemplate, draft.model, draft.postRatio, draft.productRatio, draft.productTier, draft.tplId, draft.uploads, mode, quote.chargedCredits, setModeGenerating, setModeResults, accountId]);
 
   /** 选中模板后回到带货图文工作台（并把模板带进 URL，便于分享/刷新） */
   const goWorkspaceWithTemplate = useCallback(
@@ -472,11 +757,16 @@ export default function EcommerceCanvasPage() {
           palette={palette}
           entries={history}
           onOpen={entry => {
-            setResults(entry.images);
+            setModeResults(entry.mode, entry.images);
             navigate(`${ROOT}/${entry.mode}`);
           }}
-          onRemove={id => setHistory(prev => prev.filter(item => item.id !== id))}
-          onClear={() => setHistory([])}
+          onRemove={id => setHistory(deleteEcommerceHistoryEntry(accountId, id))}
+          onClear={() => {
+            clearEcommerceHistory(accountId);
+            setHistory([]);
+          }}
+          scope="ecommerce-canvas"
+          accountId={accountId}
         />
       ) : sub === "" || sub === "post" || sub === "product" ? (
         <EcommerceWorkspace
@@ -485,8 +775,9 @@ export default function EcommerceCanvasPage() {
           palette={palette}
           draft={draft}
           updateDraft={updateDraft}
-          generating={generating}
-          results={results}
+           generating={generating}
+           interrupted={interrupted}
+           results={results}
           quoteCredits={quote.chargedCredits}
           unitCredits={unitCredits}
           modelLabel={modelLabel}
@@ -495,12 +786,20 @@ export default function EcommerceCanvasPage() {
           ecommerceMemoryEnabled={ecommerceMemoryEnabled}
           onToggleEcommerceMemory={handleToggleEcommerceMemory}
           onGenerate={() => void handleGenerate()}
-          onClearResults={() => setResults([])}
+          onClearResults={() => setModeResults(mode, [])}
           onOpenTemplateDetail={id => navigate(`${ROOT}/templates/${id}`)}
           onPreviewResult={index => setPreviewIndex(index)}
+          presetSlot={
+            <EcommerceCanvasPresetPanel
+              palette={palette}
+              draft={draft}
+              updateDraft={updateDraft}
+              accountId={accountId}
+            />
+          }
         />
       ) : (
-        <Redirect to={`${ROOT}/post`} replace />
+        <Redirect to={`${ROOT}/product`} replace />
       )}
 
       {previewIndex !== null ? (

@@ -15,7 +15,7 @@
  *    页面上不再存在「点了没反应」的开关。
  * ⚠️ 上传区写着「点击或拖拽上传」，首版却只接了点击。这里补上拖拽。
  */
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
   ChevronRight,
@@ -64,6 +64,7 @@ type Props = {
     patch: Partial<EcommerceDraft> | ((d: EcommerceDraft) => EcommerceDraft),
   ) => void;
   generating: boolean;
+  interrupted: boolean;
   results: string[];
   /** 本次生成的总积分（单张价 × 张数，取整十） */
   quoteCredits: number;
@@ -83,6 +84,8 @@ type Props = {
   onClearResults: () => void;
   onOpenTemplateDetail: (id: number) => void;
   onPreviewResult: (index: number) => void;
+  /** 左栏最下方的参数预设面板（由页面注入，便于拿账号 id） */
+  presetSlot?: ReactNode;
 };
 
 export function EcommerceWorkspace({
@@ -92,6 +95,7 @@ export function EcommerceWorkspace({
   draft,
   updateDraft,
   generating,
+  interrupted,
   results,
   quoteCredits,
   unitCredits,
@@ -104,6 +108,7 @@ export function EcommerceWorkspace({
   onClearResults,
   onOpenTemplateDetail,
   onPreviewResult,
+  presetSlot,
 }: Props) {
   const [tplCategory, setTplCategory] = useState("all");
   const [bgSelectorOpen, setBgSelectorOpen] = useState(false);
@@ -153,7 +158,7 @@ export function EcommerceWorkspace({
   const visibleTpls = tplCategory === "all"
     ? ECOMMERCE_TEMPLATES
     : ECOMMERCE_TEMPLATES.filter(item => item.categoryId === tplCategory);
-  const showResults = results.length > 0 || generating;
+  const showResults = results.length > 0 || generating || interrupted;
   const count = mode === "post" ? draft.postCount : draft.productCount;
 
   const chipStyle = (on: boolean) => ({
@@ -260,7 +265,7 @@ export function EcommerceWorkspace({
 
         {/* 生成模型（展示名来自平台 label，默认 image2.5 medium，70 积分/张） */}
         <div>
-          <SectionTitle palette={palette} aside={mode === "product" ? "多张同价" : `${unitCredits} 积分 / 张`}>
+          <SectionTitle palette={palette} aside={mode === "product" ? "多张同价" : undefined}>
             生成模型
           </SectionTitle>
           {/*
@@ -291,9 +296,7 @@ export function EcommerceWorkspace({
               <>{modelLabel} · 批次计费，1 - 8 张总积分相同 · 融合左侧上传图、设置、卖点与背景模板一起生成</>
             ) : (
               <>
-                {modelLabel} {unitCredits} 积分/张 × {count} 张
-                {memorySurcharge > 0 ? ` + 记忆 ${memorySurcharge}` : ""} = {quoteCredits} 积分 ·
-                融合左侧上传图、设置、卖点与模板一起生成
+                {modelLabel} · 融合左侧上传图、设置、卖点与模板一起生成
               </>
             )}
           </div>
@@ -428,7 +431,13 @@ export function EcommerceWorkspace({
               <Select value={draft.platform} options={ECOMMERCE_PLATFORMS} onChange={platform => updateDraft({ platform })} isDark={isDark} palette={palette} />
               <Select value={draft.market} options={ECOMMERCE_MARKETS} onChange={market => updateDraft({ market })} isDark={isDark} palette={palette} />
               <Select value={draft.language} options={ECOMMERCE_LANGUAGES} onChange={language => updateDraft({ language })} isDark={isDark} palette={palette} />
-              <Select value={draft.postRatio} options={ECOMMERCE_RATIOS} onChange={postRatio => updateDraft({ postRatio })} isDark={isDark} palette={palette} />
+              <Select
+                value={draft.postRatio}
+                options={ECOMMERCE_RATIOS}
+                onChange={postRatio => updateDraft({ postRatio, userModifiedPostRatio: true })}
+                isDark={isDark}
+                palette={palette}
+              />
             </div>
             <Switch
               on={draft.noTextOnImage}
@@ -463,7 +472,7 @@ export function EcommerceWorkspace({
             </div>
             <div className="mt-3 grid grid-cols-3 gap-1.5">
               {(["1k", "2k", "4k"] as const).map(t => (
-                <button key={t} type="button" className="rounded-md py-1.5 text-[11px] uppercase" style={chipStyle(draft.productTier === t)} onClick={() => updateDraft({ productTier: t })}>
+                <button key={t} type="button" className="rounded-md py-1.5 text-[11px] uppercase" style={chipStyle(draft.productTier === t)} onClick={() => updateDraft({ productTier: t, userModifiedProductTier: true })}>
                   {t}
                 </button>
               ))}
@@ -586,7 +595,7 @@ export function EcommerceWorkspace({
               />
               <CountRow
                 label="张数"
-                desc={`热门图文多为 6 张，${modelLabel} 单张 ${unitCredits} 积分。`}
+                desc={`热门图文多为 6 张。`}
                 value={draft.postCount}
                 min={3}
                 max={9}
@@ -594,6 +603,13 @@ export function EcommerceWorkspace({
                 palette={palette}
               />
             </div>
+          </div>
+        ) : null}
+
+        {/* 参数预设：左侧参数板块最下方（两种模式都显示，存的是整套参数） */}
+        {presetSlot ? (
+          <div className="pt-1" style={{ borderTop: `1px solid ${palette.border}` }}>
+            <div className="pt-3">{presetSlot}</div>
           </div>
         ) : null}
 
@@ -649,7 +665,17 @@ export function EcommerceWorkspace({
                       <Loader2 size={20} className="animate-spin" style={{ color: LIME }} />
                     </div>
                   ))
-                : results.map((src, i) => (
+                : interrupted
+                  ? (
+                      <div
+                        className="col-span-full flex aspect-[5/2] flex-col items-center justify-center gap-2 rounded-[10px]"
+                        style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
+                      >
+                        <div className="text-[13px] font-medium" style={{ color: palette.text }}>图片生成中断</div>
+                        <div className="text-[11px]" style={{ color: palette.sub }}>点击「重新生成」再试一次</div>
+                      </div>
+                    )
+                  : results.map((src, i) => (
                     <button
                       key={i}
                       type="button"

@@ -20,6 +20,7 @@ import {
   ChevronUp,
   FileImage,
   GripHorizontal,
+  History,
   ImagePlus,
   LayoutGrid,
   LoaderCircle,
@@ -36,6 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
+import { SmartCommerceHistoryPanel } from "@/components/canvas/SmartCommerceHistoryPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   SMART_COMMERCE_DEFAULT_PAYLOAD,
@@ -562,6 +564,7 @@ export function SmartCommerceProductDialog({
   const ecommerceAnchorRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const [showPicwishSelector, setShowPicwishSelector] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [selectedPicwishTemplate, setSelectedPicwishTemplate] = useState<PicWishBackgroundTemplate>();
   /**
    * 最近使用的背景模板（需求 2026-09-20：模板库区域内一排两个展示）。
@@ -1515,6 +1518,17 @@ export function SmartCommerceProductDialog({
             <GripHorizontal size={16} style={{ color: colors.muted }} />
             <button
               type="button"
+              className="flex h-8 items-center gap-1 rounded-md px-2 text-[11px] hover:opacity-70"
+              style={{ color: colors.muted }}
+              onClick={() => setShowHistory(true)}
+              aria-label="查看智能产品历史记录"
+              title="历史记录"
+            >
+              <History size={15} />
+              <span className="hidden sm:inline">历史记录</span>
+            </button>
+            <button
+              type="button"
               className="flex h-8 w-8 items-center justify-center rounded-md hover:opacity-70"
               style={{ color: colors.muted }}
               onClick={onClose}
@@ -2422,6 +2436,7 @@ export function SmartCommerceProductDialog({
              零报错，且很容易被误判成存储模块坏了。
         */}
         {showPicwishSelector ? <PicwishBackgroundSelector isDark={isDark} selectedTemplate={selectedPicwishTemplate} onSelect={handlePickPicwishTemplate} onClose={() => setShowPicwishSelector(false)} /> : null}
+        {showHistory ? <SmartCommerceHistoryPanel isDark={isDark} onClose={() => setShowHistory(false)} /> : null}
         <footer
           className="relative flex shrink-0 items-center justify-between gap-3 px-5 py-3"
           style={{ borderTop: `1px solid ${colors.border}` }}

@@ -29,6 +29,15 @@ export type EcommerceMode = "post" | "product";
  * ⚠️ 上传的商品图（uploads）是 dataURL 字符串，跟着草稿一起跨路由保留，
  *    但在 /product 与 /post 之间是同一份 —— 两个模式共用一套商品图，
  *    因为「同一批实拍图既要出带货图文又要出产品图」是真实用法。
+ *
+ * 【分辨率/画幅比优先级规则】（2026-10-18 用户要求）
+ * ⚠️ 产品图分辨率（productTier）和带货图文画幅比（postRatio）的值来源优先级：
+ *    1. 用户手动改过 → 以用户选择为准（userModifiedProductTier / userModifiedPostRatio 标记）
+ *    2. 套用预设 → 以预设值为准（清空标记）
+ *    3. 初次进入 → 以默认值为准
+ *
+ *    判据：用户一旦主动点选了分辨率/画幅比按钮，该值「锁定」，
+ *          后续套用预设不会覆盖这两个字段（其他字段正常覆盖）。
  */
 export type EcommerceDraft = {
   model: string;
@@ -46,7 +55,12 @@ export type EcommerceDraft = {
   productRatio: string;
   productTier: AiImageResolutionTier;
   productCount: number;
+  /** 用户是否手动改过产品图分辨率档（用于预设套用时的优先级裁决） */
+  userModifiedProductTier?: boolean;
+  /** 用户是否手动改过带货图文画幅比（用于预设套用时的优先级裁决） */
+  userModifiedPostRatio?: boolean;
 };
+
 
 export type EcommercePalette = {
   bg: string;

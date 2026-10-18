@@ -1146,6 +1146,7 @@ export default defineConfig({
       allowedHosts: [
         ".lhr.life",
         ".loca.lt",
+        ".trycloudflare.com",
       ".manuspre.computer",
       ".manus.computer",
       ".manus-asia.computer",

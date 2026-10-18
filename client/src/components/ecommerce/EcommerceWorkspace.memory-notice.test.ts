@@ -56,13 +56,12 @@ describe("电商画布长期记忆提示条结构", () => {
     expect(source).not.toMatch(/<Link\s+href="\/profile"/);
   });
 
-  it("报价行：模型单价 × 张数 + 记忆附加费 = 总价", () => {
-    // {modelLabel} {unitCredits} 积分/张 × {count} 张
-    expect(source).toMatch(/\{modelLabel\}\s+\{unitCredits\}\s+积分\/张\s+×\s+\{count\}\s+张/);
-    // + 记忆（只在有附加费时出现）
-    expect(source).toMatch(/\{memorySurcharge\s+>\s+0\s+\?[^}]+记忆/);
-    // = {quoteCredits}
-    expect(source).toContain("= {quoteCredits} 积分");
+  it("带货图文不向用户展示积分（用户 2026-10-18 指定隐藏）", () => {
+    // 模型标题旁、报价行、张数说明三处都不得再出现积分数字
+    expect(source).not.toMatch(/\$\{unitCredits\}\s*积分/);
+    expect(source).not.toMatch(/\{unitCredits\}\s*积分/);
+    expect(source).not.toContain("= {quoteCredits} 积分");
+    expect(source).toContain('aside={mode === "product" ? "多张同价" : undefined}');
   });
 });
 
