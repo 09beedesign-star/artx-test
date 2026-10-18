@@ -115,6 +115,7 @@ export function EcommerceWorkspace({
 }: Props) {
   const [tplCategory, setTplCategory] = useState("all");
   const [dragOver, setDragOver] = useState(false);
+  const [sellingFocused, setSellingFocused] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const leftScrollRef = useRef<HTMLDivElement>(null);
@@ -587,8 +588,17 @@ export function EcommerceWorkspace({
             value={draft.sellingPoints}
             onChange={event => updateDraft({ sellingPoints: event.target.value })}
             placeholder={"建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数"}
-            className="min-h-[96px] w-full resize-none rounded-md p-2.5 text-[12px] leading-relaxed outline-none"
-            style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+            onFocus={() => setSellingFocused(true)}
+            onBlur={() => setSellingFocused(false)}
+            data-testid="ecommerce-selling-points"
+            className="min-h-[96px] w-full resize-none rounded-md p-2.5 text-[12px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150"
+            style={{
+              background: palette.panel,
+              // 聚焦态与画布右下角提示词输入框同色值（2026-10-18 用户要求）
+              border: `1px solid ${sellingFocused ? "rgba(197,237,71,0.42)" : palette.border}`,
+              boxShadow: sellingFocused ? "0 0 0 3px rgba(197,237,71,0.14)" : "none",
+              color: palette.text,
+            }}
           />
         </div>
         ) : null}

@@ -191,7 +191,8 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
       <div
         className="flex h-9 items-stretch overflow-hidden rounded-md"
         style={{
-          border: `1px solid ${menuOpen || activePresetId ? "rgba(197,237,71,0.55)" : palette.border}`,
+          // 2026-10-18 用户要求：去掉绿色高亮描边，始终用中性边框
+          border: `1px solid ${palette.border}`,
           background: palette.panel,
         }}
       >
