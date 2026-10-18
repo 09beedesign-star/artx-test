@@ -10,6 +10,7 @@
  */
 import type React from "react";
 import type { ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { LIME, type EcommercePalette } from "./shared";
 
 export function SectionTitle({
@@ -95,11 +96,17 @@ export function Select({
   isDark: boolean;
   palette: EcommercePalette;
 }) {
+  /*
+    2026-10-19 用户要求：右侧加下拉箭头，否则分不清是按钮还是选择器。
+    appearance-none 去掉了原生箭头 → 叠一个 pointer-events-none 的图标，
+    点击仍落在 select 上；pr-7 给图标留位，长选项不压字。
+  */
   return (
+    <div className="relative w-full">
     <select
       value={value}
       onChange={event => onChange(event.target.value)}
-      className="w-full appearance-none rounded-md px-2.5 py-[7px] text-[12px] outline-none"
+      className="w-full cursor-pointer appearance-none rounded-md py-[7px] pl-2.5 pr-7 text-[12px] outline-none"
       style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
     >
       {options.map(option => (
@@ -115,6 +122,14 @@ export function Select({
         </option>
       ))}
     </select>
+      <ChevronDown
+        size={14}
+        aria-hidden="true"
+        data-testid="ecommerce-select-chevron"
+        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
+        style={{ color: palette.sub }}
+      />
+    </div>
   );
 }
 
