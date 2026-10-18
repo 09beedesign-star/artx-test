@@ -551,7 +551,7 @@ export function EcommerceWorkspace({
             value={draft.sellingPoints}
             onChange={event => updateDraft({ sellingPoints: event.target.value })}
             placeholder={"建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数"}
-            className="min-h-[96px] w-full resize-y rounded-md p-2.5 text-[12px] leading-relaxed outline-none"
+            className="min-h-[96px] w-full resize-none rounded-md p-2.5 text-[12px] leading-relaxed outline-none"
             style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
           />
         </div>
