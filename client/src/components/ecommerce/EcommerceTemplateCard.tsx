@@ -4,6 +4,7 @@
  * 工作台右栏与模板库总览页共用同一个卡片实现 —— 两个出口必须长得一样，
  * 否则用户在详情页挑中的模板回到工作台会「认不出来」。
  */
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Check } from "lucide-react";
 import type { EcommerceTpl } from "@/data/ecommerce-canvas-templates";
 import { LIME, type EcommercePalette } from "./shared";
@@ -32,9 +33,34 @@ export function EcommerceTemplateCard({
   onOpenDetail,
 }: Props) {
   const cover = templateCoverUrl(template.id);
+  /*
+    hover 规则与灵感推荐卡（InspirationCard）一致：
+    悬停满 500ms 才认定 hover → 仅缩略图 scale(1.08)，300ms ease-out；卡片本身不位移。
+    📌 不用 CSS 的 group-hover 缩放类 —— 那会立刻放大，绕过 500ms 延时。
+  */
+  const [hovered, setHovered] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearHoverTimer = () => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  };
+  useEffect(() => clearHoverTimer, []);
+  const thumbStyle = {
+    transform: hovered ? "scale(1.08)" : "scale(1)",
+  } as const;
   return (
     <div
-      className="group relative overflow-hidden rounded-[10px] transition-transform hover:-translate-y-0.5"
+      className="group relative overflow-hidden rounded-[10px]"
+      onMouseEnter={() => {
+        clearHoverTimer();
+        hoverTimer.current = setTimeout(() => setHovered(true), 500);
+      }}
+      onMouseLeave={() => {
+        clearHoverTimer();
+        setHovered(false);
+      }}
       style={{
         background: palette.panel,
         border: `1px solid ${selected ? LIME : palette.border}`,
@@ -57,27 +83,48 @@ export function EcommerceTemplateCard({
       >
         {cover ? (
           <div className="aspect-[9/7] p-[3px]" data-tpl-cover>
-            <img
-              src={cover}
-              alt={`${template.name} 示例`}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full rounded object-cover"
-              style={{ background: templateThumbGradient(index, 1) }}
-            />
+            <div className="h-full w-full overflow-hidden rounded">
+              <img
+                src={cover}
+                alt={`${template.name} 示例`}
+                loading="lazy"
+                decoding="async"
+                data-tpl-thumb
+                className="h-full w-full object-cover transition-transform duration-300 ease-out"
+                style={{ background: templateThumbGradient(index, 1), ...thumbStyle }}
+              />
+            </div>
           </div>
         ) : (
-          <div className="grid aspect-[9/7] grid-cols-3 gap-[3px] p-[3px]">
-            {THUMB_CELLS.map(cell => (
-              <div key={cell} className="rounded" style={{ background: templateThumbGradient(index, cell) }} />
-            ))}
+          <div className="aspect-[9/7] p-[3px]">
+            <div
+              data-tpl-thumb
+              className="grid h-full w-full grid-cols-3 gap-[3px] overflow-hidden rounded transition-transform duration-300 ease-out"
+              style={thumbStyle}
+            >
+              {THUMB_CELLS.map(cell => (
+                <div key={cell} className="rounded" style={{ background: templateThumbGradient(index, cell) }} />
+              ))}
+            </div>
           </div>
         )}
-        <div className="px-2.5 pb-2.5 pt-1.5">
-          <div className="text-[12px] font-semibold leading-snug" style={{ color: palette.text }}>
+        {/*
+          文案区固定高度：标题单行截断，流程描述**恒占两行**（line-clamp-2 + 固定高度）。
+          ⚠️ 不能靠内容撑高 —— 单行/双行文案会让同一行卡片高度不一致（2026-10-18 用户反馈）。
+        */}
+        <div className="px-2.5 pb-2.5 pt-1.5" data-tpl-text>
+          <div
+            className="h-[18px] truncate text-[12px] font-semibold leading-[18px]"
+            style={{ color: palette.text }}
+            title={template.name}
+          >
             {template.name}
           </div>
-          <div className="mt-0.5 text-[10.5px] leading-snug" style={{ color: palette.sub }}>
+          <div
+            className="mt-0.5 line-clamp-2 h-[30px] text-[10.5px] leading-[15px]"
+            style={{ color: palette.sub }}
+            title={template.flow}
+          >
             {template.flow}
           </div>
         </div>
