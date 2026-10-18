@@ -12,7 +12,8 @@
  * 字段适配 EcommerceDraft 结构：
  *   - 产品图参数：productRatio, productTier, productCount, bgTemplate
  *   - 带货图文参数：platform, market, language, postRatio, postCount, tplId
- *   - 共通参数：model, sellingPoints, noTextOnImage, withCopy
+ *   - 共通参数：model, sellingPoints, withCopy
+ *     （2026-10-18 已删 noTextOnImage：与提示词里「加 XX 文字」冲突；老预设里残留该字段会被 normalize 丢弃）
  *   - 不存 uploads（dataURL 吃光 localStorage 配额）
  */
 
@@ -48,7 +49,6 @@ export type EcommerceCanvasPresetPayload = {
   tplId: number | null;
   // 共通参数
   sellingPoints: string;
-  noTextOnImage: boolean;
   withCopy: boolean;
 };
 
@@ -81,7 +81,6 @@ export const ECOMMERCE_CANVAS_DEFAULT_PAYLOAD: EcommerceCanvasPresetPayload = {
   tplId: null,
   // 共通参数
   sellingPoints: "",
-  noTextOnImage: false,
   withCopy: true,
 };
 
@@ -166,9 +165,6 @@ function normalizePayload(raw: unknown): EcommerceCanvasPresetPayload {
     // 共通参数
     sellingPoints:
       typeof source.sellingPoints === "string" ? source.sellingPoints.slice(0, 1000) : "",
-    noTextOnImage: typeof source.noTextOnImage === "boolean"
-      ? source.noTextOnImage
-      : ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.noTextOnImage,
     withCopy: typeof source.withCopy === "boolean"
       ? source.withCopy
       : ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.withCopy,
@@ -295,7 +291,6 @@ export function mergeEcommerceCanvasPreset<T extends PresetDraftShape>(
     postCount: payload.postCount,
     tplId: payload.tplId,
     sellingPoints: payload.sellingPoints,
-    noTextOnImage: payload.noTextOnImage,
     withCopy: payload.withCopy,
     userModifiedProductTier: force ? false : draft.userModifiedProductTier,
     userModifiedPostRatio: force ? false : draft.userModifiedPostRatio,

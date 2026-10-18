@@ -115,7 +115,6 @@ function createDefaultDraft(): EcommerceDraft {
     market: ECOMMERCE_MARKETS[0],
     language: ECOMMERCE_LANGUAGES[0],
     postRatio: "3:4",
-    noTextOnImage: false,
     sellingPoints: "",
     tplId: null,
     withCopy: true,
@@ -150,7 +149,25 @@ export default function EcommerceCanvasPage() {
   const palette = useMemo(() => ecommercePalette(isDark), [isDark]);
 
   const { sub, params } = useMemo(() => parseRoute(location), [location]);
-  const mode: EcommerceMode = sub === "post" ? "post" : "product";
+  // 2026-10-18 用户要求：Tab 切换不跳路由，本地状态切换。
+  // URL 仅用于首次加载决定初始模式（sub === "post" 才是带货图文，其余默认产品图）。
+  const [mode, setMode] = useState<EcommerceMode>(() => (sub === "post" ? "post" : "product"));
+  // ⚠️ 站内其它入口（模板库「使用」→ /post、生成记录「打开」→ /:mode）仍靠 URL 指定模式，
+  //    组件不会重挂载，useState 初值只跑一次 → 必须同步，否则点了「使用模板」停在产品图。
+  useEffect(() => {
+    if (sub === "post" || sub === "product") setMode(sub);
+  }, [sub]);
+  /**
+   * Tab 切换：只改本地状态 + replaceState 改地址栏（不进历史栈、不触发路由跳转/重载），
+   * 保证刷新后仍停在当前 Tab。
+   */
+  const switchMode = useCallback((next: EcommerceMode) => {
+    setMode(next);
+    if (typeof window !== "undefined") {
+      const url = `${window.location.pathname.replace(/\/ecommerce-canvas(\/.*)?$/, "")}${ROOT}/${next}${window.location.search}`;
+      window.history.replaceState(window.history.state, "", url);
+    }
+  }, []);
 
   // 页面加载时间,用于2分钟恢复窗口判断
   const pageLoadTimeRef = useRef(Date.now());
@@ -530,7 +547,12 @@ export default function EcommerceCanvasPage() {
       return [
         "创建真实、干净、有商业质感的产品背景。",
         draft.bgTemplate ? `电商背景模板：${draft.bgTemplate.name}` : "使用默认随机电商背景模板。",
-        draft.sellingPoints.trim() ? `产品信息：${draft.sellingPoints.trim()}` : "",
+        /*
+          ⚠️ 2026-10-18：产品图模式不再拼「商品卖点」。
+          卖点输入框在本模式已隐藏，但 draft 两个模式共用——带货图文里填的卖点
+          会被悄悄带进来；而「默认随机」（无 sceneType）时 prompt 真的会发给上游，
+          等于用户看不见的内容在影响出图。
+        */
         ...PRODUCT_PROTECTION_RULES,
         "只生成与选定风格匹配的商业化背景、真实光影、空间和氛围。",
       ]
@@ -543,8 +565,7 @@ export default function EcommerceCanvasPage() {
       `为 ${draft.platform}（${draft.market}市场）生成一套 ${draft.postCount} 张的社媒带货图文，文案语言：${draft.language}。`,
       tpl ? `分镜模板：${tpl.name}（拍摄节奏：${tpl.flow}）。` : "",
       `商品卖点与要求：${draft.sellingPoints.trim() || "由 AI 根据常见卖点合理发挥"}`,
-      draft.noTextOnImage ? "图片不加文字，突出产品使用场景。" : "可在画面中按模板加入少量卖点文字。",
-      draft.withCopy ? "同时输出整套图的社媒发布文案（标题 + 正文 + 话题标签）。" : "",
+      // 「社媒发布文案」开关已删（2026-10-18）：出图接口不返回文字，写进提示词只会干扰画面。
     ]
       .filter(Boolean)
       .join("\n");
@@ -772,6 +793,7 @@ export default function EcommerceCanvasPage() {
         <EcommerceWorkspace
           isDark={isDark}
           mode={mode}
+          onSwitchMode={switchMode}
           palette={palette}
           draft={draft}
           updateDraft={updateDraft}

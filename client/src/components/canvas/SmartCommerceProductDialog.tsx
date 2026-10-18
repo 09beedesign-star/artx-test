@@ -2003,6 +2003,22 @@ export function SmartCommerceProductDialog({
                     </div>
 
                     {/*
+                      模板模式说明（2026-10-18 用户需求）。
+                      ⚠️ 选了模板时服务端把 scene_type 交给 PicWish，**prompt 整段不传**
+                         （server/image-generation.ts createBackgroundWithPicWish 的三元互斥），
+                         所以这里没有任何文字输入。必须明说，否则用户会以为少了个输入框。
+                      想自己描述背景 → 切到「提示词生图」tab。
+                    */}
+                    <div
+                      data-testid="smart-product-template-hint"
+                      className="mx-2.5 mt-1 shrink-0 truncate text-[9px] leading-4"
+                      style={{ color: colors.muted }}
+                      title="选模板即可出图，无需填写提示词；想自己描述背景请切换到「提示词生图」"
+                    >
+                      精调模板，无需提示词 · 想自定义请用「提示词生图」
+                    </div>
+
+                    {/*
                       当前已选模板的回显。
                       ⚠️ 必须有 —— 改版前选中的模板名就顶在按钮上，一眼可见。
                          改成面板后如果不回显，用户选完模板关掉选择器，

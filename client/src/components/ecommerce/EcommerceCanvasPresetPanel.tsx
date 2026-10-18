@@ -15,9 +15,13 @@
  * productTier / postRatio 套用预设时判断：
  *   - draft.userModifiedProductTier === true → 保留用户当前选择，不覆盖
  *   - 否则 → 用预设值覆盖
+ *
+ * 【布局要求】（2026-10-18 截图参考智能产品）
+ * 分段控件「保存预设 | ▲」，点箭头向上展开浮层（absolute bottom-full），
+ * 不能平铺撑高左栏 → 避免出滚动条。
  */
-import { useEffect, useState } from "react";
-import { Check, PenLine, Save, Trash2, RotateCcw, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ChevronUp, PenLine, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createEcommerceCanvasPresetId,
@@ -57,9 +61,26 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
     setPresets(readEcommerceCanvasPresets(accountId));
     setActivePresetId(readActiveEcommerceCanvasPresetId(accountId));
   }, [accountId]);
-  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [renamingPresetId, setRenamingPresetId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  // 点浮层外 / 按 Esc 收起（与智能产品同交互）
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !renamingPresetId) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen, renamingPresetId]);
 
   /** 从当前 draft 提取存储字段 */
   function extractPayload(): EcommerceCanvasPresetPayload {
@@ -78,7 +99,6 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
       postCount: draft.postCount,
       tplId: draft.tplId,
       sellingPoints: draft.sellingPoints,
-      noTextOnImage: draft.noTextOnImage,
       withCopy: draft.withCopy,
     };
   }
@@ -167,51 +187,76 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
   }
 
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold" style={{ color: palette.text }}>
-          参数预设
-        </span>
-        <span className="text-[9px]" style={{ color: palette.sub }}>
-          {presets.length}/{ECOMMERCE_CANVAS_PRESET_LIMIT}
-        </span>
-      </div>
-
-      <div className="flex gap-1.5">
+    <div ref={rootRef} className="relative" data-testid="ecommerce-preset-panel">
+      <div
+        className="flex h-9 items-stretch overflow-hidden rounded-md"
+        style={{
+          border: `1px solid ${menuOpen || activePresetId ? "rgba(197,237,71,0.55)" : palette.border}`,
+          background: palette.panel,
+        }}
+      >
         <button
           type="button"
-          className="flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-[11px] font-semibold"
-          style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+          className="flex flex-1 items-center justify-center gap-1 px-3 text-[11px] font-semibold transition-opacity hover:opacity-80"
+          style={{ color: palette.text }}
           onClick={handleSave}
+          title="把当前面板的全部参数保存为一组预设，下次进入自动套用"
         >
           <Plus size={12} /> 保存预设
         </button>
         <button
           type="button"
-          className="rounded-md px-3 py-1.5 text-[11px]"
-          style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
-          onClick={() => setExpanded(!expanded)}
+          className="flex w-8 items-center justify-center transition-opacity hover:opacity-80"
+          style={{ color: palette.sub, borderLeft: `1px solid ${palette.border}` }}
+          onClick={() => {
+            setMenuOpen(prev => !prev);
+            setRenamingPresetId(null);
+          }}
+          aria-expanded={menuOpen}
+          aria-label="我的预设参数"
+          title="我的预设参数"
         >
-          {expanded ? "收起" : "管理"}
+          {menuOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </div>
 
-      {expanded ? (
+      {menuOpen ? (
         <div
-          className="mt-2 overflow-hidden rounded-md"
-          style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
+          /*
+            ⚠️ 向上展开的绝对定位浮层：不占文档流，左栏高度不变、不出滚动条。
+               宽度跟随左栏（left-0 right-0）而不是智能产品的固定 300px——
+               左栏比 300px 窄，固定宽会横向溢出。
+          */
+          className="absolute bottom-full left-0 right-0 z-40 mb-2 overflow-hidden rounded-md"
+          data-testid="ecommerce-preset-menu"
+          style={{
+            // 2026-10-18 用户要求：改深灰毛玻璃质感，80% 不透明度（原 panelStrong 叠底色方案太淡）。
+            //    深灰 #2a2a2a + 80% 不透明 + backdrop-filter blur 实现毛玻璃。
+            background: "rgba(42, 42, 42, 0.8)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            border: `1px solid ${palette.border}`,
+            boxShadow: "0 -14px 36px rgba(0,0,0,0.36)",
+          }}
+          role="menu"
+          aria-label="预设参数列表"
         >
           <div
-            className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-wide"
+            className="px-3 py-2 text-[9px] font-semibold uppercase tracking-wide"
             style={{ color: palette.sub, borderBottom: `1px solid ${palette.border}` }}
           >
-            我的预设
+            我的预设（{presets.length}/{ECOMMERCE_CANVAS_PRESET_LIMIT}）
           </div>
 
+          {/*
+            ⚠️ 列表区单独限高滚动，而不是让整个菜单长高：
+               12 组预设 + 底部「回到初始态」全摊开会顶破面板顶边，
+               而「回到初始态」必须始终可见（它是兜底出口）。
+          */}
           <div className="max-h-[228px] overflow-y-auto py-1">
             {presets.length === 0 ? (
-              <p className="px-2.5 py-3 text-[10px] leading-relaxed" style={{ color: palette.sub }}>
-                还没有预设。调好参数后点「保存预设」，下次进入就会自动套用。
+              <p className="px-3 py-3 text-[10px] leading-4" style={{ color: palette.sub }}>
+                还没有预设。调好参数后点左边「保存预设」，下次进入就会自动套用。
               </p>
             ) : (
               presets.map(preset => {
@@ -251,7 +296,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                     ) : (
                       <button
                         type="button"
-                        className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded px-2 text-left text-[10px]"
+                        className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded px-2 text-left text-[10px] transition-colors"
                         style={{ color: active ? palette.text : palette.sub }}
                         onClick={() => handleApply(preset)}
                         title={`套用「${preset.name}」`}
@@ -267,7 +312,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                     <span className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
-                        className="flex h-7 w-7 items-center justify-center rounded hover:bg-white/10"
+                        className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
                         style={{ color: palette.sub }}
                         onClick={() => {
                           setRenamingPresetId(preset.id);
@@ -279,7 +324,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                       </button>
                       <button
                         type="button"
-                        className="flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold hover:bg-white/10"
+                        className="flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold transition-colors hover:bg-white/10"
                         style={{ color: "rgb(197,237,71)" }}
                         onClick={() => handleUpdate(preset)}
                         title="用当前面板参数覆盖这组预设"
@@ -289,7 +334,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                       </button>
                       <button
                         type="button"
-                        className="flex h-7 w-7 items-center justify-center rounded hover:bg-white/10"
+                        className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
                         style={{ color: "#F87171" }}
                         onClick={() => handleDelete(preset)}
                         title="删除这组预设"
@@ -305,10 +350,10 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
 
           <button
             type="button"
-            className="flex h-9 w-full items-center gap-1.5 px-2.5 text-left text-[10px] font-semibold hover:bg-white/5"
+            className="flex h-9 w-full items-center gap-1.5 px-3 text-left text-[10px] font-semibold transition-colors hover:bg-white/5"
             style={{ color: palette.sub, borderTop: `1px solid ${palette.border}` }}
             onClick={handleResetToDefault}
-            title="恢复出厂默认，取消下次自动套用（不删除已存预设）"
+            title="恢复面板出厂默认参数，并取消下次自动套用（不会删除已存预设）"
           >
             <RotateCcw size={12} />
             回到初始态

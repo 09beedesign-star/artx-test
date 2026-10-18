@@ -166,17 +166,35 @@ describe("电商画布：二级页真实可达", () => {
     expect(workspaceSource).toContain("查看全部");
   });
 
-  it("未选模板时给出可点的跳转入口，而不是一句静态提示", () => {
-    expect(workspaceSource).toContain("去模板库挑一个");
+  // 2026-10-18 用户拍板：不跳页，改为「在右侧选择模板」+ 右栏第一张卡绿色闪烁两次
+  it("未选模板时给出可点的指引按钮，点了不跳页而是闪烁右栏第一张模板", () => {
+    expect(workspaceSource).toContain("在右侧选择模板");
+    expect(workspaceSource).not.toContain("去模板库挑一个");
+    expect(workspaceSource).toContain("onClick={hintFirstTemplate}");
+    expect(workspaceSource).toContain("ecommerce-tpl-hint-flash");
+  });
+
+  it("带货图文 / 产品图 Tab 是本地切换，不是路由跳转", () => {
+    expect(workspaceSource).toContain("onSwitchMode(m)");
+    expect(workspaceSource).not.toMatch(/href=\{`\/ecommerce-canvas\/\$\{m\}`\}/);
+  });
+
+  it("删掉附加功能与社媒发布文案，且提示词不再偷偷带文案要求", () => {
+    expect(workspaceSource).not.toContain("附加功能</SectionTitle>");
+    expect(workspaceSource).not.toContain("label=\"社媒帖子发布文案\"");
+    expect(workspaceSource).toContain("图片张数</SectionTitle>");
+    expect(pageSource).not.toContain("同时输出整套图的社媒发布文案");
   });
 
   it("模板卡提供进入详情二级页的入口", () => {
     expect(workspaceSource).toContain("onOpenDetail={picked => onOpenTemplateDetail(picked.id)}");
   });
 
-  it("产品图空态给出可点的背景模板入口", () => {
-    expect(workspaceSource).toContain("挑选电商背景模板");
-    expect(workspaceSource).toContain("setBgSelectorOpen(true)");
+  // 2026-10-18：产品图空态不再弹窗，直接内嵌背景模板选择器
+  it("产品图空态直接内嵌背景模板选择器，不再经过弹窗", () => {
+    expect(workspaceSource).toContain("embedded");
+    expect(workspaceSource).not.toContain("setBgSelectorOpen");
+    expect(workspaceSource).not.toContain("同源");
   });
 
   it("详情页缺失模板时给出返回出口，不白屏", () => {
@@ -208,9 +226,9 @@ describe("电商画布：背景模板不带第三方品牌字样", () => {
   });
 
   it("背景模板相关 UI 文案改用中性表述", () => {
-    expect(workspaceSource).toContain("使用默认电商背景模板 · 点击挑选");
+    expect(workspaceSource).toContain("使用默认电商背景模板 · 在右侧挑选");
     expect(workspaceSource).not.toContain("使用 PicWish 默认电商背景模板");
-    expect(workspaceSource).toContain("上传产品图并在左侧挑选电商背景模板");
+    expect(workspaceSource).toContain("上传产品图并在下方挑选电商背景模板");
     expect(workspaceSource).not.toContain("挑选 PicWish 电商背景模板");
   });
 

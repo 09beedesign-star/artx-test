@@ -2,14 +2,13 @@
  * 长期记忆独立页面
  * - 四维度长期记忆输入：项目记忆、Skill、通用规则、常规记忆
  * - Skill 支持导入本地 .md 文档
- * - GSAP 点阵背景动效：激活输入框时开始播放，保存后停止
+ * - 点阵背景常驻显示，模块与输入框纯色底。选中态白色边框高亮，未选中灰色线条和文字。
  * - 支持下载记忆文档：系统原生文件保存对话框，用户选择保存路径
  * - 与个人中心的能力完全一致，但 UI 呈现科技感（与平台风格保持一致）
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Brain, Upload, Save, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
-import gsap from "gsap";
 import {
   fetchUserMemory,
   fetchUserMemoryWithLimits,
@@ -25,8 +24,43 @@ import {
 import { MEMBERSHIP_PLANS, SUBSCRIPTION_PLAN_IDS } from "@shared/billing-config";
 import type { UserMemoryDocument } from "@shared/user-memory";
 import { buildMemoryMarkdown, saveMarkdownWithPicker, suggestMemoryFilename } from "@/lib/memory-export";
+import { useTheme } from "@/contexts/ThemeContext";
 
 type MemoryDimension = "projectMemory" | "skill" | "generalRules" | "regularMemory";
+
+/*
+  2026-10-18 用户需求：
+  · 页面常驻点阵背景；模块与输入框一律纯色底，点阵不得透进来。
+  · 线条只有选中态是白色高亮，其余一律灰线；未选中模块内所有文字灰色。
+  ⚠️ 色值必须显式给出：本页原先用的 --color-surface-* / --color-border-* 全项目
+     **没有定义**，背景与边框一直是静默失效的（点阵会透进输入框就是这个原因）。
+     与 ProfilePage 同一口径：useTheme + 亮/暗两套色值。
+  ⚠️ 模块与输入框背景必须不透明，禁止 rgba 半透明/渐变，否则点阵透出。
+*/
+function getMemoryPalette(isDark: boolean) {
+  return isDark
+    ? {
+        pageBg: "#141414",
+        dot: "rgba(255, 255, 255, 0.14)",
+        card: "#1E1E1E",
+        field: "#262626",
+        lineIdle: "rgba(255, 255, 255, 0.12)",
+        lineActive: "rgba(255, 255, 255, 0.92)",
+        textIdle: "rgba(255, 255, 255, 0.45)",
+        textActive: "rgba(255, 255, 255, 0.92)",
+      }
+    : {
+        pageBg: "#F4F4F6",
+        dot: "rgba(20, 20, 36, 0.16)",
+        card: "#FFFFFF",
+        field: "#F7F7F9",
+        lineIdle: "rgba(20, 20, 36, 0.12)",
+        // 亮色主题下「白色高亮线」在白底上看不见，改用高对比深色线承担同样的「选中」语义
+        lineActive: "rgba(20, 20, 36, 0.85)",
+        textIdle: "rgba(20, 20, 36, 0.45)",
+        textActive: "rgba(20, 20, 36, 0.9)",
+      };
+}
 
 interface DimensionConfig {
   key: MemoryDimension;
@@ -60,6 +94,12 @@ const DIMENSIONS: DimensionConfig[] = [
 ];
 
 export default function LongTermMemoryPage() {
+  const { resolvedTheme } = useTheme();
+  const c = getMemoryPalette(resolvedTheme === "dark");
+  const LINE_IDLE = c.lineIdle;
+  const LINE_ACTIVE = c.lineActive;
+  const TEXT_IDLE = c.textIdle;
+  const TEXT_ACTIVE = c.textActive;
   const [memories, setMemories] = useState<Record<MemoryDimension, string>>({
     projectMemory: "",
     skill: "",
@@ -81,106 +121,6 @@ export default function LongTermMemoryPage() {
     total: number;
     skill: number;
   }>({ perDimension: 300, total: 1200, skill: SKILL_DIMENSION_LIMIT });
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<(() => void) | null>(null);
-  const dotsRef = useRef<Array<{ x: number; y: number; vx: number; vy: number }>>([]);
-
-  // 初始化点阵动画
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const updateSize = () => {
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      // setTransform 而非 scale：resize 多次触发时 scale 会累乘，点阵越画越大
-      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-    };
-    updateSize();
-    window.addEventListener("resize", updateSize);
-
-    // 初始化点阵（50 个点，随机分布）
-    const dotCount = 50;
-    dotsRef.current = Array.from({ length: dotCount }, () => ({
-      x: Math.random() * canvas.offsetWidth,
-      y: Math.random() * canvas.offsetHeight,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-    }));
-
-    return () => window.removeEventListener("resize", updateSize);
-  }, []);
-
-  // 点阵动画循环（仅在有激活输入框时播放）
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    if (!activeDimension) {
-      // 停止动画
-      if (animationRef.current) {
-        gsap.ticker.remove(animationRef.current);
-        animationRef.current = null;
-      }
-      // 清空画布
-      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
-      return;
-    }
-
-    // 开始动画
-    const animate = () => {
-      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
-
-      // 更新点位置
-      dotsRef.current.forEach(dot => {
-        dot.x += dot.vx;
-        dot.y += dot.vy;
-        if (dot.x < 0 || dot.x > canvas.offsetWidth) dot.vx *= -1;
-        if (dot.y < 0 || dot.y > canvas.offsetHeight) dot.vy *= -1;
-      });
-
-      // 绘制点
-      ctx.fillStyle = "rgba(197, 237, 71, 0.6)"; // 品牌强调色
-      dotsRef.current.forEach(dot => {
-        ctx.beginPath();
-        ctx.arc(dot.x, dot.y, 2, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // 绘制连线（距离 < 120px）
-      ctx.strokeStyle = "rgba(197, 237, 71, 0.15)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < dotsRef.current.length; i++) {
-        for (let j = i + 1; j < dotsRef.current.length; j++) {
-          const dx = dotsRef.current[i].x - dotsRef.current[j].x;
-          const dy = dotsRef.current[i].y - dotsRef.current[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 120) {
-            ctx.beginPath();
-            ctx.moveTo(dotsRef.current[i].x, dotsRef.current[i].y);
-            ctx.lineTo(dotsRef.current[j].x, dotsRef.current[j].y);
-            ctx.stroke();
-          }
-        }
-      }
-    };
-
-    gsap.ticker.add(animate);
-    animationRef.current = animate;
-
-    return () => {
-      if (animationRef.current) {
-        gsap.ticker.remove(animate);
-        animationRef.current = null;
-      }
-    };
-  }, [activeDimension]);
 
   // 加载记忆 + 档位容量
   useEffect(() => {
@@ -245,7 +185,6 @@ export default function LongTermMemoryPage() {
       setSavedMemories(memories);
       broadcastUserMemoryChange(document);
       toast.success("长期记忆已保存");
-      // 保存后停止动画
       setActiveDimension(null);
     } catch (err) {
       console.error("保存失败", err);
@@ -316,32 +255,33 @@ export default function LongTermMemoryPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-text-subtle)]" />
+        <Loader2 className="w-8 h-8 animate-spin " />
       </div>
     );
   }
 
   return (
-    <div className="relative flex flex-col h-full overflow-hidden">
-      {/* 点阵背景画布 */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 0 }}
-      />
-
+    <div
+      className="relative flex flex-col h-full overflow-hidden"
+      style={{
+        background: c.pageBg,
+        backgroundImage: `radial-gradient(${c.dot} 1px, transparent 1px)`,
+        backgroundSize: "18px 18px",
+      }}
+      data-testid="memory-page-dot-grid"
+    >
       {/* 主内容 */}
       <div className="relative z-10 flex-1 overflow-y-auto p-8">
         <div className="max-w-4xl mx-auto">
           {/* 标题 */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-full bg-[var(--color-surface-elevated)] flex items-center justify-center">
+            <div className="w-12 h-12 rounded-full  flex items-center justify-center">
               <Brain className="w-6 h-6" style={{ color: "#C5ED47" }} />
             </div>
             <div>
               <h1 className="text-2xl font-semibold">长期记忆</h1>
-              <p className="type-caption text-[var(--color-text-subtle)] mt-1">
-                长期记忆始终生效，持续伴随账号。四维度输入框激活时播放智能动效。
+              <p className="type-caption  mt-1">
+                长期记忆始终生效，持续伴随账号。选中的输入框白色高亮。
               </p>
             </div>
           </div>
@@ -349,12 +289,12 @@ export default function LongTermMemoryPage() {
           {/* 当前套餐的长期记忆容量（数字现算自服务端 limits，不写死） */}
           <div
             className="mb-6 p-4 rounded-xl flex items-center justify-between gap-4"
-            style={{ background: "var(--color-surface-elevated)", border: "1px solid rgba(197, 237, 71, 0.25)" }}
+            style={{ background: c.card, border: `1px solid ${LINE_IDLE}`, color: TEXT_ACTIVE }}
             data-testid="memory-plan-capacity"
           >
             <div className="type-body-sm min-w-0">
               <div className="font-medium">当前套餐：{planDisplayName}</div>
-              <div className="type-caption text-[var(--color-text-subtle)] mt-1">
+              <div className="type-caption  mt-1">
                 项目记忆 / 通用规则 / 常规记忆每项 {currentLimits.perDimension.toLocaleString()} 字、合计 {currentLimits.total.toLocaleString()} 字；
                 Skill 文档上限 {currentLimits.skill.toLocaleString()} 字（所有套餐一致）
               </div>
@@ -371,29 +311,31 @@ export default function LongTermMemoryPage() {
             )}
           </div>
 
-          {/* 四维度输入框 */}
+          {/* 四维度输入框：只有 textarea 有边框，标题与 label 不用卡片包裹 */}
           <div className="space-y-6">
             {DIMENSIONS.map(dim => {
               const currentLength = memories[dim.key].length;
               const isActive = activeDimension === dim.key;
               const oversized = dim.key === "skill" && isSkillOversized(memories.skill);
               const maxLength = dim.key === "skill" ? currentLimits.skill : currentLimits.perDimension;
+              const borderColor = isActive ? "rgba(197,237,71,0.42)" : LINE_IDLE;
+              const glowColor = isActive
+                ? "0 0 0 3px rgba(197,237,71,0.14)"
+                : "none";
               return (
                 <div
                   key={dim.key}
-                  className="p-6 rounded-xl transition-all duration-300"
-                  style={{
-                    background: isActive
-                      ? "linear-gradient(135deg, rgba(197, 237, 71, 0.08), rgba(197, 237, 71, 0.02))"
-                      : "var(--color-surface-elevated)",
-                    boxShadow: isActive
-                      ? "0 0 0 2px rgba(197, 237, 71, 0.3), 0 8px 24px rgba(0,0,0,0.3)"
-                      : "0 2px 8px rgba(0,0,0,0.2)",
-                  }}
+                  className="transition-all duration-200"
                   data-testid={`memory-dimension-${dim.key}`}
+                  data-active={isActive ? "true" : "false"}
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="font-medium">{dim.label}</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label
+                      className="font-medium"
+                      style={{ color: isActive ? TEXT_ACTIVE : TEXT_IDLE }}
+                    >
+                      {dim.label}
+                    </label>
                     {dim.allowUpload && (
                       <label className="cursor-pointer">
                         <input
@@ -403,7 +345,14 @@ export default function LongTermMemoryPage() {
                           onChange={handleUploadSkill}
                           data-testid="memory-upload-skill"
                         />
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-surface-base)] hover:bg-[var(--color-surface-hover)] transition-colors">
+                        <div
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors hover:opacity-80"
+                          style={{
+                            background: c.field,
+                            border: `1px solid ${borderColor}`,
+                            color: isActive ? TEXT_ACTIVE : TEXT_IDLE,
+                          }}
+                        >
                           <Upload className="w-4 h-4" />
                           <span className="type-caption">导入本地 Skill</span>
                         </div>
@@ -415,7 +364,6 @@ export default function LongTermMemoryPage() {
                     onChange={e => setMemories(prev => ({ ...prev, [dim.key]: e.target.value }))}
                     onFocus={() => setActiveDimension(dim.key)}
                     onBlur={() => {
-                      // 延迟清空，避免保存按钮点击时动画立即停止
                       setTimeout(() => {
                         if (document.activeElement?.tagName !== "TEXTAREA") {
                           setActiveDimension(null);
@@ -423,23 +371,31 @@ export default function LongTermMemoryPage() {
                       }, 100);
                     }}
                     placeholder={dim.placeholder}
-                    // Skill 不用原生 maxLength：粘贴超长文档会被静默截断，改为显式提醒。
                     maxLength={dim.key === "skill" ? undefined : maxLength}
                     rows={dim.key === "skill" ? 10 : 6}
-                    className="w-full p-3 rounded-lg bg-[var(--color-surface-base)] border border-[var(--color-border-subtle)] focus:border-[#C5ED47] focus:outline-none resize-none type-body-sm"
+                    className="w-full p-3 rounded-lg focus:outline-none resize-none type-body-sm transition-all duration-200"
+                    style={{
+                      background: c.field,
+                      border: `1px solid ${borderColor}`,
+                      boxShadow: `${glowColor}`,
+                      color: isActive ? TEXT_ACTIVE : TEXT_IDLE,
+                    }}
                     data-testid={`memory-input-${dim.key}`}
                   />
                   <div className="flex items-center justify-between mt-2">
                     <span
                       className="type-caption"
-                      style={{ color: oversized ? "#FF6B6B" : "var(--color-text-subtle)" }}
+                      style={{ color: oversized ? "#FF6B6B" : TEXT_IDLE }}
                       data-testid={`memory-count-${dim.key}`}
                     >
                       {currentLength.toLocaleString()} / {maxLength.toLocaleString()} 字
                       {oversized && " · Skill 过大，请精简之后再上传"}
                     </span>
                     {memories[dim.key] !== savedMemories[dim.key] && (
-                      <span className="type-caption" style={{ color: "#C5ED47" }}>
+                      <span
+                        className="type-caption"
+                        style={{ color: isActive ? "rgba(197,237,71,0.92)" : TEXT_IDLE }}
+                      >
                         有未保存的修改
                       </span>
                     )}
@@ -455,8 +411,9 @@ export default function LongTermMemoryPage() {
               onClick={handleDownloadMemory}
               className="px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2"
               style={{
-                background: "var(--color-surface-elevated)",
-                color: "var(--color-text-base)",
+                background: c.card,
+                border: `1px solid ${LINE_IDLE}`,
+                color: TEXT_ACTIVE,
               }}
               data-testid="memory-download"
             >
@@ -468,8 +425,9 @@ export default function LongTermMemoryPage() {
               disabled={!hasUnsavedChanges || isSaving}
               className="px-6 py-3 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               style={{
-                background: hasUnsavedChanges && !isSaving ? "#C5ED47" : "var(--color-surface-elevated)",
-                color: hasUnsavedChanges && !isSaving ? "#000" : "var(--color-text-base)",
+                background: hasUnsavedChanges && !isSaving ? "#C5ED47" : c.card,
+                border: `1px solid ${hasUnsavedChanges && !isSaving ? "#C5ED47" : LINE_IDLE}`,
+                color: hasUnsavedChanges && !isSaving ? "#000" : TEXT_IDLE,
               }}
               data-testid="memory-save"
             >

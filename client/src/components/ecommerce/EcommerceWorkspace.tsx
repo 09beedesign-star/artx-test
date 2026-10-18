@@ -58,6 +58,8 @@ const MAX_UPLOADS = 5;
 type Props = {
   isDark: boolean;
   mode: EcommerceMode;
+  /** Tab 切换：只改本地状态，不跳路由（2026-10-18） */
+  onSwitchMode: (mode: EcommerceMode) => void;
   palette: EcommercePalette;
   draft: EcommerceDraft;
   updateDraft: (
@@ -91,6 +93,7 @@ type Props = {
 export function EcommerceWorkspace({
   isDark,
   mode,
+  onSwitchMode,
   palette,
   draft,
   updateDraft,
@@ -111,7 +114,6 @@ export function EcommerceWorkspace({
   presetSlot,
 }: Props) {
   const [tplCategory, setTplCategory] = useState("all");
-  const [bgSelectorOpen, setBgSelectorOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -121,6 +123,15 @@ export function EcommerceWorkspace({
   /** 正在飞向左栏的模板封面（FLIP 动画用的临时克隆）。 */
   const [flying, setFlying] = useState<{ src: string; from: DOMRect; to: DOMRect | null } | null>(null);
   const [slotPulse, setSlotPulse] = useState(0);
+  /** 「在右侧选择模板」指引：自增 key 让同一张卡能重复触发闪烁动画 */
+  const [tplHintTick, setTplHintTick] = useState(0);
+  const tplGridRef = useRef<HTMLDivElement>(null);
+  const hintFirstTemplate = () => {
+    // 先把右栏第一张卡滚进视野（右栏可能已被用户滚到下面），再触发闪烁
+    const first = tplGridRef.current?.firstElementChild as HTMLElement | null;
+    first?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setTplHintTick(t => t + 1);
+  };
 
   /**
    * 选中模板：把卡片封面「移动 + 缩放」飞进左栏「选择模板」卡片。
@@ -241,9 +252,13 @@ export function EcommerceWorkspace({
         <div>
           <div className="grid grid-cols-2 gap-1 rounded-md p-1" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
             {([["post", "带货图文"], ["product", "产品图"]] as const).map(([m, label]) => (
-              <Link
+              <button
                 key={m}
-                href={`/ecommerce-canvas/${m}`}
+                type="button"
+                role="tab"
+                aria-selected={mode === m}
+                data-testid={`ecommerce-mode-tab-${m}`}
+                onClick={() => { if (mode !== m) onSwitchMode(m); }}
                 className="rounded py-1.5 text-center text-[12px] transition-colors"
                 style={{
                   background: mode === m ? palette.panelStrong : "transparent",
@@ -253,7 +268,7 @@ export function EcommerceWorkspace({
                 }}
               >
                 {label}
-              </Link>
+              </button>
             ))}
           </div>
           <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
@@ -293,7 +308,7 @@ export function EcommerceWorkspace({
           </div>
           <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
             {mode === "product" ? (
-              <>{modelLabel} · 批次计费，1 - 8 张总积分相同 · 融合左侧上传图、设置、卖点与背景模板一起生成</>
+              <>{modelLabel} · 批次计费，1 - 8 张总积分相同 · 按上传图与所选背景模板生成</>
             ) : (
               <>
                 {modelLabel} · 融合左侧上传图、设置、卖点与模板一起生成
@@ -439,30 +454,39 @@ export function EcommerceWorkspace({
                 palette={palette}
               />
             </div>
-            <Switch
-              on={draft.noTextOnImage}
-              onToggle={() => updateDraft(prev => ({ ...prev, noTextOnImage: !prev.noTextOnImage }))}
-              label="图片不加文字"
-              desc="图片突出产品使用场景，不添加文字。"
-              isDark={isDark}
-              palette={palette}
-            />
+            {/*
+              2026-10-18 用户拍板：去掉「图片不加文字」开关——它会和「商品卖点 & 要求」里
+              写的「加 XX 标题文字」直接冲突。是否加字完全由用户提示词决定。
+            */}
           </div>
         ) : (
           <div>
             <SectionTitle palette={palette} aside={draft.bgTemplate ? draft.bgTemplate.name : "默认随机"}>
               电商背景模板
             </SectionTitle>
-            <button
-              type="button"
+            {/* 2026-10-18：右栏已常驻背景模板列表，这里只回显当前选择（不再弹层） */}
+            <div
               className="w-full rounded-md px-3 py-2 text-left text-[12px]"
               style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
-              onClick={() => setBgSelectorOpen(true)}
+              data-testid="ecommerce-bg-template-current"
             >
               {draft.bgTemplate
                 ? `已选：${draft.bgTemplate.name}（${draft.bgTemplate.category}）`
-                : "使用默认电商背景模板 · 点击挑选"}
-            </button>
+                : "使用默认电商背景模板 · 在右侧挑选"}
+            </div>
+            {/*
+              2026-10-18 用户需求：产品图模式只靠背景模板出图。
+              ⚠️ 选了模板时服务端把 scene_type 交给 PicWish，prompt 整段不传
+                 （server/image-generation.ts createBackgroundWithPicWish 三元互斥），
+                 所以「商品卖点 & 要求」在本模式下已隐藏——必须明说，否则用户会以为少了个输入框。
+            */}
+            <div
+              data-testid="ecommerce-product-template-hint"
+              className="mt-1.5 text-[10.5px] leading-relaxed"
+              style={{ color: palette.sub }}
+            >
+              精调模板，无需填写提示词——选好背景模板即可直接出图。
+            </div>
             <div className="mt-3 grid grid-cols-4 gap-1.5">
               {(["1:1", "3:4", "9:16", "16:9"] as const).map(r => (
                 <button key={r} type="button" className="rounded-md py-1.5 text-[11px]" style={chipStyle(draft.productRatio === r)} onClick={() => updateDraft({ productRatio: r })}>
@@ -494,33 +518,44 @@ export function EcommerceWorkspace({
           </div>
         )}
 
-        {/* 卖点 */}
+        {/*
+          卖点：只在带货图文模式显示。
+          ⚠️ 产品图模式走 PicWish 模板（scene_type），卖点写进 prompt 也不会被上游使用，
+             留着就是「填了没用还不告诉用户」（2026-10-18 用户反馈）。
+             带货图文走 image_edit，没有 scene_type，卖点真生效，不能一起删。
+        */}
+        {mode === "post" ? (
         <div>
-          <SectionTitle palette={palette}>商品卖点 &amp; 要求</SectionTitle>
-          <div className="relative">
-            <textarea
-              value={draft.sellingPoints}
-              onChange={event => updateDraft({ sellingPoints: event.target.value })}
-              placeholder={"建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数"}
-              className="min-h-[96px] w-full resize-y rounded-md p-2.5 pr-20 text-[12px] leading-relaxed outline-none"
-              style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
-            />
-            <button
-              type="button"
-              className="absolute right-2 top-2 flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px]"
-              style={{ background: "rgba(197,237,71,0.11)", border: "1px solid rgba(197,237,71,0.3)", color: LIME }}
-              onClick={() => {
-                updateDraft({
-                  sellingPoints:
-                    "产品名称：（从商品图提取）\n核心卖点：（材质 / 功能 / 续航等）\n适用人群：（目标用户）\n期望场景：（使用环境）\n具体参数：（尺寸 / 规格）",
-                });
-                toast.info("已填入卖点框架，替换为真实信息后生成更精准");
-              }}
-            >
-              <WandSparkles size={11} /> AI 帮写
-            </button>
-          </div>
+          <SectionTitle
+            palette={palette}
+            aside={
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[11px] font-medium transition-opacity hover:opacity-80"
+                style={{ color: LIME }}
+                onClick={() => {
+                  updateDraft({
+                    sellingPoints:
+                      "产品名称：（从商品图提取）\n核心卖点：（材质 / 功能 / 续航等）\n适用人群：（目标用户）\n期望场景：（使用环境）\n具体参数：（尺寸 / 规格）",
+                  });
+                  toast.info("已填入卖点框架，替换为真实信息后生成更精准");
+                }}
+              >
+                <WandSparkles size={11} /> AI 帮写
+              </button>
+            }
+          >
+            商品卖点 &amp; 要求
+          </SectionTitle>
+          <textarea
+            value={draft.sellingPoints}
+            onChange={event => updateDraft({ sellingPoints: event.target.value })}
+            placeholder={"建议包含以下信息生成更精准：\n1.产品名称\n2.核心卖点\n3.适用人群\n4.期望场景\n5.具体参数"}
+            className="min-h-[96px] w-full resize-y rounded-md p-2.5 text-[12px] leading-relaxed outline-none"
+            style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+          />
         </div>
+        ) : null}
 
           {/* 选择模板（带货图文） */}
           {mode === "post" ? (
@@ -551,9 +586,10 @@ export function EcommerceWorkspace({
                 </div>
                 <button
                   type="button"
-                  className="ml-auto shrink-0 text-[11px]"
-                  style={{ color: palette.sub }}
+                  className="ml-auto shrink-0 text-[11px] font-medium transition-opacity hover:opacity-70"
+                  style={{ color: "#F87171" }}
                   onClick={() => updateDraft({ tplId: null })}
+                  title="移除选中的模板"
                 >
                   移除
                 </button>
@@ -568,36 +604,38 @@ export function EcommerceWorkspace({
                   ⚠️ 首版这里只是一句静态提示，用户看到「没选模板」却没有任何
                      可点的入口，只能自己回右栏翻。补一个真实跳转。
                 */}
-                <Link
-                  href="/ecommerce-canvas/templates"
+                {/*
+                  2026-10-18 用户要求：不跳页。点击后右侧第一个模板绿色高亮闪烁两次，
+                  提示「模板就在右边」。只是指引，不替用户选中。
+                */}
+                <button
+                  type="button"
+                  data-testid="ecommerce-hint-first-template"
                   className="rounded-md px-2.5 py-1 text-[11px] font-medium"
                   style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+                  onClick={hintFirstTemplate}
                 >
-                  去模板库挑一个
-                </Link>
+                  在右侧选择模板
+                </button>
               </div>
             )}
           </div>
         ) : null}
 
-        {/* 附加功能（带货图文） */}
+        {/*
+          图片张数（带货图文）。
+          2026-10-18 用户拍板：删掉「附加功能」标题与「社媒帖子发布文案」开关——
+          该开关只往 prompt 里塞一句话，出图接口不回文字、页面也无文案区，是摆设。
+        */}
         {mode === "post" ? (
           <div>
-            <SectionTitle palette={palette}>附加功能</SectionTitle>
+            <SectionTitle palette={palette}>图片张数</SectionTitle>
             <div className="flex flex-col gap-2">
-              <Switch
-                on={draft.withCopy}
-                onToggle={() => updateDraft(prev => ({ ...prev, withCopy: !prev.withCopy }))}
-                label="社媒帖子发布文案"
-                desc="随图生成标题、正文与话题标签。"
-                isDark={isDark}
-                palette={palette}
-              />
               <CountRow
                 label="张数"
                 desc={`热门图文多为 6 张。`}
                 value={draft.postCount}
-                min={3}
+                min={1}
                 max={9}
                 onChange={postCount => updateDraft({ postCount })}
                 palette={palette}
@@ -721,52 +759,51 @@ export function EcommerceWorkspace({
                 </button>
               ))}
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
-              {visibleTpls.map((item, i) => (
-                <EcommerceTemplateCard
-                  key={item.id}
-                  template={item}
-                  index={i}
-                  selected={draft.tplId === item.id}
-                  palette={palette}
-                  onSelect={selectTemplateWithFlight}
-                  onOpenDetail={picked => onOpenTemplateDetail(picked.id)}
-                />
-              ))}
+            <div ref={tplGridRef} className="mt-2 grid grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
+              {visibleTpls.map((item, i) =>
+                i === 0 && tplHintTick > 0 ? (
+                  // key 带 tick：每点一次重新挂载这层外壳 → CSS 动画重播
+                  <div
+                    key={`${item.id}-hint-${tplHintTick}`}
+                    data-testid="ecommerce-first-template-hint"
+                    className="ecommerce-tpl-hint-flash rounded-[10px]"
+                  >
+                    <EcommerceTemplateCard
+                      template={item}
+                      index={i}
+                      selected={draft.tplId === item.id}
+                      palette={palette}
+                      onSelect={selectTemplateWithFlight}
+                      onOpenDetail={picked => onOpenTemplateDetail(picked.id)}
+                    />
+                  </div>
+                ) : (
+                  <EcommerceTemplateCard
+                    key={item.id}
+                    template={item}
+                    index={i}
+                    selected={draft.tplId === item.id}
+                    palette={palette}
+                    onSelect={selectTemplateWithFlight}
+                    onOpenDetail={picked => onOpenTemplateDetail(picked.id)}
+                  />
+                ),
+              )}
             </div>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="max-w-sm rounded-xl p-6 text-center" style={{ background: palette.panelStrong, border: `1px solid ${palette.border}` }}>
-              <Sparkles size={22} style={{ color: LIME }} className="mx-auto" />
-              <div className="mt-2 text-[14px] font-semibold">产品图模式</div>
-              <p className="mt-1.5 text-[12px] leading-relaxed" style={{ color: palette.sub }}>
-                上传产品图并在左侧挑选电商背景模板，生成结果将显示在这里。
-                背景模板库与画布「智能电商产品」同源。
-              </p>
-              <button
-                type="button"
-                className="mt-3 rounded-md px-3 py-1.5 text-[12px] font-medium"
-                style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
-                onClick={() => setBgSelectorOpen(true)}
-              >
-                挑选电商背景模板
-              </button>
-            </div>
-          </div>
+          /* 产品图模式空状态：直接显示背景模板选择器（内嵌模式），不再弹窗 (2026-10-18) */
+          <PicwishBackgroundSelector
+            isDark={isDark}
+            selectedTemplate={draft.bgTemplate}
+            onSelect={bgTemplate => updateDraft({ bgTemplate })}
+            embedded
+            title="产品图模式"
+            description="上传产品图并在下方挑选电商背景模板，生成结果将显示在这里。"
+          />
         )}
 
-        {/* 电商背景模板选择浮层（复用画布组件） */}
-        {bgSelectorOpen ? (
-          <div className="absolute inset-0 z-20">
-            <PicwishBackgroundSelector
-              isDark={isDark}
-              selectedTemplate={draft.bgTemplate}
-              onSelect={bgTemplate => updateDraft({ bgTemplate })}
-              onClose={() => setBgSelectorOpen(false)}
-            />
-          </div>
-        ) : null}
+        {/* 电商背景模板选择浮层已废弃，产品图模式下直接内嵌选择器 (2026-10-18) */}
       </main>
 
       {/*
@@ -813,6 +850,14 @@ export function EcommerceWorkspace({
         }
         .ecommerce-slot-pulse {
           animation: ecommerce-slot-pulse 460ms ease-out;
+        }
+        /* 「在右侧选择模板」指引：绿色高亮闪烁两次（亮-暗-亮-暗） */
+        @keyframes ecommerce-tpl-hint-flash {
+          0%, 50%, 100% { box-shadow: 0 0 0 0 rgba(197,237,71,0); }
+          25%, 75% { box-shadow: 0 0 0 2px ${LIME}, 0 0 18px rgba(197,237,71,0.45); }
+        }
+        .ecommerce-tpl-hint-flash {
+          animation: ecommerce-tpl-hint-flash 1200ms ease-in-out;
         }
       `}</style>
     </div>

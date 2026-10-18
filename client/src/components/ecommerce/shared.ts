@@ -46,7 +46,6 @@ export type EcommerceDraft = {
   market: string;
   language: string;
   postRatio: string;
-  noTextOnImage: boolean;
   sellingPoints: string;
   tplId: number | null;
   withCopy: boolean;

@@ -60,6 +60,10 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
       ⚠️ h-full + 内层 overflow-y-auto：AppShell 内容区是 overflow-hidden，
          原先 min-h-full 会被 49 张卡片撑高、多出的部分被直接切掉，
          鼠标滚轮完全滚不动（2026-10-17 用户反馈）。
+
+      ⚠️⚠️ 滚动容器是 flex-col：子项默认 flex-shrink:1，内容超高时 flex 会
+         **按比例压扁每一行**而不是溢出滚动 → 标题被搜索框压住、分类标签变空条、
+         卡片被切半截（2026-10-18 截图）。所以下面每个直接子项都必须 shrink-0。
     */
     <div className="relative flex h-full" style={{ background: palette.bg, color: palette.text }}>
       <div
@@ -67,7 +71,7 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
         className="ecommerce-scroll flex h-full w-full flex-col overflow-y-auto p-5"
       >
         {/* 面包屑 + 返回工作台 */}
-        <div className="mb-3 flex items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
+        <div className="mb-3 flex shrink-0 items-center gap-1.5 text-[11px]" style={{ color: palette.sub }}>
           <Link href="/ecommerce-canvas/post" className="transition-colors hover:opacity-80" style={{ color: palette.sub }}>
             电商画布
           </Link>
@@ -82,8 +86,8 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
           </Link>
         </div>
 
-        <div className="mb-1 flex items-baseline gap-2">
-          <div className="text-[14px] font-semibold">模板库</div>
+        <div className="mb-2 flex shrink-0 items-baseline gap-2">
+          <div className="text-[14px] font-semibold" style={{ color: palette.text }}>模板库</div>
           <div className="text-[11px]" style={{ color: palette.sub }}>
             共 {ECOMMERCE_TEMPLATES.length} 个分镜模板 · 已展示 {visible.length} 个
           </div>
@@ -91,7 +95,7 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
 
         {/* 搜索 */}
         <div
-          className="mb-3 flex items-center gap-2 rounded-md px-3 py-2"
+          className="mb-3 flex shrink-0 items-center gap-2 rounded-md px-3 py-2"
           style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
         >
           <Search size={13} style={{ color: palette.sub }} />
@@ -110,7 +114,7 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
         </div>
 
         {/* 分类 */}
-        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+        <div className="mb-4 flex shrink-0 gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
           {ECOMMERCE_TPL_CATEGORIES.map(item => (
             <button
               key={item.id}
@@ -148,7 +152,7 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid shrink-0 grid-cols-2 gap-3.5 lg:grid-cols-3 xl:grid-cols-4">
             {visible.map(item => (
               <EcommerceTemplateCard
                 key={item.id}

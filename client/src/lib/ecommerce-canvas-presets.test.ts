@@ -151,7 +151,26 @@ describe("出厂默认值与页面 createDefaultDraft 逐字段一致", () => {
     expect(block).toContain(`postCount: ${ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.postCount}`);
     expect(block).toContain(`productCount: ${ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.productCount}`);
     expect(block).toContain(`withCopy: ${ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.withCopy}`);
-    expect(block).toContain(`noTextOnImage: ${ECOMMERCE_CANVAS_DEFAULT_PAYLOAD.noTextOnImage}`);
+    // 2026-10-18 用户拍板删除「图片不加文字」：与提示词里「加 XX 文字」冲突
+    expect(block).not.toContain("noTextOnImage");
+    expect("noTextOnImage" in ECOMMERCE_CANVAS_DEFAULT_PAYLOAD).toBe(false);
+  });
+
+  it("11b. 「图片不加文字」开关与提示词分支已彻底移除；带货图文最少 1 张", () => {
+    const page = readFileSync(
+      new URL("../pages/EcommerceCanvasPage.tsx", import.meta.url),
+      "utf-8",
+    );
+    const ws = readFileSync(
+      new URL("../components/ecommerce/EcommerceWorkspace.tsx", import.meta.url),
+      "utf-8",
+    );
+    expect(page).not.toContain("图片不加文字");
+    expect(page).not.toContain("noTextOnImage");
+    expect(ws).not.toContain('label="图片不加文字"');
+    expect(ws).not.toContain("noTextOnImage");
+    const postCountRow = ws.match(/value=\{draft\.postCount\}[\s\S]{0,40}?min=\{(\d+)\}/);
+    expect(postCountRow?.[1]).toBe("1");
   });
 
   it("12. 两个手选入口都打了「用户改过」标记", () => {
