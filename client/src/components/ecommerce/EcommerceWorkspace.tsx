@@ -561,7 +561,17 @@ export function EcommerceWorkspace({
              留着就是「填了没用还不告诉用户」（2026-10-18 用户反馈）。
              带货图文走 image_edit，没有 scene_type，卖点真生效，不能一起删。
         */}
+        {/*
+          2026-10-19 用户要求：卖点与选择模板关联性强 → 合进同一个大容器。
+          外层 panel 底 + 描边；内部输入面用 palette.bg（更深）做「内嵌槽」，中间细分隔线。
+          ⚠️ tplSectionRef 仍挂在模板区自身（飞入动画/闪烁定位依赖它），不能挂到外层。
+        */}
         {mode === "post" ? (
+        <div
+          data-testid="ecommerce-brief-group"
+          className="rounded-lg p-3"
+          style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
+        >
         <div>
           <SectionTitle
             palette={palette}
@@ -593,7 +603,7 @@ export function EcommerceWorkspace({
             data-testid="ecommerce-selling-points"
             className="min-h-[96px] w-full resize-none rounded-md p-2.5 text-[12px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150"
             style={{
-              background: palette.panel,
+              background: palette.bg,
               // 聚焦态与画布右下角提示词输入框同色值（2026-10-18 用户要求）
               border: `1px solid ${sellingFocused ? "rgba(197,237,71,0.42)" : palette.border}`,
               boxShadow: sellingFocused ? "0 0 0 3px rgba(197,237,71,0.14)" : "none",
@@ -601,10 +611,10 @@ export function EcommerceWorkspace({
             }}
           />
         </div>
-        ) : null}
+
+          <div className="my-3 h-px" style={{ background: palette.border }} aria-hidden="true" />
 
           {/* 选择模板（带货图文） */}
-          {mode === "post" ? (
             <div ref={tplSectionRef}>
             <SectionTitle palette={palette}>选择模板</SectionTitle>
             {tpl ? (
@@ -612,7 +622,7 @@ export function EcommerceWorkspace({
                 key={`slot-${tpl.id}-${slotPulse}`}
                 data-testid="ecommerce-selected-template"
                 className={`flex items-center gap-2.5 rounded-md p-2.5${slotPulse ? " ecommerce-slot-pulse" : ""}`}
-                style={{ background: palette.panel, border: `1px solid ${palette.border}` }}
+                style={{ background: palette.bg, border: `1px solid ${palette.border}` }}
               >
                 {templateCoverUrl(tpl.id) ? (
                   <img
@@ -643,7 +653,7 @@ export function EcommerceWorkspace({
             ) : (
               <div
                 className="flex flex-col items-center gap-2 rounded-md border border-dashed p-2.5 text-center text-[12px]"
-                style={{ borderColor: palette.border, color: palette.sub }}
+                style={{ background: palette.bg, borderColor: palette.border, color: palette.sub }}
               >
                 <span>暂未选择模板</span>
                 {/*
@@ -666,6 +676,7 @@ export function EcommerceWorkspace({
               </div>
             )}
           </div>
+        </div>
         ) : null}
 
         {/*
