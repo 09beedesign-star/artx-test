@@ -288,6 +288,18 @@ function shouldShowRouteLoading(path: string) {
   return path !== "/loading";
 }
 
+/**
+ * 判断是否为同页内 Tab 切换（路由变了但不应显示全屏 loading）。
+ * 例：/ecommerce-canvas/post ↔ /ecommerce-canvas/product 属电商画布内模式切换。
+ */
+function isSamePageTransition(from: string, to: string): boolean {
+  // ⚠️ 裸 /ecommerce-canvas 也是工作台（默认产品图），从它切 Tab 同样不能闪 loading。
+  const ecommercePostOrProduct = /^\/ecommerce-canvas(\/(post|product))?\/?$/;
+  if (ecommercePostOrProduct.test(from) && ecommercePostOrProduct.test(to)) return true;
+  // 未来可扩展其他同页 Tab 切换判断
+  return false;
+}
+
 function RouteLoadingGate({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
@@ -299,7 +311,10 @@ function RouteLoadingGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (previousPathRef.current === routePath) return;
+    const prev = previousPathRef.current;
     previousPathRef.current = routePath;
+    // 同页 Tab 切换不显示全屏 loading
+    if (isSamePageTransition(prev, routePath)) return;
     setLoadingPath(shouldShowRouteLoading(routePath) && (isAuthenticated || !isProtectedGuestPath(routePath)) ? routePath : null);
   }, [isAuthenticated, routePath]);
 
