@@ -155,8 +155,10 @@ export const SIGNUP_INITIAL_CREDITS = {
   /**
    * 活动截止日期（ISO，含当天）。超过此日期注册的用户不再发放。
    * ⚠️ 设为 undefined = 永久发放，上线前务必确认这是你要的。
+   *
+   * 📌 2026-10-19 改为永久发放（用户明确要求「改为默认规则，新注册就可以有」）。
    */
-  activeUntil: "2026-10-18" as string | undefined,
+  activeUntil: undefined,
   /**
    * 配置版本号 —— **改这个文件里上面任何一个值，都必须把它 +1**。
    *
@@ -172,8 +174,10 @@ export const SIGNUP_INITIAL_CREDITS = {
    *
    * 📌 判据：只要你改了上面的默认值又忘了 +1，你的改动就不会生效。
    *    signup-initial-credits.test.ts 里有一条测试专门盯着这件事。
+   *
+   * v2 (2026-10-19): activeUntil 从 "2026-10-18" 改为 undefined（永久发放）。
    */
-  configVersion: 1,
+  configVersion: 2,
 } as const;
 
 /**
