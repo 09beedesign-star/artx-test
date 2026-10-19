@@ -42,6 +42,46 @@ import {
 } from "./invite-rewards";
 import { storeFeedbackImagesForUser, type FeedbackImageInput, type StoredFeedbackImage } from "./local-image-storage";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
+
+/**
+ * ⚠️ CRITICAL: 同步 admin-data.users[].credits 到 auth-users.users[].credits
+ * 
+ * 背景：积分系统使用双文档存储（admin-data + auth-users），但前端读取的是 auth-users。
+ * grantCredits 只更新 admin-data.users，导致用户看不到积分。
+ * 
+ * 调用时机：任何更新 admin-data.users[].credits 的操作后，必须调用此函数同步。
+ * - 注册赠送积分（grantSignupInitialCredits）
+ * - 手动赠送积分（POST /admin/credits/gift）
+ * - 充值到账（markBillingOrderPaid）
+ * - 其他任何修改用户积分的地方
+ * 
+ * @param userId - 需要同步的用户 ID
+ * @param newCredits - 新的积分余额（从 admin-data.users 读取）
+ */
+async function syncUserCreditsToAuthStore(userId: string, newCredits: number): Promise<void> {
+  try {
+    const authStore = new PostgresJsonDocumentStore<{ users: Array<{ id: string; credits?: number }> }>(
+      process.env.DATABASE_URL || "",
+      "auth-users",
+    );
+    const authData = await authStore.load();
+    if (authData) {
+      const authUser = authData.users.find((u) => u.id === userId);
+      if (authUser) {
+        authUser.credits = newCredits;
+        await authStore.save(authData);
+      }
+    }
+  } catch (error) {
+    console.error("[sync-credits] auth-users 同步失败", {
+      userId,
+      newCredits,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // 不抛出异常，避免阻断主流程
+    // 积分已写入 admin-data，可以通过修复脚本手动同步
+  }
+}
 import { getAllProviderBilling } from "./provider-billing";
 import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
 import type { InviteEmailSendLog } from "./invite-email";
@@ -2238,6 +2278,13 @@ export async function grantSignupInitialCredits(params: {
     }
 
     await saveAdminData(data);
+
+    // ⚠️ CRITICAL: 同步用户余额到 auth-users（前端读取的是 auth-users.credits）
+    const userAfterGrant = data.users.find((u) => u.id === params.userId);
+    if (userAfterGrant) {
+      await syncUserCreditsToAuthStore(params.userId, userAfterGrant.credits);
+    }
+
     return config.credits;
   } catch (error) {
     console.warn("[signup-bonus] 发放异常", {
@@ -4253,6 +4300,12 @@ export async function handleAdminApiRequest(
       },
     });
     await saveAdminData(data);
+
+    // ⚠️ CRITICAL: 如果发放了积分，同步用户余额到 auth-users
+    if (issueCredits && expectedCredits > 0) {
+      await syncUserCreditsToAuthStore(user.id, user.credits);
+    }
+
     return { status: 200, body: buildOrderDetail(data, order.id) };
   }
   const orderDetailMatch = route.match(/^orders\/([^/]+)$/);
@@ -5157,6 +5210,15 @@ export async function handleAdminApiRequest(
     });
 
     await saveAdminData(data);
+
+    // ⚠️ CRITICAL: 同步所有成功赠送的用户余额到 auth-users
+    for (const { userId } of succeeded) {
+      const user = data.users.find((u) => u.id === userId);
+      if (user) {
+        await syncUserCreditsToAuthStore(userId, user.credits);
+      }
+    }
+
     return {
       status: 200,
       body: {
@@ -5805,6 +5867,7 @@ export async function markBillingOrderPaid(params: {
      */
     let inviteRewardCredits = 0;
     let inviteRewardNote: string | undefined;
+    let inviterId: string | undefined; // 记录邀请人 ID，用于后续同步到 auth-users
     // 后台配置的额度 —— 判定（auth 侧）与发放（这里）必须用**同一份**，否则会出现
     // 「按新门槛判定通过、按旧额度发放」这类两端不一致。
     const inviteConfig = resolveInviteRewardConfig(data.inviteRewardConfig);
@@ -5816,9 +5879,10 @@ export async function markBillingOrderPaid(params: {
         config: inviteConfig,
       });
       if (settlement.reward) {
-        const { inviterId, inviterName, inviteeId, inviteeName } = settlement.reward;
+        const { inviterId: rewardInviterId, inviterName, inviteeId, inviteeName } = settlement.reward;
+        inviterId = rewardInviterId; // 保存邀请人 ID
         // 邀请人可能从未下过单，admin 库里还没有他的记录，懒创建一条。
-        const inviterUser = ensureBillingUser(data, { userId: inviterId, username: inviterName });
+        const inviterUser = ensureBillingUser(data, { userId: rewardInviterId, username: inviterName });
         const inviterResult = grantCredits(data, {
           user: inviterUser,
           amount: inviteConfig.inviterCredits,
@@ -5880,6 +5944,19 @@ export async function markBillingOrderPaid(params: {
   }
 
   await saveAdminData(data);
+
+  // ⚠️ CRITICAL: 同步用户余额到 auth-users
+  // 充值到账可能同时修改多个用户的积分：
+  // 1. 付款用户（购买积分 + 首充赠送 + 被邀请人奖励）
+  // 2. 邀请人（邀请奖励）
+  await syncUserCreditsToAuthStore(user.id, user.credits);
+  if (inviterId) {
+    const inviterUser = data.users.find((u) => u.id === inviterId);
+    if (inviterUser) {
+      await syncUserCreditsToAuthStore(inviterId, inviterUser.credits);
+    }
+  }
+
   return {
     status: 200,
     body: {
