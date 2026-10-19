@@ -225,36 +225,88 @@
   background-color: var(--dialog-surface) !important;
 }
 
-/* ── Light mode — Cool gray-white, deep navy-slate (no pure black, no warm tones) ── */
-html.light, .light {
-  --background: oklch(0.955 0.004 255);        /* cool gray-white, no warmth */
-  --foreground: oklch(0.22 0.018 255);         /* deep navy-slate, not black */
-  --card: oklch(0.975 0.003 255);              /* slightly lighter cool gray card */
-  --card-foreground: oklch(0.22 0.018 255);
-  --popover: oklch(0.975 0.003 255);
-  --popover-foreground: oklch(0.22 0.018 255);
-  --primary: oklch(0.52 0.22 290);             /* rich violet */
-  --primary-foreground: oklch(0.98 0.004 270);
-  --secondary: oklch(0.92 0.006 255);          /* cool medium gray */
-  --secondary-foreground: oklch(0.30 0.015 255);
-  --muted: oklch(0.93 0.005 255);              /* cool muted gray */
-  --muted-foreground: oklch(0.50 0.012 255);   /* medium slate */
-  --accent: oklch(0.91 0.010 270);             /* cool blue-gray tint */
-  --accent-foreground: oklch(0.28 0.018 255);
-  --destructive: oklch(0.58 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.86 0.006 255);             /* cool gray border */
-  --input: oklch(0.88 0.005 255);
-  --ring: oklch(0.52 0.22 290);
+/* ══════════════════════════════════════════════════════════════════════════════
+   Apple Light Mode Design System
+   
+   基于 Apple Human Interface Guidelines 的浅色主题系统
+   核心原则：
+   - 系统背景层级（Primary/Secondary/Tertiary）提供清晰的视觉层次
+   - 标签文本层级（Label/Secondary/Tertiary/Quaternary）确保信息层级分明
+   - 精致阴影和细腻边框营造高级感
+   - 大量留白和透气感，符合 Apple 的极简美学
+   
+   颜色参考：
+   - systemBackground: 纯白（1.0），作为主要内容背景
+   - secondarySystemBackground: 浅灰（0.95），用于分组和卡片
+   - tertiarySystemBackground: 更浅灰（0.98），用于三级内容
+   - label: 接近黑色（0.15），主要文本，确保最佳可读性
+   - secondaryLabel: 中灰（0.45），次要文本
+   - separator: 浅灰边框（0.88），细腻分隔
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-  --sidebar: oklch(0.945 0.005 255);           /* cool gray sidebar, slightly darker than bg */
-  --sidebar-foreground: oklch(0.22 0.018 255);
+html.light, .light {
+  /* ── 背景层级（Apple 系统背景色） ── */
+  --background: oklch(1.0 0 0);                    /* systemBackground - 纯白，主视图背景 */
+  --card: oklch(0.95 0.002 240);                   /* secondarySystemBackground - 浅灰卡片 */
+  --popover: oklch(1.0 0 0);                       /* 弹出层使用纯白 */
+  --dialog-surface: oklch(0.98 0.001 240);         /* 对话框表面 */
+  
+  /* ── 文本层级（Apple 标签颜色） ── */
+  --foreground: oklch(0.15 0.004 240);             /* label - 近黑色主文本，高对比度 */
+  --card-foreground: oklch(0.15 0.004 240);
+  --popover-foreground: oklch(0.15 0.004 240);
+  --muted-foreground: oklch(0.45 0.006 240);       /* secondaryLabel - 中灰次要文本 */
+  --secondary-foreground: oklch(0.60 0.005 240);   /* tertiaryLabel - 浅灰三级文本 */
+  
+  /* ── 品牌色（保持 ArtX 紫色） ── */
+  --primary: oklch(0.52 0.22 290);                 /* ArtX 品牌紫 */
+  --primary-foreground: oklch(1.0 0 0);            /* 纯白文字 */
+  --ring: oklch(0.52 0.22 290);
+  
+  /* ── 次要色和强调色 ── */
+  --secondary: oklch(0.92 0.003 240);              /* 浅灰次要色 */
+  --muted: oklch(0.96 0.002 240);                  /* 极浅灰静音背景 */
+  --accent: oklch(0.88 0.008 260);                 /* 蓝灰强调色 */
+  --accent-foreground: oklch(0.15 0.004 240);
+  
+  /* ── 边框和输入 ── */
+  --border: oklch(0.88 0.003 240);                 /* separator - 细腻浅灰边框 */
+  --input: oklch(0.93 0.002 240);                  /* 输入框背景 */
+  
+  /* ── 警示色 ── */
+  --destructive: oklch(0.55 0.22 25);              /* 红色警示 */
+  --destructive-foreground: oklch(1.0 0 0);
+  
+  /* ── 侧边栏（稍深的背景层） ── */
+  --sidebar: oklch(0.96 0.002 240);                /* 侧边栏背景 */
+  --sidebar-foreground: oklch(0.15 0.004 240);
   --sidebar-primary: oklch(0.52 0.22 290);
-  --sidebar-primary-foreground: oklch(0.98 0.004 270);
-  --sidebar-accent: oklch(0.91 0.010 270);
-  --sidebar-accent-foreground: oklch(0.28 0.018 255);
-  --sidebar-border: oklch(0.86 0.006 255);
+  --sidebar-primary-foreground: oklch(1.0 0 0);
+  --sidebar-accent: oklch(0.92 0.003 240);
+  --sidebar-accent-foreground: oklch(0.15 0.004 240);
+  --sidebar-border: oklch(0.88 0.003 240);
   --sidebar-ring: oklch(0.52 0.22 290);
+  
+  /* ── Apple 风格阴影（柔和、细腻） ── */
+  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.04);
+  --shadow-md: 0 2px 8px -2px oklch(0 0 0 / 0.06), 0 4px 16px -4px oklch(0 0 0 / 0.04);
+  --shadow-lg: 0 4px 16px -4px oklch(0 0 0 / 0.08), 0 8px 32px -8px oklch(0 0 0 / 0.06);
+  --shadow-xl: 0 8px 24px -8px oklch(0 0 0 / 0.10), 0 16px 48px -12px oklch(0 0 0 / 0.08);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Apple Light Mode - Logo 反色处理
+   
+   ArtXStudio logo 原图是白色文字透明底，在浅色背景下不可见。
+   使用 CSS filter 将白色 Logo 反转为深色：
+   - brightness(0) 将所有像素变为黑色（保留透明度）
+   - saturate(100%) 保持饱和度不变
+   
+   只在浅色模式下应用，深色模式保持原始白色 Logo
+   ══════════════════════════════════════════════════════════════════════════════ */
+html.light img[src*="artxstudio-logo"],
+.light img[src*="artxstudio-logo"] {
+  filter: brightness(0) saturate(100%);
 }
 
 @layer base {

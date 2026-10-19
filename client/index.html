@@ -42,6 +42,26 @@
           'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
       }
     </style>
+    <!-- 
+      首帧脚本：防止主题闪烁
+      在 React 渲染前同步设置主题 class，避免页面加载时出现深色→浅色的闪烁
+      必须放在 <head> 中 <body> 之前执行
+    -->
+    <script>
+      (function() {
+        try {
+          const stored = localStorage.getItem('theme-mode');
+          const mode = stored || 'light'; // 默认白色模式
+          let resolved = mode;
+          if (mode === 'system') {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.classList.add(resolved);
+        } catch (e) {
+          document.documentElement.classList.add('light'); // 错误情况下也默认白色
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

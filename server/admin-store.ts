@@ -65,11 +65,12 @@ async function syncUserCreditsToAuthStore(userId: string, newCredits: number): P
       "auth-users",
     );
     const authData = await authStore.load();
-    if (authData) {
+    if (authData && authData.users) {
       const authUser = authData.users.find((u) => u.id === userId);
       if (authUser) {
         authUser.credits = newCredits;
-        await authStore.save(authData);
+        // 确保类型完整，满足 save() 方法的要求
+        await authStore.save({ users: authData.users });
       }
     }
   } catch (error) {
@@ -5745,6 +5746,9 @@ export async function markBillingOrderPaid(params: {
     return { status: 404, body: { error: "订单关联用户不存在" } };
   }
 
+  // 记录邀请人 ID，用于后续同步到 auth-users（需要在条件块外声明）
+  let inviterId: string | undefined;
+
   if (order.status !== "paid") {
     const paidAt = nowIso();
     // ⚠️ 会员订单在支付当下只发首期，不是 expectedCredits 全额。
@@ -5867,7 +5871,6 @@ export async function markBillingOrderPaid(params: {
      */
     let inviteRewardCredits = 0;
     let inviteRewardNote: string | undefined;
-    let inviterId: string | undefined; // 记录邀请人 ID，用于后续同步到 auth-users
     // 后台配置的额度 —— 判定（auth 侧）与发放（这里）必须用**同一份**，否则会出现
     // 「按新门槛判定通过、按旧额度发放」这类两端不一致。
     const inviteConfig = resolveInviteRewardConfig(data.inviteRewardConfig);

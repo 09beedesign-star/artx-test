@@ -60,6 +60,7 @@ import {
   type HomePromptReference,
 } from "@/lib/home-prompt-handoff";
 import type { AiModelOption } from "@/lib/workspace-data";
+import { ThemeModeSwitcher } from "@/components/theme/ThemeModeSwitcher";
 
 /**
  * ⚠️ 直接复用共享类型。
@@ -856,7 +857,8 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#222222]">
+    <div className="flex h-screen flex-col overflow-hidden bg-background"
+>
       {/* 首页公告 —— 阻断式，带半透明蒙层，只能通过右下角绿色按钮关闭 */}
       <AnnouncementModal
         open={announcementOpen}
@@ -896,7 +898,7 @@ export default function HomePage() {
           <img
             src={artxStudioLogo}
             alt="ArtXStudio"
-            className="block h-full w-full object-contain object-left"
+            className="artx-logo block h-full w-full object-contain object-left"
           />
         </button>
         <LandingTopNav
@@ -929,6 +931,7 @@ export default function HomePage() {
           }}
         />
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          <ThemeModeSwitcher />
           <button
             type="button"
             onClick={handleStartExperience}
