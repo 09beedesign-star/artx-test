@@ -9,7 +9,7 @@
  *   典型零报错故障：代码跑得好好的，用户刚打字就被弹走。
  */
 import type React from "react";
-import type { ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { LIME, type EcommercePalette } from "./shared";
 
@@ -97,47 +97,109 @@ export function Select({
   palette: EcommercePalette;
 }) {
   /*
-    2026-10-19 用户要求：右侧加下拉箭头，否则分不清是按钮还是选择器。
-    appearance-none 去掉了原生箭头 → 叠一个 pointer-events-none 的图标，
-    点击仍落在 select 上；pr-7 给图标留位，长选项不压字。
+    2026-10-20 用户要求：
+    1. 白色模式下展开面板改为白色背景
+    2. 展开方向自适应浏览器空间（向上或向下）
     
-    2026-10-20 用户要求：白色模式下所有下拉菜单改为白色背景 + 1px 浅灰色描边。
-    ⚠️ 原生 <select> 的 <option> 样式会被浏览器系统深色模式覆盖，
-    添加 color-scheme 属性强制浏览器使用对应的颜色方案渲染下拉选项。
+    原生 <select> 无法满足这两个需求，改为自定义下拉菜单：
+    - 使用绝对定位的浮层
+    - 检测浏览器空间决定展开方向
+    - 完全控制白色主题样式
   */
+  const [isOpen, setIsOpen] = useState(false);
+  const [dropDirection, setDropDirection] = useState<"down" | "up">("down");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部关闭下拉菜单
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  // 计算展开方向
+  const handleToggle = () => {
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropdownHeight = Math.min(options.length * 32 + 8, 240); // 每项约32px高度
+
+      // 下方空间不够且上方空间更多时向上展开
+      setDropDirection(spaceBelow < dropdownHeight && spaceAbove > spaceBelow ? "up" : "down");
+    }
+    setIsOpen(!isOpen);
+  };
+
+  const handleSelect = (option: string) => {
+    onChange(option);
+    setIsOpen(false);
+  };
+
   return (
-    <div className="relative w-full">
-    <select
-      value={value}
-      onChange={event => onChange(event.target.value)}
-      className="w-full cursor-pointer appearance-none rounded-md py-[7px] pl-2.5 pr-7 text-[12px] outline-none"
-      style={{ 
-        background: palette.panel, 
-        border: `1px solid ${palette.border}`, 
-        color: palette.text,
-        colorScheme: isDark ? "dark" : "light",
-      }}
-    >
-      {options.map(option => (
-        <option
-          key={option}
-          value={option}
-          style={{
-            background: isDark ? "#1c1c26" : "#ffffff",
-            color: isDark ? "#eee" : "rgba(20,20,36,0.86)",
-          }}
-        >
-          {option}
-        </option>
-      ))}
-    </select>
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="w-full cursor-pointer rounded-md py-[7px] pl-2.5 pr-7 text-left text-[12px] outline-none"
+        style={{
+          background: palette.panel,
+          border: `1px solid ${palette.border}`,
+          color: palette.text,
+        }}
+      >
+        {value}
+      </button>
       <ChevronDown
         size={14}
         aria-hidden="true"
         data-testid="ecommerce-select-chevron"
-        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
-        style={{ color: palette.sub }}
+        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transition-transform"
+        style={{
+          color: palette.sub,
+          transform: `translateY(-50%) rotate(${isOpen ? 180 : 0}deg)`,
+        }}
       />
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className="absolute left-0 z-50 w-full overflow-y-auto rounded-md shadow-lg"
+          style={{
+            [dropDirection === "down" ? "top" : "bottom"]: "100%",
+            marginTop: dropDirection === "down" ? "4px" : undefined,
+            marginBottom: dropDirection === "up" ? "4px" : undefined,
+            background: isDark ? "#2a2a2a" : "#ffffff",
+            border: `1px solid ${palette.border}`,
+            maxHeight: "240px",
+          }}
+        >
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => handleSelect(option)}
+              className="w-full px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-white/5"
+              style={{
+                color: option === value ? LIME : palette.text,
+                background: option === value ? (isDark ? "rgba(178,237,154,0.08)" : "rgba(60,157,21,0.05)") : "transparent",
+              }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
