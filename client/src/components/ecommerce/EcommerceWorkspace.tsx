@@ -44,7 +44,7 @@ import {
 } from "@/data/ecommerce-canvas-templates";
 import { EcommerceTemplateCard } from "./EcommerceTemplateCard";
 import {
-  LIME,
+  getLimeColor,
   downloadImage,
   type EcommerceDraft,
   type EcommerceMode,
@@ -113,6 +113,7 @@ export function EcommerceWorkspace({
   onPreviewResult,
   presetSlot,
 }: Props) {
+  const lime = getLimeColor(isDark);
   const [tplCategory, setTplCategory] = useState("all");
   const [dragOver, setDragOver] = useState(false);
   const [sellingFocused, setSellingFocused] = useState(false);
@@ -173,10 +174,15 @@ export function EcommerceWorkspace({
   const showResults = results.length > 0 || generating || interrupted;
   const count = mode === "post" ? draft.postCount : draft.productCount;
 
+  // 品牌绿 chip 样式（主题感知）
   const chipStyle = (on: boolean) => ({
-    background: on ? "rgba(197,237,71,0.16)" : palette.field,
-    border: `1px solid ${on ? "rgba(197,237,71,0.62)" : palette.border}`,
-    color: on ? LIME : palette.text,
+    background: on 
+      ? (isDark ? "rgba(178,237,154,0.16)" : "rgba(178,237,154,0.25)") 
+      : palette.field,
+    border: `1px solid ${on 
+      ? (isDark ? "rgba(178,237,154,0.62)" : "#B2ED9A") 
+      : palette.border}`,
+    color: on ? (isDark ? lime : "var(--color-brand-green-label)") : palette.text,
   });
 
   function addFiles(files: FileList | null) {
@@ -262,9 +268,15 @@ export function EcommerceWorkspace({
                 onClick={() => { if (mode !== m) onSwitchMode(m); }}
                 className="rounded py-1.5 text-center text-[12px] transition-colors"
                 style={{
-                  background: mode === m ? palette.panelStrong : "transparent",
-                  color: mode === m ? LIME : palette.sub,
-                  boxShadow: mode === m ? "inset 0 0 0 1px rgba(197,237,71,0.3)" : "none",
+                  background: mode === m 
+                    ? (isDark ? palette.panelStrong : "rgba(20,20,36,0.92)")
+                    : "transparent",
+                  color: mode === m 
+                    ? (isDark ? lime : "#ffffff") 
+                    : palette.sub,
+                  boxShadow: mode === m 
+                    ? (isDark ? `inset 0 0 0 1px ${lime}33` : "none")
+                    : "none",
                   fontWeight: mode === m ? 500 : 400,
                 }}
               >
@@ -301,7 +313,10 @@ export function EcommerceWorkspace({
               onClick={onGenerate}
               title={`融合上传图、生成设置、卖点${mode === "post" ? "、模板" : "、背景模板"}与所选模型生成`}
               className="flex shrink-0 items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-55"
-              style={{ background: LIME, color: "#1a1a1a" }}
+              style={{ 
+                background: isDark ? lime : "#4EC61D", 
+                color: "#ffffff" 
+              }}
             >
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
               {generating ? "生成中…" : "生成"}
@@ -332,9 +347,9 @@ export function EcommerceWorkspace({
             style={
               memoryActive
                 ? {
-                    background: "rgba(197,237,71,0.10)",
-                    border: "1px solid rgba(197,237,71,0.35)",
-                    color: LIME,
+                    background: "var(--color-brand-green-light)",
+                    border: isDark ? "1px solid rgba(178,237,154,0.35)" : "1px solid #B2ED9A",
+                    color: lime,
                   }
                 : { border: `1px solid ${palette.border}`, color: palette.sub }
             }
@@ -396,9 +411,9 @@ export function EcommerceWorkspace({
               onClick={() => fileRef.current?.click()}
               className="flex min-h-[96px] w-full flex-col items-center justify-center gap-1.5 rounded-md text-[12px] transition-colors"
               style={{
-                border: `1.5px dashed ${dragOver ? LIME : palette.border}`,
-                color: dragOver ? LIME : palette.sub,
-                background: dragOver ? "rgba(197,237,71,0.08)" : "transparent",
+                border: `1.5px dashed ${dragOver ? lime : palette.border}`,
+                color: dragOver ? lime : palette.sub,
+                background: dragOver ? (isDark ? "rgba(197,237,71,0.08)" : "rgba(178,237,154,0.12)") : "transparent",
               }}
             >
               <Plus size={18} />
@@ -549,7 +564,7 @@ export function EcommerceWorkspace({
                 palette={palette}
               />
               <div className="mt-2 rounded-md px-2.5 py-2 text-[10.5px] leading-relaxed" style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.sub }}>
-                💡 产品图模式采用<span style={{ color: palette.text, fontWeight: 500 }}>批次计费</span>：生成 1 张和 8 张消耗的总积分相同。<span style={{ color: LIME }}>建议一次生成多张</span>，单张成本更低。
+                💡 产品图模式采用<span style={{ color: palette.text, fontWeight: 500 }}>批次计费</span>：生成 1 张和 8 张消耗的总积分相同。<span style={{ color: isDark ? lime : "var(--color-brand-green-text)" }}>建议一次生成多张</span>，单张成本更低。
               </div>
             </div>
           </div>
@@ -579,7 +594,7 @@ export function EcommerceWorkspace({
               <button
                 type="button"
                 className="flex items-center gap-1 text-[11px] font-medium transition-opacity hover:opacity-80"
-                style={{ color: LIME }}
+                style={{ color: lime }}
                 onClick={() => {
                   updateDraft({
                     sellingPoints:
@@ -668,7 +683,11 @@ export function EcommerceWorkspace({
                   type="button"
                   data-testid="ecommerce-hint-first-template"
                   className="rounded-md px-2.5 py-1 text-[11px] font-medium"
-                  style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+                  style={{ 
+                    background: "var(--color-brand-green-light)", 
+                    border: isDark ? "1px solid rgba(178,237,154,0.4)" : "1px solid #B2ED9A", 
+                    color: lime 
+                  }}
                   onClick={hintFirstTemplate}
                 >
                   在右侧选择模板
@@ -693,7 +712,7 @@ export function EcommerceWorkspace({
                 desc={`热门图文多为 6 张。`}
                 value={draft.postCount}
                 min={1}
-                max={9}
+                max={8}
                 onChange={postCount => updateDraft({ postCount })}
                 palette={palette}
               />
@@ -757,7 +776,7 @@ export function EcommerceWorkspace({
               {generating
                 ? Array.from({ length: count }).map((_, i) => (
                     <div key={i} className="flex aspect-[3/4] items-center justify-center rounded-[10px]" style={{ background: palette.panel, border: `1px solid ${palette.border}` }}>
-                      <Loader2 size={20} className="animate-spin" style={{ color: LIME }} />
+                      <Loader2 size={20} className="animate-spin" style={{ color: lime }} />
                     </div>
                   ))
                 : interrupted
@@ -797,7 +816,7 @@ export function EcommerceWorkspace({
               <Link
                 href="/ecommerce-canvas/templates"
                 className="ml-auto flex items-center gap-0.5 text-[12px] transition-opacity hover:opacity-80"
-                style={{ color: LIME }}
+                style={{ color: lime }}
                 data-testid="ecommerce-view-all-templates"
               >
                 展示所有模板 <ChevronRight size={12} />
@@ -911,7 +930,7 @@ export function EcommerceWorkspace({
         /* 「在右侧选择模板」指引：绿色高亮闪烁两次（亮-暗-亮-暗） */
         @keyframes ecommerce-tpl-hint-flash {
           0%, 50%, 100% { box-shadow: 0 0 0 0 rgba(197,237,71,0); }
-          25%, 75% { box-shadow: 0 0 0 2px ${LIME}, 0 0 18px rgba(197,237,71,0.45); }
+          25%, 75% { box-shadow: 0 0 0 2px ${lime}, 0 0 18px ${isDark ? "rgba(197,237,71,0.45)" : "rgba(178,237,154,0.45)"}; }
         }
         .ecommerce-tpl-hint-flash {
           animation: ecommerce-tpl-hint-flash 1200ms ease-in-out;

@@ -100,6 +100,10 @@ export function Select({
     2026-10-19 用户要求：右侧加下拉箭头，否则分不清是按钮还是选择器。
     appearance-none 去掉了原生箭头 → 叠一个 pointer-events-none 的图标，
     点击仍落在 select 上；pr-7 给图标留位，长选项不压字。
+    
+    2026-10-20 用户要求：白色模式下所有下拉菜单改为白色背景 + 1px 浅灰色描边。
+    ⚠️ 原生 <select> 的 <option> 样式会被浏览器系统深色模式覆盖，
+    添加 color-scheme 属性强制浏览器使用对应的颜色方案渲染下拉选项。
   */
   return (
     <div className="relative w-full">
@@ -107,15 +111,20 @@ export function Select({
       value={value}
       onChange={event => onChange(event.target.value)}
       className="w-full cursor-pointer appearance-none rounded-md py-[7px] pl-2.5 pr-7 text-[12px] outline-none"
-      style={{ background: palette.panel, border: `1px solid ${palette.border}`, color: palette.text }}
+      style={{ 
+        background: palette.panel, 
+        border: `1px solid ${palette.border}`, 
+        color: palette.text,
+        colorScheme: isDark ? "dark" : "light",
+      }}
     >
       {options.map(option => (
         <option
           key={option}
           value={option}
           style={{
-            background: isDark ? "#1c1c26" : "#fff",
-            color: isDark ? "#eee" : "#222",
+            background: isDark ? "#1c1c26" : "#ffffff",
+            color: isDark ? "#eee" : "rgba(20,20,36,0.86)",
           }}
         >
           {option}
@@ -161,8 +170,8 @@ export function Stepper({
     if (!/^\d*$/.test(raw)) return;
     
     if (raw === "") {
-      // 清空时显示空，但不触发 onChange（保持当前值）
-      e.target.value = "";
+      // 2026-10-20 用户需求：允许通过 Backspace 清空，失焦时恢复当前值
+      // 清空时不触发 onChange，保持 value 不变，但允许输入框显示为空
       return;
     }
     
@@ -209,7 +218,8 @@ export function Stepper({
       <input
         type="text"
         inputMode="numeric"
-        value={value}
+        defaultValue={value}
+        key={value}
         onChange={handleInputChange}
         onBlur={handleInputBlur}
         onKeyDown={handleKeyDown}
