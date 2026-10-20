@@ -50,14 +50,18 @@ describe("自定义 Select 下拉菜单", () => {
   });
 
   it("选中项应该高亮显示", () => {
-    // 选中项背景色不同
-    expect(source).toMatch(/option\s*===\s*value\s*\?.*LIME/);
-    expect(source).toMatch(/option\s*===\s*value\s*\?.*rgba\(178,237,154/);
+    // 深色模式：绿色文字 + 浅绿背景
+    // 白色模式：黑色文字 + 灰色背景
+    expect(source).toMatch(/isDark\s*\?\s*LIME\s*:\s*["']rgba\(20,20,36,0\.92\)/);
+    expect(source).toMatch(/isDark\s*\?\s*["']rgba\(178,237,154,0\.08\)["']\s*:\s*["']rgba\(0,0,0,0\.06\)/);
   });
 
   it("箭头图标应该随展开状态旋转", () => {
     // isOpen ? 180 : 0
+    // 箭头应该垂直居中：top: "50%" + translateY(-50%)
     expect(source).toMatch(/rotate.*isOpen\s*\?\s*180\s*:\s*0/);
+    expect(source).toMatch(/top:\s*["']50%["']/);
+    expect(source).toMatch(/translateY\(-50%\)/);
   });
 
   it("展开面板应该支持向上和向下", () => {

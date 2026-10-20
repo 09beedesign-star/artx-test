@@ -165,9 +165,10 @@ export function Select({
         size={14}
         aria-hidden="true"
         data-testid="ecommerce-select-chevron"
-        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 transition-transform"
+        className="pointer-events-none absolute right-2.5 transition-transform"
         style={{
           color: palette.sub,
+          top: "50%",
           transform: `translateY(-50%) rotate(${isOpen ? 180 : 0}deg)`,
         }}
       />
@@ -191,8 +192,12 @@ export function Select({
               onClick={() => handleSelect(option)}
               className="w-full px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-white/5"
               style={{
-                color: option === value ? LIME : palette.text,
-                background: option === value ? (isDark ? "rgba(178,237,154,0.08)" : "rgba(60,157,21,0.05)") : "transparent",
+                color: option === value 
+                  ? (isDark ? LIME : "rgba(20,20,36,0.92)") 
+                  : palette.text,
+                background: option === value 
+                  ? (isDark ? "rgba(178,237,154,0.08)" : "rgba(0,0,0,0.06)") 
+                  : "transparent",
               }}
             >
               {option}
