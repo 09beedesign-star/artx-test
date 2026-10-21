@@ -841,9 +841,13 @@ html.light img[src*="artxstudio-logo"],
   stroke-width: 3 !important;
   rx: 2;
 }
-/* 小地图整体鼠标样式 */
+/* 小地图整体鼠标样式：抓手样式提示用户可以拖动调整视口 */
 .react-flow__minimap {
-  cursor: crosshair;
+  cursor: grab;
+}
+/* 拖动时显示握拳样式 */
+.react-flow__minimap:active {
+  cursor: grabbing;
 }
 .react-flow__minimap svg {
   border-radius: 6px;
