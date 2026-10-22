@@ -150,6 +150,7 @@ export function InspirationPromptDialog({
   const panelBg = isDark ? "#222222" : "#fff";
   const cardBg = isDark ? "#171717" : "#fafafa";
   const activeBg = isDark ? "rgba(197,237,71,0.16)" : "rgba(95,130,0,0.12)";
+  const brandGreenText = isDark ? "#C5ED47" : "#5C7A1A"; // 品牌绿色文字（白天模式加深）
 
   return (
     <div
@@ -165,7 +166,7 @@ export function InspirationPromptDialog({
       >
         <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex min-w-0 items-center gap-2">
-            <Sparkles size={16} style={{ color: "#C5ED47" }} />
+            <Sparkles size={16} style={{ color: brandGreenText }} />
             <h2 className="type-body-sm truncate" style={{ color: text, fontWeight: 750 }}>灵感推荐</h2>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭灵感推荐" className="rounded-[var(--radius-pill)] p-2" style={{ color: sub, border: `1px solid ${border}` }}>
@@ -174,7 +175,7 @@ export function InspirationPromptDialog({
         </div>
         <div className="flex shrink-0 gap-2 overflow-x-auto px-5 py-3" style={{ borderBottom: `1px solid ${border}` }}>
           {groups.map(group => (
-            <button key={group} type="button" onClick={() => setActiveGroup(group)} className="shrink-0 rounded-[var(--radius-pill)] px-3 py-1.5 type-caption" style={{ background: activeGroup === group ? activeBg : "transparent", border: `1px solid ${activeGroup === group ? "rgba(197,237,71,0.48)" : border}`, color: activeGroup === group ? "#C5ED47" : sub }}>
+            <button key={group} type="button" onClick={() => setActiveGroup(group)} className="shrink-0 rounded-[var(--radius-pill)] px-3 py-1.5 type-caption" style={{ background: activeGroup === group ? activeBg : "transparent", border: `1px solid ${activeGroup === group ? "rgba(197,237,71,0.48)" : border}`, color: activeGroup === group ? brandGreenText : sub }}>
               {group}
             </button>
           ))}
@@ -187,7 +188,7 @@ export function InspirationPromptDialog({
               </div>
               <div className="min-w-0">
                 <button type="button" onClick={() => setSelectedItem(null)} className="mb-4 type-caption" style={{ color: sub }}>← 返回灵感列表</button>
-                <span className="inline-flex rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "#C5ED47" }}>{selectedItem.field}</span>
+                <span className="inline-flex rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: brandGreenText }}>{selectedItem.field}</span>
                 <h3 className="mt-3 type-title-sm" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h3>
                 <p className="mt-2 type-caption leading-5" style={{ color: sub }}>{selectedItem.description}</p>
                 <div className="mt-4 max-h-[36vh] overflow-y-auto rounded-[var(--radius-md-design)] p-4" style={{ background: cardBg, border: `1px solid ${border}` }}>
@@ -229,7 +230,7 @@ export function InspirationPromptDialog({
                       </button>
                     )}
                   </div>
-                  <div className="p-3"><p className="truncate type-body-sm" style={{ color: text, fontWeight: 700 }}>{item.title}</p><p className="mt-1 line-clamp-2 type-caption" style={{ color: sub }}>{item.prompt}</p><p className="mt-2 type-caption" style={{ color: "#C5ED47" }}>双击查看详情</p></div>
+                  <div className="p-3"><p className="truncate type-body-sm" style={{ color: text, fontWeight: 700 }}>{item.title}</p><p className="mt-1 line-clamp-2 type-caption" style={{ color: sub }}>{item.prompt}</p><p className="mt-2 type-caption" style={{ color: brandGreenText }}>双击查看详情</p></div>
                 </article>
               ))}
               {visibleItems.length === 0 && <p className="col-span-full py-12 text-center type-body-sm" style={{ color: sub }}>暂无可用灵感</p>}

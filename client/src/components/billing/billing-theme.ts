@@ -17,7 +17,8 @@ export function getBillingTheme(isDark: boolean) {
     text: isDark ? "oklch(0.88 0.01 270)" : "oklch(0.22 0.018 255)",
     sub: isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 255)",
     faint: isDark ? "oklch(0.61 0.010 270)" : "oklch(0.71 0.010 255)",
-    wechatGreen: "#C5ED47",  // 微信支付绿色
+    wechatGreen: "#C5ED47",  // 微信支付绿色（背景、按钮）
+    wechatGreenText: isDark ? "#C5ED47" : "#5C7A1A",  // 绿色文字（白天模式加深）
     alipayBlue: "#1677FF",   // 支付宝蓝色
     purple: "oklch(0.68 0.20 292)",
   };

@@ -43,7 +43,8 @@ import type { BillingTheme } from "./billing-theme";
 type Tone = "green" | "purple" | "cyan";
 
 function toneColor(tone: Tone, isDark: boolean) {
-  if (tone === "green") return "#C5ED47";
+  // 品牌绿色：白天模式加深以提升对比度
+  if (tone === "green") return isDark ? "#C5ED47" : "#5C7A1A";
   return isDark ? "oklch(0.72 0.18 292)" : "oklch(0.52 0.20 292)";
 }
 

@@ -117,6 +117,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const textSecondary= isDark ? "#99999e" : "rgba(20,20,36,0.38)";
   const hoverBg      = isDark ? "#292929" : "rgba(0,0,0,0.04)";
   const activeBg     = isDark ? "#303030" : "rgba(0,0,0,0.06)";
+  const brandGreenIcon = isDark ? "#C5ED47" : "#5C7A1A"; // 品牌绿色图标（白天模式加深）
   const activeColor  = isDark ? "#f4f4f5" : "rgba(20,20,36,0.90)";
   const wechatGroupQrUrl = import.meta.env.VITE_WECHAT_GROUP_QR_URL || "/api/community/wechat-group-qr/image";
   const [communityQrSrc, setCommunityQrSrc] = useState(wechatGroupQrUrl);
@@ -505,7 +506,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <div className="mb-3 flex h-8 w-8 items-center justify-center" style={{ color: "#C5ED47" }}>
+            <div className="mb-3 flex h-8 w-8 items-center justify-center" style={{ color: brandGreenIcon }}>
               <KeyRound size={24} strokeWidth={1.8} />
             </div>
             <h2 style={{ color: textPrimary, fontSize: 24, fontWeight: 720 }}>API key</h2>

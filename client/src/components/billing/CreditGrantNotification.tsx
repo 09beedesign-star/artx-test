@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Gift, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ART_X_TEST_API_BASE_URL, defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 
 type CreditNotification = {
@@ -43,9 +44,13 @@ function dispatchCreditsUpdated(balance?: number) {
 
 export default function CreditGrantNotification() {
   const { isAuthenticated, user } = useAuth();
+  const { resolvedTheme } = useTheme();
   const [activeNotification, setActiveNotification] = useState<CreditNotification | null>(null);
   const [notificationQueue, setNotificationQueue] = useState<CreditNotification[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
+
+  const isDark = resolvedTheme === "dark";
+  const brandGreenText = isDark ? "#C5ED47" : "#5C7A1A"; // 品牌绿色文字（白天模式加深）
 
   const fetchNotifications = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -136,7 +141,7 @@ export default function CreditGrantNotification() {
           </div>
           <div>
             <div className="flex items-center gap-1.5 text-sm font-semibold">
-              <Sparkles size={14} className="text-[#C5ED47]" />
+              <Sparkles size={14} style={{ color: brandGreenText }} />
               系统积分赠送
             </div>
             <p className="mt-0.5 text-xs text-white/52">余额已同步刷新</p>
@@ -149,7 +154,7 @@ export default function CreditGrantNotification() {
 
         <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.045] px-4 py-3">
           <span className="text-xs text-white/50">当前积分余额</span>
-          <span className="text-lg font-semibold text-[#C5ED47]">
+          <span className="text-lg font-semibold" style={{ color: brandGreenText }}>
             {activeNotification.balance.toLocaleString("zh-CN")}
           </span>
         </div>

@@ -59,6 +59,9 @@ const AVATAR_COLORS = [
   "#E84D89",
   "#6C7A89",
 ];
+// 品牌绿色：按钮背景和黑夜模式图标使用亮绿色，白天模式图标使用深绿色以提升对比度
+const BRAND_GREEN_BG = "#C5ED47";  // 按钮背景色（黑夜白天通用）
+const BRAND_GREEN_ICON = (isDark: boolean) => isDark ? "#C5ED47" : "#5C7A1A";  // 图标颜色（白天模式加深）
 const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
 const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
 // 对外 OpenAI 兼容接口文档里展示的推荐模型，必须跟随全站默认模型，
@@ -436,7 +439,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
           onMouseLeave={e => (e.currentTarget.style.background = controlBg)}
         >
-          <KeyRound size={14} style={{ color: "#C5ED47" }} />
+          <KeyRound size={14} style={{ color: BRAND_GREEN_ICON(isDark) }} />
           <span>API Key</span>
         </button>
       )}
@@ -473,7 +476,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           onMouseLeave={e => (e.currentTarget.style.background = controlBg)}
           aria-label="打开 MCP 配置"
         >
-          <Link2 size={14} style={{ color: "#C5ED47" }} />
+          <Link2 size={14} style={{ color: BRAND_GREEN_ICON(isDark) }} />
           <span style={{ fontWeight: 700, letterSpacing: 0 }}>MCP</span>
         </button>
         <div
@@ -512,7 +515,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
           title="查看积分与充值"
         >
-          <Sparkles size={14} style={{ color: "#C5ED47" }} />
+          <Sparkles size={14} style={{ color: BRAND_GREEN_ICON(isDark) }} />
           <span style={{ fontWeight: 650, letterSpacing: 0 }}>{displayCredits.toLocaleString("zh-HK")}</span>
           <span style={{ color: textSec }}>积分</span>
         </button>
@@ -598,7 +601,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             <div
               className="mb-1 flex h-8 w-8 items-center justify-center"
               style={{
-                color: "#C5ED47",
+                color: BRAND_GREEN_ICON(isDark),
               }}
             >
               <KeyRound size={24} strokeWidth={1.8} />

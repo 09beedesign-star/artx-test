@@ -48,6 +48,7 @@ function getMemoryPalette(isDark: boolean) {
         lineActive: "rgba(255, 255, 255, 0.92)",
         textIdle: "rgba(255, 255, 255, 0.45)",
         textActive: "rgba(255, 255, 255, 0.92)",
+        brandGreenIcon: "#C5ED47", // 品牌绿色图标（黑夜模式）
       }
     : {
         pageBg: "#FFFFFF",
@@ -59,6 +60,7 @@ function getMemoryPalette(isDark: boolean) {
         lineActive: "rgba(20, 20, 36, 0.85)",
         textIdle: "rgba(20, 20, 36, 0.45)",
         textActive: "rgba(20, 20, 36, 0.9)",
+        brandGreenIcon: "#5C7A1A", // 品牌绿色图标（白天模式加深以提升对比度）
       };
 }
 
@@ -276,7 +278,7 @@ export default function LongTermMemoryPage() {
           {/* 标题 */}
           <div className="flex items-center gap-3 mb-8">
             <div className="w-12 h-12 rounded-full  flex items-center justify-center">
-              <Brain className="w-6 h-6" style={{ color: "#C5ED47" }} />
+              <Brain className="w-6 h-6" style={{ color: c.brandGreenIcon }} />
             </div>
             <div>
               <h1 className="text-2xl font-semibold">长期记忆</h1>
