@@ -120,7 +120,7 @@ export default function InspirationPage() {
     setHoveredItemKey(null);
   };
 
-  const bg = isDark ? "#171717" : "var(--design-surface-soft)";
+  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
   const sub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
   const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";

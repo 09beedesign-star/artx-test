@@ -70,7 +70,7 @@ export default function SkillsPage() {
   const [activeCategory, setActiveCategory] = useState<SkillStoreCategory | "all">("all");
   const [query, setQuery] = useState("");
 
-  const bg = isDark ? "#171717" : "var(--design-surface-soft)";
+  const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const panel = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)";
   const panelStrong = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.95)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
