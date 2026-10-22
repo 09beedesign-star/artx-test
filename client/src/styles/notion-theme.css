@@ -1,0 +1,475 @@
+/* ============================================
+   Notion 风格白色主题 CSS 变量
+   基于 design.md v1.1.0
+   ============================================ */
+
+/* 仅修改 light 模式，dark 模式完全不变 */
+html.light,
+.light {
+  /* === 核心品牌色 === */
+  --notion-ink: #2c2c2b;
+  --notion-ink-hover: #1e1e1e;
+  --notion-ink-secondary: #6a6a6b;
+  
+  /* === 聚焦蓝（仅用于聚焦/链接/AI） === */
+  --notion-focus-blue: #08f;
+  --notion-focus-soft: rgba(0, 136, 255, 0.08);
+  --notion-focus-ring: rgba(0, 136, 255, 0.25);
+  
+  /* === 危险色 === */
+  --notion-danger: #ea4f3d;
+  --notion-danger-hover: #d43f2f;
+  
+  /* === 背景层级（暖纸质中性色）=== */
+  --background: #fbfbfa;           /* 页面底色 */
+  --card: #ffffff;                 /* 卡片/表面 */
+  --surface-soft: #f9f8f7;         /* 柔和表面（侧边栏） */
+  --surface-muted: #f9f8f7;        /* 弱化表面 */
+  
+  /* === 文字层级 === */
+  --foreground: #2c2c2b;           /* 主文字 */
+  --text-secondary: #6a6a6b;       /* 次要文字 */
+  --text-muted: #8e8b86;           /* 弱化文字 */
+  --text-on-ink: #ffffff;          /* 墨水上的文字 */
+  
+  /* === 边框与分隔 === */
+  --border: #f0efed;               /* 发丝边框 */
+  --hairline: #f0efed;             /* 发丝线 */
+  --border-focus: #08f;            /* 聚焦边框 */
+  
+  /* === 交互状态 === */
+  --tab-active: rgba(42, 28, 0, 0.07);         /* 激活标签（暖灰洗） */
+  --hover-warm: rgba(44, 44, 43, 0.04);        /* 温暖悬停 */
+  --hover-warm-strong: rgba(44, 44, 43, 0.05); /* 强温暖悬停 */
+  --hover-bg: rgba(44, 44, 43, 0.04);          /* 悬停背景 */
+  --active-bg: rgba(42, 28, 0, 0.07);          /* 激活背景 */
+  
+  /* === 品牌绿色系统（保持不变）=== */
+  --color-brand-green: #4EC61D;        /* 按钮绿 */
+  --color-brand-green-light: #B2ED9A;  /* 标签绿 */
+  --color-brand-green-text: #3C9D15;   /* 文字绿 */
+  
+  /* === 间距与布局 === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --gap-bento: 14px;
+  --section-padding: 28px;
+  --sidebar-width: 270px;
+  --page-max-width: 1100px;
+  
+  /* === 圆角 === */
+  --radius-sm: 6px;     /* 输入框、导航项 */
+  --radius-md: 8px;     /* 侧边栏外壳 */
+  --radius-lg: 10px;    /* 卡片块 */
+  --radius-xl: 12px;    /* 模态框 */
+  --radius-full: 9999px; /* 药丸按钮 */
+  
+  /* === 阴影 === */
+  --shadow-composer: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-dropdown: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --shadow-card-hover: 0 4px 20px rgba(0, 0, 0, 0.08);
+  
+  /* === 动效 === */
+  --motion-hover: 120ms;
+  --motion-medium: 200ms;
+  --motion-ease: ease;
+  
+  /* === 字体 === */
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-chinese: "PingFang SC", "PingFang TC", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  
+  /* === 兼容旧变量（映射到新变量）=== */
+  --design-surface-soft: #f9f8f7;
+  --artx-line: #f0efed;
+  --artx-fill: #ffffff;
+  --artx-fill-hover: rgba(44, 44, 43, 0.04);
+  --artx-text-muted: #8e8b86;
+  --artx-text-strong: #2c2c2b;
+  --artx-brand-purple: #08f; /* 映射到聚焦蓝 */
+}
+
+/* ============================================
+   Tailwind 工具类覆盖
+   ============================================ */
+
+.light {
+  /* 背景工具类 */
+  .bg-background {
+    background-color: #fbfbfa;
+  }
+  
+  .bg-card {
+    background-color: #ffffff;
+  }
+  
+  .bg-surface-soft {
+    background-color: #f9f8f7;
+  }
+  
+  /* 文字工具类 */
+  .text-foreground {
+    color: #2c2c2b;
+  }
+  
+  .text-secondary {
+    color: #6a6a6b;
+  }
+  
+  .text-muted {
+    color: #8e8b86;
+  }
+  
+  /* 边框工具类 */
+  .border-border {
+    border-color: #f0efed;
+  }
+  
+  /* 聚焦状态 */
+  .focus-visible\:ring-notion:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 136, 255, 0.25);
+  }
+}
+
+/* ============================================
+   Notion 风格组件类
+   ============================================ */
+
+/* === 按钮 === */
+.nt-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: all var(--motion-hover) var(--motion-ease);
+  border: none;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.nt-btn-primary {
+  background: var(--notion-ink);
+  color: var(--text-on-ink);
+}
+
+.nt-btn-primary:hover {
+  background: var(--notion-ink-hover);
+}
+
+.nt-btn-outline {
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid rgba(44, 44, 43, 0.15);
+}
+
+.nt-btn-outline:hover {
+  background: var(--hover-warm);
+  border-color: rgba(44, 44, 43, 0.25);
+}
+
+.nt-btn-ghost {
+  background: transparent;
+  color: var(--foreground);
+}
+
+.nt-btn-ghost:hover {
+  background: var(--tab-active);
+}
+
+.nt-btn-text {
+  background: transparent;
+  color: var(--notion-focus-blue);
+  padding: 0 8px;
+}
+
+.nt-btn-text:hover {
+  opacity: 0.8;
+}
+
+/* === 图标按钮 === */
+.nt-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  transition: all var(--motion-hover) var(--motion-ease);
+}
+
+.nt-icon-btn:hover {
+  background: var(--hover-warm);
+  color: var(--foreground);
+}
+
+/* === 输入框 === */
+.nt-input {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 14px;
+  font-family: var(--font-ui);
+  transition: all var(--motion-medium) var(--motion-ease);
+  outline: none;
+}
+
+.nt-input::placeholder {
+  color: var(--text-muted);
+}
+
+.nt-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--notion-focus-ring);
+}
+
+/* === 搜索框 === */
+.nt-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  transition: all var(--motion-medium) var(--motion-ease);
+}
+
+.nt-search:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--notion-focus-ring);
+}
+
+.nt-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--foreground);
+}
+
+/* === AI 作曲家 === */
+.nt-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  box-shadow: var(--shadow-composer);
+  transition: all var(--motion-medium) var(--motion-ease);
+}
+
+.nt-composer:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px var(--notion-focus-ring);
+}
+
+.nt-composer input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--foreground);
+}
+
+/* === 导航项 === */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background var(--motion-hover) var(--motion-ease);
+}
+
+.nav-item:hover {
+  background: var(--hover-warm);
+}
+
+.nav-item--active {
+  background: var(--tab-active);
+  font-weight: 500;
+}
+
+/* === 侧边栏标签 === */
+.sidebar-tab {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--motion-hover) var(--motion-ease);
+}
+
+.sidebar-tab:hover {
+  background: var(--hover-warm);
+  color: var(--foreground);
+}
+
+.sidebar-tab--selected {
+  background: var(--tab-active);
+  color: var(--foreground);
+}
+
+/* === 卡片 === */
+.nt-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  transition: box-shadow var(--motion-medium) var(--motion-ease);
+}
+
+.nt-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* === 下拉菜单 === */
+.nt-dropdown {
+  min-width: 200px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dropdown);
+  padding: var(--space-2);
+}
+
+.nt-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background var(--motion-hover) var(--motion-ease);
+}
+
+.nt-dropdown-item:hover {
+  background: var(--hover-warm);
+}
+
+.nt-dropdown-item--danger {
+  color: var(--notion-danger);
+}
+
+.nt-dropdown-item--danger:hover {
+  background: rgba(234, 79, 61, 0.1);
+}
+
+/* === 开关 === */
+.nt-toggle {
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+  background: #e0ded8;
+  position: relative;
+  cursor: pointer;
+  transition: background var(--motion-medium) var(--motion-ease);
+}
+
+.nt-toggle--on {
+  background: var(--notion-focus-blue);
+}
+
+.nt-toggle-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: transform var(--motion-medium) var(--motion-ease);
+}
+
+.nt-toggle--on .nt-toggle-thumb {
+  transform: translateX(16px);
+}
+
+/* === 芯片 === */
+.nt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  transition: all var(--motion-hover) var(--motion-ease);
+}
+
+.nt-chip--active {
+  background: var(--tab-active);
+  color: var(--foreground);
+}
+
+.nt-chip:hover {
+  background: var(--hover-warm-strong);
+}
+
+/* === 侧边栏 === */
+.notion-sidebar {
+  width: var(--sidebar-width);
+  background: var(--surface-soft);
+  border-right: 1px solid var(--border);
+}
+
+/* === 顶部导航栏 === */
+.notion-topbar {
+  height: 60px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+}
+
+/* === 聚焦状态 === */
+.nt-btn:focus-visible,
+.nt-icon-btn:focus-visible,
+.nav-item:focus-visible,
+.sidebar-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--notion-focus-ring);
+}

@@ -60,9 +60,8 @@ export function ThemeProvider({
   }, [resolvedTheme]);
 
   const setMode = (m: ThemeMode) => {
-    const nextMode = m === "light" ? "dark" : m;
-    setModeState(nextMode);
-    localStorage.setItem("theme-mode", nextMode);
+    setModeState(m);
+    localStorage.setItem("theme-mode", m);
   };
 
   const toggleTheme = () => {

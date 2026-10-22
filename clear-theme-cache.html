@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>清除 ArtX 主题缓存</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      margin: 0 0 20px 0;
+      color: #333;
+    }
+    button {
+      background: #936CFF;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 10px 10px 10px 0;
+    }
+    button:hover {
+      background: #8257ff;
+    }
+    .info {
+      background: #f0f0f0;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    .success {
+      color: #22c55e;
+      font-weight: 500;
+    }
+    .warning {
+      color: #f59e0b;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🧹 清除 ArtX 主题缓存</h1>
+    <p>如果你看到的仍然是深色主题，点击下面的按钮清除缓存：</p>
+    
+    <button onclick="clearAndOpen()">🚀 清除缓存并打开 ArtX</button>
+    <button onclick="checkStatus()">🔍 检查当前状态</button>
+    
+    <div class="info" id="status">等待操作...</div>
+  </div>
+
+  <script>
+    function clearAndOpen() {
+      // 清除所有可能的主题相关存储
+      localStorage.removeItem('theme-mode');
+      localStorage.removeItem('artx-theme-mode');
+      sessionStorage.clear();
+      
+      document.getElementById('status').innerHTML = `
+        <span class="success">✅ 已清除以下缓存：</span><br>
+        - localStorage: theme-mode<br>
+        - localStorage: artx-theme-mode<br>
+        - sessionStorage: 全部<br><br>
+        <span class="warning">⏳ 正在打开 ArtX...</span>
+      `;
+      
+      // 打开新窗口
+      setTimeout(() => {
+        window.open('http://localhost:3000', '_blank');
+        document.getElementById('status').innerHTML += `<br><br>
+          <span class="success">✅ 已打开新窗口</span><br>
+          <strong>应该看到白色背景 + 黑色 Logo</strong>
+        `;
+      }, 500);
+    }
+    
+    function checkStatus() {
+      const themeMode = localStorage.getItem('theme-mode');
+      const artxThemeMode = localStorage.getItem('artx-theme-mode');
+      
+      document.getElementById('status').innerHTML = `
+        <strong>当前 localStorage 状态：</strong><br>
+        - theme-mode: ${themeMode || '(空)'}<br>
+        - artx-theme-mode: ${artxThemeMode || '(空)'}<br><br>
+        ${(!themeMode && !artxThemeMode) 
+          ? '<span class="success">✅ 缓存已清除，应该显示默认的白色主题</span>' 
+          : '<span class="warning">⚠️ 发现缓存数据，点击"清除缓存"按钮</span>'}
+      `;
+    }
+    
+    // 页面加载时自动检查
+    window.onload = checkStatus;
+  </script>
+</body>
+</html>
