@@ -21,6 +21,11 @@ import type { PicWishBackgroundTemplate } from "@/lib/ai";
 /** 全站统一的柠檬绿强调色（与画布智能电商面板同源） */
 export const LIME = "#c5ed71";
 
+/** 根据主题模式获取柠檬绿色 */
+export function getLimeColor(isDark: boolean): string {
+  return LIME;
+}
+
 export type EcommerceMode = "post" | "product";
 
 /**

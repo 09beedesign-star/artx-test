@@ -33,7 +33,7 @@ export default function RechargePanel({
     activePaymentMethod,
     startRechargePayment,
   } = controller;
-  const { isDark, panel, panelStrong, border, text, sub, faint, green } = theme;
+  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen } = theme;
 
   return (
     <section
@@ -60,13 +60,13 @@ export default function RechargePanel({
             <Link
               href="/credits-guide"
               className="ml-1.5 underline underline-offset-2 transition-opacity hover:opacity-80"
-              style={{ color: green }}
+              style={{ color: wechatGreen }}
             >
               查看完整积分规则
             </Link>
           </p>
         </div>
-        <WalletCards size={20} style={{ color: green }} />
+        <WalletCards size={20} style={{ color: wechatGreen }} />
       </div>
       <div className="grid gap-3 xl:grid-cols-3">
         {rechargePacks.map(pack => (
@@ -79,7 +79,7 @@ export default function RechargePanel({
               className="mb-4 flex h-10 w-10 items-center justify-center rounded-[var(--radius-md-design)]"
               style={{
                 background: "oklch(0.78 0.18 110 / 0.14)",
-                color: green,
+                color: wechatGreen,
               }}
             >
               <CreditCard size={18} />
@@ -168,7 +168,7 @@ export default function RechargePanel({
                   {perk.included ? (
                     <Check
                       size={13}
-                      style={{ color: green, flex: "0 0 auto", marginTop: 2 }}
+                      style={{ color: wechatGreen, flex: "0 0 auto", marginTop: 2 }}
                     />
                   ) : (
                     <X
@@ -190,7 +190,7 @@ export default function RechargePanel({
               disabled={payingRechargeId === pack.id}
               className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
               style={{
-                background: green,
+                background: wechatGreen,
                 color: "#10130A",
                 fontWeight: 720,
               }}

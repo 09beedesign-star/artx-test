@@ -167,7 +167,7 @@ export default function InsufficientCreditsDialog() {
             type="button"
             onClick={goBilling}
             className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-pill)] px-4 py-2.5 type-body-strong transition-opacity hover:opacity-90"
-            style={{ background: theme.green, color: "#171717" }}
+            style={{ background: theme.wechatGreen, color: "#171717" }}
           >
             <CreditCard className="h-4 w-4" />
             {noSubscription ? "查看订阅方案" : "去充值"}

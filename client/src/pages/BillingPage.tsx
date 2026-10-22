@@ -61,7 +61,7 @@ export default function BillingPage() {
     subscriptionStatus,
     balanceFlash,
   } = controller;
-  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, green } =
+  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, wechatGreen } =
     theme;
 
   /*
@@ -154,7 +154,7 @@ export default function BillingPage() {
                   className="mt-3 flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] px-3.5 type-caption transition-opacity hover:opacity-80"
                   style={{
                     background: "oklch(0.78 0.18 110 / 0.14)",
-                    color: green,
+                    color: wechatGreen,
                     fontWeight: 640,
                   }}
                 >

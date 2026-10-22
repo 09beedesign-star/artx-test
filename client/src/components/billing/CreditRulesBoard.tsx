@@ -141,7 +141,7 @@ export default function CreditRulesBoard({
   /** 有值才渲染「邀请好友」按钮 —— 未登录的公开页不该给出登录后才可用的入口。 */
   onOpenInvite?: () => void;
 }) {
-  const { isDark, panel, panelStrong, border, text, sub, faint, green } = theme;
+  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen } = theme;
   const accent = toneColor("green", isDark);
   const accentSoft = isDark ? "oklch(0.78 0.18 110 / 0.12)" : "oklch(0.88 0.14 110 / 0.22)";
 

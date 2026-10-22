@@ -31,6 +31,8 @@ export type HomePromptHandoff = {
   createdAt?: string;
   /** 首页「添加参考图」带过来的图片，进画布后直接变成引用图片。 */
   references?: HomePromptReference[];
+  /** 首页选择的技能 */
+  skill?: { id: string; name: string };
 };
 
 /**
