@@ -32,11 +32,7 @@ export function ThemeProvider({
 }: ThemeProviderProps) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem("theme-mode");
-    if (stored === "light") {
-      localStorage.setItem("theme-mode", "dark");
-      return "dark";
-    }
-    if (stored === "dark" || stored === "system") return stored;
+    if (stored === "dark" || stored === "light" || stored === "system") return stored;
     return defaultTheme;
   });
 
