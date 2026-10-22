@@ -40,17 +40,17 @@ type MemoryDimension = "projectMemory" | "skill" | "generalRules" | "regularMemo
 function getMemoryPalette(isDark: boolean) {
   return isDark
     ? {
-        pageBg: "#141414",
+        pageBg: "#222222",
         dot: "rgba(255, 255, 255, 0.14)",
-        card: "#1E1E1E",
-        field: "#262626",
+        card: "#2A2A2A",
+        field: "#303030",
         lineIdle: "rgba(255, 255, 255, 0.12)",
         lineActive: "rgba(255, 255, 255, 0.92)",
         textIdle: "rgba(255, 255, 255, 0.45)",
         textActive: "rgba(255, 255, 255, 0.92)",
       }
     : {
-        pageBg: "#F4F4F6",
+        pageBg: "#FFFFFF",
         dot: "rgba(20, 20, 36, 0.16)",
         card: "#FFFFFF",
         field: "#F7F7F9",
