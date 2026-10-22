@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { skillStoreItems, type SkillStoreCategory } from "@/lib/skill-store";
-import type { PendingSkillLoad } from "@/lib/canvas-types";
+import { skillStoreItems, skillCategoryMeta, type SkillStoreCategory, type PendingSkillLoad } from "@/lib/skill-store";
 
 interface SkillCarouselProps {
   onSkillSelect: (skill: PendingSkillLoad) => void;
@@ -56,8 +55,19 @@ export function SkillCarousel({ onSkillSelect, isDark }: SkillCarouselProps) {
 
   const handleSkillClick = (skill: typeof skillStoreItems[number]) => {
     onSkillSelect({
+      id: skill.id,
       name: skill.name,
-      action: "activate",
+      category: skill.category,
+      categoryLabel: skillCategoryMeta[skill.category].label,
+      subcategory: skill.subcategory,
+      summary: skill.summary,
+      capability: skill.capability,
+      capabilityPrompt: skill.capabilityPrompt,
+      sourceRepo: skill.sourceRepo,
+      sourceUrl: skill.sourceUrl,
+      tags: skill.tags,
+      canvasSizes: skill.canvasSizes,
+      loadedAt: new Date().toISOString(),
     });
   };
 

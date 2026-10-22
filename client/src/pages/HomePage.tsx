@@ -4,9 +4,8 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   Copy,
-  Gift,
+  Eye,
   ImagePlus,
-  PlayCircle,
   Send,
   X,
 } from "lucide-react";
@@ -26,9 +25,7 @@ import {
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
-import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
-import asteroidImage from "@/assets/ardot/3_3.png";
 import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
 import HomeFirstTopUpBanner, {
   dismissFirstTopUpBannerForToday,
@@ -60,7 +57,15 @@ import {
   type HomePromptReference,
 } from "@/lib/home-prompt-handoff";
 import type { AiModelOption } from "@/lib/workspace-data";
+import type { PendingSkillLoad } from "@/lib/skill-store";
 import { ThemeModeSwitcher } from "@/components/theme/ThemeModeSwitcher";
+import { useTheme } from "@/contexts/ThemeContext";
+import { CenteredAuthDialog } from "@/components/auth/CenteredAuthDialog";
+import { CenteredPromptPanel } from "@/components/home/CenteredPromptPanel";
+
+// 记住账号功能的 Cookie 名称和过期时间
+const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login";
+const REMEMBERED_LOGIN_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30天
 
 /**
  * ⚠️ 直接复用共享类型。
@@ -83,18 +88,11 @@ const PROMPT_SUGGESTIONS = [
   "把这张照片变成水彩画风格",
 ];
 
-const HOME_PROMPT = "hello，欢迎来到。ArtX,正式开启你的。灵感AI创意之旅吧！";
+const HOME_PROMPT_PLACEHOLDER = "描述你想要生成的图片，例如：帮我生成一张赛博朋克风格插画";
 const HOME_AUTH_PANEL_STORAGE_KEY = "artx:home-auth-panel";
 const HOME_POST_LOGIN_REDIRECT_STORAGE_KEY = "artx:home-post-login-redirect";
-const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login";
-const REMEMBERED_LOGIN_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
-const PROMPT_TYPE_DURATION_MS = 5000;
-const PROMPT_PAUSE_DURATION_MS = 3000;
-const PROMPT_FRAME_MS = 80;
 
-type PanelMode = "prelogin" | "login" | "register";
 type LandingTab = "home" | "inspiration" | "skills" | "ecommerce" | "workspace" | "help";
-type LoginBubble = { left: number; top: number; id: number } | null;
 
 /**
  * 洗牌兜底顺序。
@@ -222,74 +220,26 @@ const HOME_HERO_VISIBLE_RATIO = 0.15;
 export default function HomePage() {
   const [, navigate] = useLocation();
   const { openBilling } = useBillingDialog();
-  const { isAuthenticated, login, register, openLoginModal } = useAuth();
-  const [panelMode, setPanelMode] = useState<PanelMode>(isAuthenticated ? "prelogin" : "prelogin");
-  const [prompt, setPrompt] = useState(HOME_PROMPT);
-  const [promptTouched, setPromptTouched] = useState(false);
-  /**
-   * 首页公告弹窗（阻断式）。
-   *
-   * 判定顺序（强硬规则，产品定稿 2026-09-19）：
-   *   ① 有「强制待弹标记」→ 必弹，无视已读记录
-   *      （标记由 AuthContext 在每条登录 / 注册成功路径上打）
-   *   ② 否则看这一期是否已读
-   *
-   * ⚠️ 惰性初始化不可省：两个判断都会摸 localStorage，
-   *    写成 useState(表达式) 会在每次渲染都执行一遍。
-   */
+  const { isAuthenticated, openLoginModal } = useAuth();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const [prompt, setPrompt] = useState("");
+  const [centeredAuthOpen, setCenteredAuthOpen] = useState(false);
+  const [centeredAuthMode, setCenteredAuthMode] = useState<"login" | "register">("login");
   const [announcementOpen, setAnnouncementOpen] = useState(
     () =>
       hasAnnouncementForcePending() || !hasSeenAnnouncement(HOME_ANNOUNCEMENT.id)
   );
-  /**
-   * 首页选的出图模型。与画布共用同一份 localStorage 偏好（用户 2026-09-15 拍板），
-   * 所以这里读的不是本地初值，而是全站统一的偏好。
-   *
-   * ⚠️ 惰性初始化不可省：readPreferredImageModelId 会摸 localStorage，
-   * 写成 useState(readPreferredImageModelId()) 会在每次渲染都执行一次。
-   */
   const [homeImageModelId, setHomeImageModelId] = useState(readPreferredImageModelId);
   const homeImageModelOptions = useImageModelOptions();
-  /**
-   * 首页「添加参考图」选中的图片。跟着提示词一起交接给画布，
-   * 进画布后直接成为引用图片（与在画布里上传的效果一致）。
-   */
   const [homeReferences, setHomeReferences] = useState<HomePromptReference[]>([]);
-  const [email, setEmail] = useState(getRememberedLoginUsername);
-  const [password, setPassword] = useState("");
-  const [rememberPassword, setRememberPassword] = useState(
-    () => Boolean(getRememberedLoginUsername())
-  );
-  const [authError, setAuthError] = useState("");
-  const [authBusy, setAuthBusy] = useState(false);
-  const [stageScale, setStageScale] = useState(getStageScale);
+  const [homeActiveSkill, setHomeActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
-  const [loginBubble, setLoginBubble] = useState<LoginBubble>(null);
   const [homeInspirationItems, setHomeInspirationItems] = useState(
     createHomeInspirationFallbackFeed
   );
-  /**
-   * 远程灵感是否已接管。
-   *
-   * ⚠️ 用来挡住「刷新按钮把远程数据重新洗回 CSV」：
-   * 下面的 refresh 逻辑原来无条件调 createHomeInspirationFeed()，
-   * 若远程已经接管，再调一次就把首页悄悄打回本地 CSV，
-   * 表现是「刚才两页头像还一致，点了下刷新就不一致了」，且不报错。
-   */
   const remoteInspirationLoadedRef = useRef(false);
-  /**
-   * 灵感点赞 / 收藏状态。
-   * ⚠️ 与专题页、个人中心共用同一份 hook —— 首页点的赞必须能在个人中心看到。
-   */
   const inspirationReactions = useInspirationReactions();
-
-  /**
-   * 列表项 → 沉淀快照。
-   *
-   * ⚠️⚠️ 字段必须**给全且与专题页同口径**（专题页同名函数即参照）。
-   * 原来首页把 `item.field` 同时塞给 group 和 subcategory，
-   * 导致同一条内容从首页收藏、从专题页收藏，进个人中心后分类标签不一样。
-   */
   const toReactionItem = (item: HomeInspirationItem) => ({
     id: normalizeInspirationIdentity(item.title),
     title: item.title,
@@ -306,18 +256,6 @@ export default function HomePage() {
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
     isFirstTopUpBannerDismissedToday,
   );
-  /*
-   * 邀请落地态。
-   *
-   * ⚠️ 这是邀请闭环此前最直观的断裂点：朋友点开 /?invite=XXXX 进来，
-   * 页面**没有任何变化** —— 不提示"谁邀请了你"，也不引导去注册，
-   * 面板默认停在 prelogin。用户自然会问"哪里输邀请码"，
-   * 而正确答案是"不用输，但你必须去注册"，这件事没人告诉他。
-   *
-   * 首次挂载时把 URL 上的邀请码落到本地（见 AuthContext 的
-   * rememberInviteCodeFromUrl），之后即使用户逛遍全站再回来注册，
-   * 邀请码依然在，关系才绑得上。
-   */
   const [landedInviteCode, setLandedInviteCode] = useState("");
   const activeTabRef = useRef<LandingTab>("home");
   const hasReachedInspirationRef = useRef(false);
@@ -326,7 +264,24 @@ export default function HomePage() {
   const inspirationRef = useRef<HTMLElement>(null);
   const homeInspirationImageRef = useRef<HTMLImageElement | null>(null);
   const homeInspirationPromptRef = useRef<HTMLDivElement | null>(null);
-  const homeInspirationBorder = "rgba(255,255,255,0.10)";
+  
+  // ── 全局主题颜色（根据主题动态计算）──
+  const textPrimary = isDark ? "#ffffff" : "#2c2c2b";
+  const textSecondary = isDark ? "rgba(255,255,255,0.73)" : "#6a6a6b";
+  const textMuted = isDark ? "#7d7d7d" : "#8e8b86";
+  const textTertiary = isDark ? "rgba(255,255,255,0.45)" : "#a8a8a8";
+  const textAccent = isDark ? "rgba(255,255,255,0.88)" : "#2c2c2b";
+  const bgMain = isDark ? "#222222" : "#ffffff";
+  const borderColor = isDark ? "rgba(255,255,255,0.10)" : "#f0efed";
+  
+  // 灵感详情弹窗颜色
+  const homeInspirationBorder = borderColor;
+  const homeInspirationPanelBg = isDark ? "#222222" : "#ffffff";
+  const homeInspirationCardBg = isDark ? "#222222" : "#ffffff";
+  const homeInspirationText = isDark ? "oklch(0.88 0.008 270)" : "#2c2c2b";
+  const homeInspirationButtonBg = isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)";
+  const homeInspirationButtonIdleColor = isDark ? "oklch(0.73 0.010 270)" : "#6a6a6b";
+  const homeInspirationButtonIconColor = isDark ? "oklch(0.88 0.008 270)" : "#2c2c2b";
 
   const setCurrentLandingTab = (tab: LandingTab) => {
     activeTabRef.current = tab;
@@ -335,14 +290,9 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    setPanelMode("prelogin");
-    setAuthError("");
-    setLoginBubble(null);
-    /*
-     * ⚠️⚠️ 只有仍在兜底数据上才重洗顺序。
-     * 远程数据一旦接管，重洗会把首页打回本地 CSV，
-     * 于是「登录前两页头像一致 → 登录后不一致」，而且不报任何错。
-     */
+    // 已登录用户访问首页时，关闭登录弹窗
+    setCenteredAuthOpen(false);
+    // 只有仍在兜底数据上才重洗顺序
     if (remoteInspirationLoadedRef.current) return;
     setHomeInspirationItems(createHomeInspirationFallbackFeed());
   }, [isAuthenticated]);
@@ -382,19 +332,16 @@ export default function HomePage() {
   }, []);
 
   /*
-   * 带邀请码落地时：记住邀请码，并把右侧面板直接切到注册态。
-   *
-   * ⚠️ 必须先判 isAuthenticated —— 已登录用户点朋友的邀请链接，
-   * 给他弹注册面板毫无意义（他也绑不上，后端只对新账号绑定）。
-   * 这种情况下只记码不改 UI：万一他随后退出登录换新号注册，码还在。
+   * 带邀请码落地时：记住邀请码，并自动打开注册弹窗。
    */
   useEffect(() => {
     const code = rememberInviteCodeFromUrl();
     if (!code) return;
     setLandedInviteCode(code);
     if (isAuthenticated) return;
-    setCurrentLandingTab("home");
-    setPanelMode("register");
+    // 自动打开注册弹窗
+    setCenteredAuthMode("register");
+    setCenteredAuthOpen(true);
   }, [isAuthenticated]);
 
   const measureHomeInspirationImage = () => {
@@ -416,13 +363,6 @@ export default function HomePage() {
     };
   }, [selectedHomeInspiration]);
 
-  /*
-    未登录用户点了首充 → 登录成功后要接着把充值界面给他。
-
-    ⚠️ 这里也必须开浮层而不是 navigate：跳页的话用户刚登录就被甩出首页，
-    还得自己点回来。sessionStorage 里存的那个 "/billing?tab=recharge"
-    只当「意图标记」用，不再当成跳转目标。
-  */
   useEffect(() => {
     if (!isAuthenticated) return;
     const redirectPath = sessionStorage.getItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY);
@@ -432,48 +372,21 @@ export default function HomePage() {
   }, [isAuthenticated, openBilling]);
 
   useEffect(() => {
-    if (!loginBubble) return;
-    const timer = window.setTimeout(() => setLoginBubble(null), 1800);
-    return () => window.clearTimeout(timer);
-  }, [loginBubble]);
-
-  useEffect(() => {
     const applyRequestedPanel = () => {
       const requestedPanel = sessionStorage.getItem(HOME_AUTH_PANEL_STORAGE_KEY);
       if (requestedPanel !== "login" && requestedPanel !== "register") return;
       sessionStorage.removeItem(HOME_AUTH_PANEL_STORAGE_KEY);
       if (isAuthenticated) return;
-      setCurrentLandingTab("home");
-      setPanelMode(requestedPanel);
+      // 打开居中登录弹窗
+      setCenteredAuthMode(requestedPanel);
+      setCenteredAuthOpen(true);
       homeRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
     };
 
-    // 挂载时读一次：覆盖「从 RequireLogin 重定向回首页」的场景。
     applyRequestedPanel();
-
-    // ⚠️ 还必须监听事件：首页**不会重新挂载**，仅靠上面那次读取，
-    // 停留在首页时触发的 artx:login-required 不会有任何反应（面板不切换），
-    // 用户会觉得"点了没反应"。AuthContext 在首页把全局弹窗换成了本事件，
-    // 这里是它唯一的落点，删掉即等于首页登录入口失灵。
-    //
-    // 📌 已知行为差异（2026-09-24，产品仅要求先改「开始体验」）：
-    // 本路径（lib/ai.ts / BillingPage 在 401 时派发）无论用户滚到哪里，
-    // 都会 scrollIntoView 把他拽回第一屏用内嵌面板；而「开始体验」按钮
-    // 已改为「滚出首屏就弹居中小弹窗」（requestLoginByScrollPosition）。
-    // 若后续要统一，改这里即可——但注意不能直接删 scrollIntoView，
-    // 否则在已滚走的场景会退化成「点了没反应」。
     window.addEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
     return () => window.removeEventListener("artx:home-auth-panel-requested", applyRequestedPanel);
   }, [isAuthenticated]);
-
-  useEffect(() => {
-    const updateStageScale = () => {
-      setStageScale(getStageScale());
-    };
-    updateStageScale();
-    window.addEventListener("resize", updateStageScale);
-    return () => window.removeEventListener("resize", updateStageScale);
-  }, []);
 
   useEffect(() => {
     const sections = [
@@ -487,12 +400,7 @@ export default function HomePage() {
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         const visibleSection = sections.find(section => section.ref.current === visibleEntry?.target);
         if (!visibleSection) return;
-
-        const previousTab = activeTabRef.current;
         setCurrentLandingTab(visibleSection.tab);
-        if (!isAuthenticated && previousTab === "inspiration" && visibleSection.tab === "home") {
-          setPanelMode("prelogin");
-        }
       },
       { threshold: [0.45, 0.65] },
     );
@@ -503,28 +411,6 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [isAuthenticated]);
 
-  /*
-   * 登录面板的挂载条件。
-   *
-   * ⚠️⚠️ 两个条件缺一不可，少了第二个会**破坏浏览器自动填充**：
-   *   1. !isAuthenticated —— 已登录不得把密码表单留在 DOM 里
-   *      （隐藏表单仍可能触发密码管理器的身份确认弹窗，见 MEMORY.md）；
-   *   2. displayedMode !== "prelogin" —— 面板收起时也必须真正卸载。
-   *
-   * 此前只有第 1 个条件，收起状态靠 opacity-0 + pointer-events-none 遮住，
-   * 表单从首屏起就一直挂在 DOM 上。Chrome/Safari 的密码管理器在页面加载时
-   * 就会扫描表单并决定要不要提示填充，而对一个**可见性为 0**的表单
-   * 它的行为是不稳定的 —— 等用户点开登录面板时，填充时机早就过去了，
-   * 于是"勾了选项却什么都没自动填上"（2026-09-13 用户报的现象）。
-   *
-   * 卸载后浏览器会在面板真正出现时重新发现表单，填充提示才会按预期弹出。
-   *
-   * 📌 卸载不影响淡出动画：收起时先播 PreloginPanel 的淡入（500ms），
-   * 登录面板本身是直接移除的，视觉上被上层面板盖住，用户看不到突变。
-   */
-  const displayedMode = isAuthenticated ? "prelogin" : panelMode;
-  const shouldRenderAuthPanel = !isAuthenticated && displayedMode !== "prelogin";
-
   const handleMainScroll = () => {
     const main = mainRef.current;
     const homeHeight = homeRef.current?.offsetHeight || window.innerHeight;
@@ -532,11 +418,6 @@ export default function HomePage() {
 
     if (scrollTop >= homeHeight * 0.55) {
       hasReachedInspirationRef.current = true;
-    }
-
-    if (!isAuthenticated && hasReachedInspirationRef.current && scrollTop <= homeHeight * HOME_HERO_VISIBLE_RATIO) {
-      setPanelMode("prelogin");
-      hasReachedInspirationRef.current = false;
     }
   };
 
@@ -551,14 +432,6 @@ export default function HomePage() {
     writePreferredImageModelId(modelId);
   };
 
-  /**
-   * 首页参考图上传。
-   *
-   * ⚠️ 这里刻意**不复用画布的 10MB 单张上限**。画布把图片存在内存里，
-   * 而首页必须先把它塞进 sessionStorage（配额约 5MB）才能交接给画布 ——
-   * 照搬 10MB 会让写入直接抛 QuotaExceededError，连提示词一起丢掉。
-   * 体积闸门的口径统一在 home-prompt-handoff.ts，不要在这里另立一套。
-   */
   const handleHomeReferenceFiles = async (files: File[]) => {
     const imageFiles = files.filter(file =>
       file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(file.name)
@@ -603,8 +476,6 @@ export default function HomePage() {
     }
     if (loaded.length === 0) return;
 
-    // 预算是对「最终要交接的整份列表」算的，所以必须连同已选的一起过闸，
-    // 不能只判断新增的这几张 —— 否则分多次添加就能绕过总预算。
     const { accepted, droppedCount } = fitReferencesToBudget([
       ...homeReferences,
       ...loaded,
@@ -622,30 +493,22 @@ export default function HomePage() {
   };
 
   const createProjectFromPrompt = () => {
-    const text = prompt.trim() || HOME_PROMPT;
-    const shouldAutoRun = promptTouched && text !== HOME_PROMPT;
+    const text = prompt.trim();
+    if (!text) {
+      toast("请输入提示词");
+      return;
+    }
     const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
     const project = createWorkspaceHistoryProject(title || undefined, text);
     const handoffResult = writeHomePromptHandoff({
       projectId: project.id,
       prompt: text,
-      /**
-       * ⚠️⚠️ 这里以前是硬编码的 "auto"，模型选择器接入后必须传用户真选的值，
-       * 否则选择器就是个纯装饰 —— 这个项目 2026-09-13 刚踩过一模一样的坑
-       * （见 InfiniteCanvas.tsx 消费侧那段注释：「首页选的图片模型被当成了纯装饰」）。
-       *
-       * 消费侧（CanvasAssistantPanel）的口径是 isSupportedImageModelId(model)：
-       *   - 传具体模型 id → 判真 → 跳过意图路由，直接出图
-       *   - 传 "auto"    → 判假 → 走 routeCreativeIntent 意图路由
-       * 后者与接入选择器之前的行为完全一致，所以选 auto 是零行为变化。
-       */
       model: homeImageModelId,
-      shouldAutoRun,
+      shouldAutoRun: true,
       createdAt: project.createdAt,
       references: homeReferences.length > 0 ? homeReferences : undefined,
+      skill: homeActiveSkill ? { id: homeActiveSkill.id, name: homeActiveSkill.name } : undefined,
     });
-    // 降级路径必须明说。静默丢图会让用户以为参考图已经带过去了，
-    // 到画布里才发现没有 —— 而那时候他已经离开首页，无从补救。
     if (handoffResult.droppedReferences && homeReferences.length > 0) {
       toast("参考图未能带入画布", {
         description: "浏览器存储空间不足，请进入画布后重新上传",
@@ -655,57 +518,14 @@ export default function HomePage() {
     navigate(`/project/${project.id}`);
   };
 
-  const handlePreloginSend = () => {
+  const handlePromptSend = () => {
     if (!isAuthenticated || !requestAiAuth()) {
-      setPanelMode("login");
+      // 未登录，打开居中登录弹窗
+      setCenteredAuthMode("login");
+      setCenteredAuthOpen(true);
       return;
     }
     createProjectFromPrompt();
-  };
-
-  const handleAuthAction = async (action: "login" | "register") => {
-    if (!email.trim() || !password.trim()) {
-      setAuthError("请输入用户名或邮箱和密码");
-      return;
-    }
-
-    setAuthBusy(true);
-    setAuthError("");
-    const result = action === "register"
-      ? await register(email.trim(), password)
-      : await login(email.trim(), password);
-    setAuthBusy(false);
-
-    if (!result.ok) {
-      setAuthError(result.error || "登录失败，请稍后重试");
-      return;
-    }
-    if (action === "login") {
-      if (rememberPassword) {
-        saveRememberedLoginUsername(email.trim());
-        await storeBrowserPasswordCredential(email.trim(), password);
-      } else {
-        clearRememberedLoginUsername();
-      }
-    }
-    // 从邀请链接来的新用户必须得到明确反馈，否则他不知道邀请到底生效没有 ——
-    // 而这件事没有第二次机会：一旦首次付费发生时关系还没建立，
-    // 后端会把已付费标记落盘，事后补绑永远拿不到奖励。
-    if (action === "register" && landedInviteCode) {
-      setLandedInviteCode("");
-      toast("注册成功，邀请已生效", {
-        description: `完成首次付费（满 HKD ${INVITE_REWARD_CONFIG.minPaidAmountHkd}）后，你将获得 ${INVITE_REWARD_CONFIG.inviteeCredits} 积分`,
-      });
-      setPanelMode("prelogin");
-      return;
-    }
-    toast(action === "register" ? "注册成功" : "登录成功", { description: "欢迎回到 ArtX Studio" });
-    setPanelMode("prelogin");
-  };
-
-  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await handleAuthAction("login");
   };
 
   const copyHomeInspirationPrompt = async (promptText: string) => {
@@ -737,42 +557,7 @@ export default function HomePage() {
 
   const scrollToHome = () => {
     setCurrentLandingTab("home");
-    if (!isAuthenticated) setPanelMode("prelogin");
     homeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  /*
-    未登录入口的唯一分流规则（产品定稿 2026-09-24）：
-
-      还在第一屏  → 右侧内嵌面板切成登录态（用户正看着它，锚点归位）
-      已滚出第一屏 → 弹全站通用的居中小弹窗（LoginRegisterDialog）
-
-    ⚠️⚠️⚠️ 为什么必须分流，而不是一律用内嵌面板：
-    内嵌面板固定在第一屏右侧。用户滚到灵感推荐区再点登录，面板确实切换了，
-    但它在几屏之外——用户什么都看不到，**表现为「点了没反应」且零报错**。
-
-    ⚠️⚠️⚠️ 滚动真值只能取 mainRef.current.scrollTop：
-    首页装在 <main class="overflow-y-auto"> 这个内部滚动容器里，
-    `window.scrollY` / `document.documentElement.scrollTop` 恒为 0，
-    用它判断会永远走「在第一屏」分支——同样零报错，只是规则彻底失效。
-
-    ⚠️ 阈值与 handleMainScroll 的 0.15 对齐：那里把「滚回 0.15 以内」
-    视为回到首屏并复位面板。两处用同一个口径，才不会出现
-    「面板已被复位成 prelogin，点击却还按已滚走处理」的错位。
-  */
-  const isHomeHeroVisible = () => {
-    const homeHeight = homeRef.current?.offsetHeight || window.innerHeight;
-    const scrollTop = mainRef.current?.scrollTop ?? 0;
-    return scrollTop <= homeHeight * HOME_HERO_VISIBLE_RATIO;
-  };
-
-  /** 未登录时按当前浏览位置选择登录入口形态。已登录的跳转由各调用方自理。 */
-  const requestLoginByScrollPosition = () => {
-    if (isHomeHeroVisible()) {
-      setPanelMode("login");
-      return;
-    }
-    openLoginModal();
   };
 
   const handleStartExperience = () => {
@@ -780,33 +565,25 @@ export default function HomePage() {
       navigate("/workspace");
       return;
     }
-    requestLoginByScrollPosition();
+    // 未登录，打开居中登录弹窗
+    setCenteredAuthMode("login");
+    setCenteredAuthOpen(true);
   };
 
-  /*
-    首充引导 —— 走全站统一的计费浮层，不跳页。
-
-    ⚠️ 首页没有 TopBar，所以这里不能指望「TopBar 那个入口已经改好了」。
-    必须显式接到同一个 Provider 上，否则就会出现「右上角点充值是浮层、
-    首页点首充是跳页」这种两套行为（零报错，最难被发现）。
-  */
   const openFirstTopUpBilling = () => {
     if (isAuthenticated) {
       openBilling("recharge");
       return;
     }
-
     sessionStorage.setItem(HOME_POST_LOGIN_REDIRECT_STORAGE_KEY, "/billing?tab=recharge");
-    setPanelMode("login");
+    setCenteredAuthMode("login");
+    setCenteredAuthOpen(true);
   };
 
-  const showLoginRequiredBubble = (event: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setLoginBubble({
-      left: rect.left + rect.width / 2,
-      top: rect.bottom + 10,
-      id: Date.now(),
-    });
+  const showLoginRequired = () => {
+    if (isAuthenticated) return;
+    setCenteredAuthMode("login");
+    setCenteredAuthOpen(true);
   };
 
   /**
@@ -857,8 +634,15 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background"
->
+    <div className="flex h-screen flex-col overflow-hidden" style={{ background: bgMain }}>
+      {/* 居中登录/注册弹窗 */}
+      <CenteredAuthDialog
+        open={centeredAuthOpen}
+        onClose={() => setCenteredAuthOpen(false)}
+        defaultMode={centeredAuthMode}
+        inviteCode={landedInviteCode}
+      />
+      
       {/* 首页公告 —— 阻断式，带半透明蒙层，只能通过右下角绿色按钮关闭 */}
       <AnnouncementModal
         open={announcementOpen}
@@ -874,22 +658,12 @@ export default function HomePage() {
           onOpenBilling={openFirstTopUpBilling}
         />
       )}
-      <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#222222] text-white scroll-smooth">
-      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[80px]"} z-50 flex h-[64px] items-center gap-3 bg-[#222222]/20 px-4 backdrop-blur-[18px] sm:gap-4`}>
-        {loginBubble && (
-          <div
-            key={loginBubble.id}
-            className="pointer-events-none fixed z-[70] -translate-x-1/2 rounded-md border border-white/10 bg-[#222222]/90 px-3 py-1.5 text-xs font-medium text-white/90 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md"
-            style={{ left: loginBubble.left, top: loginBubble.top }}
-          >
-            请先登录
-          </div>
-        )}
+      <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth" style={{ background: bgMain, color: textPrimary }}>
+      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[80px]"} z-50 flex h-[64px] items-center gap-3 px-4 backdrop-blur-[18px] sm:gap-4`} style={{ background: isDark ? "rgba(34,34,34,0.20)" : "rgba(255,255,255,0.90)" }}>
         <button
           type="button"
           onClick={() => {
             setCurrentLandingTab("home");
-            if (!isAuthenticated) setPanelMode("prelogin");
             navigate("/");
           }}
           className={`${BRAND_LOGO_SIZE} shrink-0 transition-opacity hover:opacity-85`}
@@ -899,6 +673,9 @@ export default function HomePage() {
             src={artxStudioLogo}
             alt="ArtXStudio"
             className="artx-logo block h-full w-full object-contain object-left"
+            style={{
+              filter: isDark ? "none" : "brightness(0)",
+            }}
           />
         </button>
         <LandingTopNav
@@ -915,7 +692,7 @@ export default function HomePage() {
           }}
           onWorkspace={(event) => {
             if (!isAuthenticated) {
-              showLoginRequiredBubble(event);
+              showLoginRequired();
               return;
             }
             setCurrentLandingTab("workspace");
@@ -923,12 +700,13 @@ export default function HomePage() {
           }}
           onHelp={(event) => {
             if (!isAuthenticated) {
-              showLoginRequiredBubble(event);
+              showLoginRequired();
               return;
             }
             setCurrentLandingTab("help");
             navigate("/help");
           }}
+          isDark={isDark}
         />
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <ThemeModeSwitcher />
@@ -941,69 +719,61 @@ export default function HomePage() {
           </button>
         </div>
       </header>
-      <section ref={homeRef} className="relative min-h-screen overflow-hidden bg-[#222222]">
-        <div
-          className="absolute left-1/2 top-1/2 z-10 h-[900px] w-[1600px] origin-center bg-[#222222]"
-          style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}
-        >
-          <HeroBackdrop />
-          <HeroStatement />
-          <div className="absolute left-[1001px] top-[117px] h-[726px] w-[472px]">
-            <div className={`absolute inset-0 transition-all duration-500 ease-out ${displayedMode === "prelogin" ? "pointer-events-auto opacity-100 translate-y-0" : "pointer-events-none opacity-0 translate-y-3"}`}>
-              <PreloginPanel
-                prompt={prompt}
-                promptTouched={promptTouched}
-                onPromptChange={value => {
-                  setPromptTouched(true);
-                  setPrompt(value);
-                }}
-                onSend={handlePreloginSend}
-                imageModelId={homeImageModelId}
-                imageModelOptions={homeImageModelOptions}
-                onImageModelChange={handleHomeImageModelChange}
-                references={homeReferences}
-                onReferenceFiles={handleHomeReferenceFiles}
-                onRemoveReference={handleRemoveHomeReference}
-              />
-            </div>
-            {shouldRenderAuthPanel && (
-              /*
-               * 这里不再写 displayedMode === "prelogin" 的隐藏分支：
-               * shouldRenderAuthPanel 已经保证收起时整块卸载，那个分支恒不可达。
-               * 留着会让人以为"隐藏态仍在 DOM 里"，正是本次要修掉的行为。
-               */
-              <div className="absolute inset-0 pointer-events-auto translate-y-0 opacity-100 transition-all duration-500 ease-out">
-                <LoginPanel
-                  mode={displayedMode === "register" ? "register" : "login"}
-                  email={email}
-                  password={password}
-                  rememberPassword={rememberPassword}
-                  busy={authBusy}
-                  error={authError}
-                  onEmailChange={setEmail}
-                  onPasswordChange={setPassword}
-                  onRememberPasswordChange={setRememberPassword}
-                  onSubmit={handleAuthSubmit}
-                  onAuthAction={handleAuthAction}
-                  onBackToPrompt={() => setPanelMode("prelogin")}
-                  inviteCode={landedInviteCode}
-                />
-              </div>
-            )}
-          </div>
-        </div>
+      
+      {/* 第一屏：居中的提示词输入区域（移除 banner 和左侧大标题） */}
+      <section ref={homeRef} className="relative flex min-h-screen items-center justify-center px-6" style={{ background: bgMain }}>
+        <CenteredPromptPanel
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          onSend={handlePromptSend}
+          imageModelId={homeImageModelId}
+          imageModelOptions={homeImageModelOptions}
+          onImageModelChange={handleHomeImageModelChange}
+          references={homeReferences}
+          onReferenceFiles={handleHomeReferenceFiles}
+          onRemoveReference={handleRemoveHomeReference}
+          activeSkill={homeActiveSkill}
+          onSkillChange={setHomeActiveSkill}
+          isDark={isDark}
+          textPrimary={textPrimary}
+          textMuted={textMuted}
+          bgMain={bgMain}
+          borderColor={borderColor}
+          suggestions={PROMPT_SUGGESTIONS}
+          onSuggestionClick={setPrompt}
+        />
 
         <button
           type="button"
           onClick={scrollToInspiration}
-          className="absolute bottom-5 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-white/20 bg-[#222222]/20 text-white/70 backdrop-blur-md transition-all hover:border-white/45 hover:text-white"
+          className="absolute bottom-[72px] left-1/2 z-20 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border transition-all"
+          style={{
+            borderColor: isDark ? "rgba(255,255,255,0.20)" : "rgba(0,0,0,0.10)",
+            backgroundColor: isDark ? "rgba(34,34,34,0.20)" : "rgba(255,255,255,0.50)",
+            color: isDark ? "rgba(255,255,255,0.70)" : "rgba(0,0,0,0.60)",
+            backdropFilter: "blur(12px)",
+          }}
           aria-label="滚动到灵感推荐"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = isDark
+              ? "rgba(255,255,255,0.45)"
+              : "rgba(0,0,0,0.20)";
+            e.currentTarget.style.color = isDark ? "#ffffff" : "#000000";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = isDark
+              ? "rgba(255,255,255,0.20)"
+              : "rgba(0,0,0,0.10)";
+            e.currentTarget.style.color = isDark
+              ? "rgba(255,255,255,0.70)"
+              : "rgba(0,0,0,0.60)";
+          }}
         >
-          <ChevronDown size={20} />
+          <ChevronDown size={22} />
         </button>
       </section>
 
-      <section ref={inspirationRef} className="min-h-screen bg-[#222222] px-6 py-20 sm:px-10 lg:px-20">
+      <section ref={inspirationRef} className="min-h-screen px-6 py-10 sm:px-10 lg:px-20" style={{ background: bgMain }}>
         <div className="mx-auto max-w-[1600px]">
           {/*
             ⚠️ 引导锚点刻意打在标题行而不是外层 section 上：
@@ -1012,8 +782,8 @@ export default function HomePage() {
           */}
           <div data-tour-id={TOUR_ANCHORS.homeInspirationSection} className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="mb-3 text-sm font-medium text-[#9370ff]">Inspiration Picks</p>
-              <h2 className="text-[34px] font-black leading-tight text-white sm:text-[44px]">灵感推荐</h2>
+              <p className="mb-3 text-sm font-medium" style={{ color: textAccent }}>Inspiration Picks</p>
+              <h2 className="text-[34px] font-black leading-tight sm:text-[44px]" style={{ color: textPrimary }}>灵感推荐</h2>
             </div>
           </div>
 
@@ -1037,7 +807,14 @@ export default function HomePage() {
                   setSelectedHomeInspiration(item);
                 }}
                 data-tour-id={itemIndex === 0 ? TOUR_ANCHORS.homeInspirationCard : undefined}
-                className="group mb-4 w-full cursor-pointer break-inside-avoid overflow-hidden rounded-md border border-white/10 bg-[#222222] text-left shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-transform hover:-translate-y-1"
+                className="group mb-4 w-full cursor-pointer break-inside-avoid overflow-hidden rounded-md border transition-transform hover:-translate-y-1"
+                style={{
+                  borderColor,
+                  backgroundColor: isDark ? "#1a1a1a" : "#ffffff",
+                  boxShadow: isDark
+                    ? "0 10px 30px rgba(0,0,0,0.5)"
+                    : "0 4px 20px rgba(0,0,0,0.08)",
+                }}
               >
                 <div className="relative overflow-hidden">
                   <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
@@ -1050,13 +827,13 @@ export default function HomePage() {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-white">{item.title}</p>
-                      <p className="mt-1 truncate text-xs text-white/59">{item.field}</p>
-                      <p className="mt-2 line-clamp-2 text-xs leading-5 text-white/73">{item.description}</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{item.field}</p>
+                      <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.description}</p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                      <span className="flex items-center gap-1 text-xs font-medium text-white/69">
-                        <PlayCircle size={14} fill="currentColor" strokeWidth={0} />
+                    <div className="flex shrink-0 items-center gap-2 pt-0.5 pr-0">
+                      <span className="flex items-center gap-1 text-xs font-medium" style={{ color: textTertiary }}>
+                        <Eye size={14} />
                         {item.viewCount}
                       </span>
                       {/*
@@ -1090,7 +867,8 @@ export default function HomePage() {
               type="button"
               onClick={openInspirationPage}
               data-tour-id={TOUR_ANCHORS.homeInspirationMore}
-              className="text-sm font-semibold text-[#C5ED47] underline decoration-[#C5ED47]/60 underline-offset-4 transition-colors hover:text-[#D7F877]"
+              className="artx-green-text text-sm font-semibold underline decoration-[var(--color-brand-green)]/60 underline-offset-4 transition-colors hover:opacity-80"
+              style={{ color: 'var(--color-brand-green-text)' }}
             >
               查看全部灵感推荐
             </button>
@@ -1102,7 +880,7 @@ export default function HomePage() {
           <section
             data-artx-dialog-surface
             className="relative max-h-full w-full overflow-hidden rounded-[var(--radius-lg-design)]"
-            style={{ maxWidth: 980, background: "#222222", border: `1px solid ${homeInspirationBorder}` }}
+            style={{ maxWidth: 980, background: homeInspirationPanelBg, border: `1px solid ${homeInspirationBorder}` }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="absolute right-3 top-3 z-10 flex items-center" style={{ gap: 16 }}>
@@ -1118,7 +896,7 @@ export default function HomePage() {
                 className="flex shrink-0 items-center rounded-[var(--radius-pill)] px-3 py-2"
                 style={{
                   gap: 14,
-                  background: "rgba(34,34,34,0.88)",
+                  background: homeInspirationButtonBg,
                   border: `1px solid ${homeInspirationBorder}`,
                   backdropFilter: "blur(12px)",
                 }}
@@ -1126,7 +904,7 @@ export default function HomePage() {
                 <InspirationReactionButton
                   kind="like"
                   size={16}
-                  idleColor="oklch(0.73 0.010 270)"
+                  idleColor={homeInspirationButtonIdleColor}
                   active={inspirationReactions.isActive(
                     "like",
                     normalizeInspirationIdentity(selectedHomeInspiration.title)
@@ -1145,7 +923,7 @@ export default function HomePage() {
                 <InspirationReactionButton
                   kind="favorite"
                   size={16}
-                  idleColor="oklch(0.73 0.010 270)"
+                  idleColor={homeInspirationButtonIdleColor}
                   active={inspirationReactions.isActive(
                     "favorite",
                     normalizeInspirationIdentity(selectedHomeInspiration.title)
@@ -1165,7 +943,7 @@ export default function HomePage() {
               <button
                 onClick={() => copyHomeInspirationPrompt(selectedHomeInspiration.prompt)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: "rgba(34,34,34,0.88)", border: `1px solid ${homeInspirationBorder}`, color: "oklch(0.88 0.008 270)", backdropFilter: "blur(12px)" }}
+                style={{ background: homeInspirationButtonBg, border: `1px solid ${homeInspirationBorder}`, color: homeInspirationButtonIconColor, backdropFilter: "blur(12px)" }}
                 aria-label="复制提示词"
                 title="复制提示词"
               >
@@ -1174,7 +952,7 @@ export default function HomePage() {
               <button
                 onClick={() => setSelectedHomeInspiration(null)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: "rgba(34,34,34,0.88)", border: `1px solid ${homeInspirationBorder}`, color: "oklch(0.88 0.008 270)", backdropFilter: "blur(12px)" }}
+                style={{ background: homeInspirationButtonBg, border: `1px solid ${homeInspirationBorder}`, color: homeInspirationButtonIconColor, backdropFilter: "blur(12px)" }}
                 aria-label="关闭弹层"
               >
                 <X size={16} />
@@ -1197,7 +975,7 @@ export default function HomePage() {
               style={{ maxHeight: "calc(100vh - 160px)", overscrollBehavior: "contain" }}
               onWheel={scrollHomeInspirationPrompt}
             >
-              <div className="bg-[#222222]">
+              <div className="bg-card">
                 <div className="relative">
                   <img
                     ref={homeInspirationImageRef}
@@ -1225,9 +1003,9 @@ export default function HomePage() {
                   overscrollBehavior: "contain",
                 }}
               >
-                <p className="type-caption leading-5" style={{ color: "oklch(0.73 0.010 270)", letterSpacing: 0, textTransform: "none" }}>{selectedHomeInspiration.description}</p>
-                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: "#222222", border: `1px solid ${homeInspirationBorder}` }}>
-                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: "oklch(0.88 0.008 270)", letterSpacing: 0, textTransform: "none" }}>
+                <p className="type-caption leading-5" style={{ color: homeInspirationButtonIdleColor, letterSpacing: 0, textTransform: "none" }}>{selectedHomeInspiration.description}</p>
+                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: homeInspirationCardBg, border: `1px solid ${homeInspirationBorder}` }}>
+                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: homeInspirationText, letterSpacing: 0, textTransform: "none" }}>
                     {selectedHomeInspiration.prompt}
                   </p>
                 </div>
@@ -1249,6 +1027,7 @@ function LandingTopNav({
   onEcommerce,
   onWorkspace,
   onHelp,
+  isDark,
 }: {
   activeTab: LandingTab;
   onHome: () => void;
@@ -1257,6 +1036,7 @@ function LandingTopNav({
   onEcommerce: () => void;
   onWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onHelp: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  isDark: boolean;
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
@@ -1279,7 +1059,9 @@ function LandingTopNav({
           className={`h-9 shrink-0 appearance-none rounded-md px-3 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
             activeTab === item.key
               ? "bg-[#936CFF] text-white shadow-[0_8px_20px_rgba(147,108,255,0.28)]"
-              : "bg-transparent text-white/73 hover:bg-white/8 hover:text-white"
+              : isDark 
+                ? "bg-transparent text-white/73 hover:bg-white/8 hover:text-white"
+                : "bg-transparent text-black/73 hover:bg-black/8 hover:text-black"
           }`}
         >
           {item.label}
@@ -1289,579 +1071,3 @@ function LandingTopNav({
   );
 }
 
-function HeroBackdrop() {
-  return (
-    <>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_48%,rgba(54,54,54,0.65),transparent_34%),linear-gradient(135deg,#222222_8%,#2a2a2a_52%,#222222_100%)]" />
-      <img
-        src={asteroidImage}
-        alt=""
-        className="absolute left-[-2%] top-0 h-full w-[68%] object-cover opacity-[0.92] mix-blend-screen [mask-image:linear-gradient(90deg,transparent_0%,transparent_14%,rgba(0,0,0,0.42)_22%,#000_32%,#000_100%)]"
-      />
-      <div className="absolute inset-y-0 left-0 w-[18%] bg-[linear-gradient(90deg,#222222_0%,rgba(34,34,34,0.92)_14%,rgba(34,34,34,0.36)_58%,rgba(34,34,34,0)_100%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(34,34,34,0.18)_0%,rgba(34,34,34,0.08)_48%,rgba(34,34,34,0.84)_70%,#222222_100%)]" />
-      <div className="absolute bottom-0 left-0 h-40 w-[55%] bg-gradient-to-t from-[#222222] to-transparent" />
-    </>
-  );
-}
-
-function HeroStatement() {
-  return (
-    <div className="absolute inset-0">
-      <div className="absolute left-[244px] top-[270px] flex max-w-[510px] gap-5">
-        <div className="mt-3 h-[289px] w-[7px] shrink-0 bg-gradient-to-b from-[#7475ff] via-[#4dc1ed] via-30% via-[#fff400] via-55% to-[#ff00b5]" />
-        <div>
-          <p className="text-[70px] font-black leading-[0.98] tracking-normal text-white">AI</p>
-          <h1 className="mt-1 text-[70px] font-black leading-[74px] tracking-normal text-white">
-            用魔法勾勒<br />你想象中的<br />世界
-          </h1>
-        </div>
-      </div>
-      <p className="absolute left-[208px] top-[782px] text-[24px] leading-7 text-white/41">
-        Artificial intelligence drives<br />limitless creativity
-      </p>
-    </div>
-  );
-}
-
-function GlassPanel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="h-full w-full overflow-hidden rounded-[20px] border border-[#454545] bg-[#222222]/70 p-10 shadow-[0_30px_80px_rgba(0,0,0,0.52)] backdrop-blur-[22px]">
-      {children}
-    </div>
-  );
-}
-
-function PreloginPanel({
-  prompt,
-  promptTouched,
-  onPromptChange,
-  onSend,
-  imageModelId,
-  imageModelOptions,
-  onImageModelChange,
-  references,
-  onReferenceFiles,
-  onRemoveReference,
-}: {
-  prompt: string;
-  promptTouched: boolean;
-  onPromptChange: (value: string) => void;
-  onSend: () => void;
-  imageModelId: string;
-  imageModelOptions: AiModelOption[];
-  onImageModelChange: (modelId: string) => void;
-  references: HomePromptReference[];
-  onReferenceFiles: (files: File[]) => void;
-  onRemoveReference: (id: string) => void;
-}) {
-  const animatedPrompt = usePromptTypingAnimation(HOME_PROMPT, promptTouched);
-  const referenceInputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <GlassPanel>
-      <div className="flex h-full flex-col">
-        <PanelHeader />
-
-        <div className="mt-6">
-          <p className="mb-2 text-[13px] font-medium text-[#7d7d7d]">试试这些提示</p>
-          <div className="flex flex-col gap-[10px]">
-            {PROMPT_SUGGESTIONS.map(item => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => onPromptChange(item)}
-                className="h-11 min-w-0 appearance-none overflow-hidden rounded-[10px] border border-[#454545] bg-transparent px-3.5 text-left text-sm text-[#7d7d7d] transition-colors hover:border-white/55 hover:text-white"
-              >
-                <span className="block min-w-0 truncate whitespace-nowrap">{item}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          data-tour-id={TOUR_ANCHORS.homePromptPanel}
-          className="mb-6 mt-6 flex min-h-[282px] flex-1 flex-col justify-between rounded-[10px] border border-[#545454] bg-[#212121] p-4"
-        >
-          <textarea
-            value={promptTouched ? prompt : animatedPrompt}
-            onChange={event => onPromptChange(event.target.value)}
-            className="h-36 resize-none bg-transparent text-sm leading-[22px] text-white outline-none placeholder:text-[#7d7d7d]"
-            placeholder={HOME_PROMPT}
-          />
-          {references.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {references.map(reference => (
-                <div
-                  key={reference.id}
-                  className="group relative h-12 w-12 overflow-hidden rounded-md border border-[#454545]"
-                  title={reference.title}
-                >
-                  <img
-                    src={reference.src}
-                    alt={reference.title}
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onRemoveReference(reference.id)}
-                    className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                    aria-label={`移除参考图 ${reference.title}`}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex h-10 items-center justify-between">
-            <div className="flex items-center gap-4 text-[#7d7d7d]">
-              {/*
-                * 原本是无 onClick 的空壳按钮，2026-09-15 接上真实上传。
-                * 走隐藏 file input 而不是自绘拖拽区 —— 与画布 composer
-                * 的上传入口保持同一种交互，用户不需要学两套。
-                */}
-              <input
-                ref={referenceInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={event => {
-                  const files = Array.from(event.target.files || []);
-                  // 先清空 value，否则连续两次选同一个文件不会触发 change。
-                  event.target.value = "";
-                  if (files.length > 0) onReferenceFiles(files);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => referenceInputRef.current?.click()}
-                className="flex h-8 items-center gap-1.5 rounded-md text-xs transition-colors hover:text-white"
-              >
-                <ImagePlus size={15} />
-                添加参考图
-              </button>
-              <span className="h-4 w-px bg-[#454545]" />
-              {/*
-                * 这里原本是个写死「图像生成 ⌄」的空壳按钮（无 onClick），
-                * 2026-09-15 换成与画布共用的 ModelSelector。
-                *
-                * ⚠️ 用的是共享组件而非首页自己写一个：模型清单会持续变动
-                *（新模型上线、权益调整），两份渲染实现必然对不上。
-                *
-                * surface 传首页玻璃面板的配色 —— 画布走 isDark 主题变量，
-                * 首页是固定深色面板（#212121/#454545），两套色不能混用。
-                *
-                * 【2026-09-16 按用户要求对齐左边的「添加参考图」按钮】
-                * 那个按钮的完整样式只有两条：默认 #7d7d7d、hover 转白，没有底托。
-                * 选择器此前 hover 会套一块深色底托、图标还恒为白，
-                * 两个并排控件看上去不像同一套控件。现在三处对齐：
-                *   · hoverBackground: transparent  → 去掉黑色底托
-                *   · hoverText: #ffffff            → hover 文字转白，同参考图按钮
-                *   · openBorder: transparent       → 展开时也不描边（原本是紫色高亮）
-                * 图标颜色不用单独传：组件内部已让它跟随按钮文字色。
-                *
-                * placement 改回 up：这一行贴着面板底部，向下弹会被玻璃面板边缘
-                * 截断，用户要滚动才看得到后面的模型。向上弹展开在提示词区上方，
-                * 整个清单一屏可见。
-                */}
-              <ModelSelector
-                model={imageModelId}
-                onChange={onImageModelChange}
-                isDark
-                models={imageModelOptions}
-                placement="up"
-                surface={{
-                  background: "transparent",
-                  border: "transparent",
-                  text: "#7d7d7d",
-                  hoverBackground: "transparent",
-                  hoverText: "#ffffff",
-                  openBorder: "transparent",
-                }}
-                triggerClassName="flex h-8 items-center gap-1.5 rounded-md px-0 text-xs transition-colors"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={onSend}
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
-              aria-label="发送并登录"
-            >
-              <Send size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </GlassPanel>
-  );
-}
-
-function LoginPanel({
-  mode,
-  email,
-  password,
-  rememberPassword,
-  busy,
-  error,
-  onEmailChange,
-  onPasswordChange,
-  onRememberPasswordChange,
-  onSubmit,
-  onAuthAction,
-  onBackToPrompt,
-  inviteCode,
-}: {
-  mode: "login" | "register";
-  email: string;
-  password: string;
-  rememberPassword: boolean;
-  busy: boolean;
-  error: string;
-  onEmailChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
-  onRememberPasswordChange: (value: boolean) => void;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  onAuthAction: (action: "login" | "register") => void | Promise<void>;
-  onBackToPrompt: () => void;
-  /** 从邀请链接落地时带入，空串表示自然访问。 */
-  inviteCode: string;
-}) {
-  const { forgotPassword, resetPassword } = useAuth();
-  const isRegister = mode === "register";
-  const [resetMode, setResetMode] = useState(false);
-  const [resetUsername, setResetUsername] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [resetPasswordValue, setResetPasswordValue] = useState("");
-  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
-  const [resetBusy, setResetBusy] = useState(false);
-  const [resetMessage, setResetMessage] = useState("");
-
-  const handleSendResetCode = async () => {
-    const username = resetUsername.trim() || email.trim();
-    setResetMessage("");
-    if (!username) {
-      setResetMessage("请输入注册邮箱或用户名");
-      return;
-    }
-    setResetUsername(username);
-    setResetBusy(true);
-    const result = await forgotPassword(username);
-    setResetBusy(false);
-    setResetMessage(result.ok ? result.message || "验证码已发送，请查看邮箱。" : result.error || "验证码发送失败，请稍后重试");
-  };
-
-  const handleResetSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const username = resetUsername.trim() || email.trim();
-    const code = resetCode.trim();
-    setResetMessage("");
-    if (!username || !code || !resetPasswordValue || !resetConfirmPassword) {
-      setResetMessage("请填写邮箱、验证码、新密码和确认密码");
-      return;
-    }
-    if (resetPasswordValue !== resetConfirmPassword) {
-      setResetMessage("两次输入的新密码不一致");
-      return;
-    }
-    if (resetPasswordValue.length < 8) {
-      setResetMessage("新密码至少需要 8 位");
-      return;
-    }
-    setResetBusy(true);
-    const result = await resetPassword(username, code, resetPasswordValue);
-    setResetBusy(false);
-    if (!result.ok) {
-      setResetMessage(result.error || "密码重置失败，请稍后重试");
-      return;
-    }
-    setResetCode("");
-    setResetPasswordValue("");
-    setResetConfirmPassword("");
-    setResetMode(false);
-    setResetMessage("");
-  };
-
-  if (resetMode) {
-    return (
-      <GlassPanel>
-        <form className="flex h-full flex-col" autoComplete="on" onSubmit={handleResetSubmit}>
-          <PanelHeader title="找回密码" />
-
-          <div className="mt-8 flex flex-col gap-4">
-            <LabeledInput
-              label="注册邮箱或用户名"
-              value={resetUsername}
-              onChange={setResetUsername}
-              name="username"
-              autoComplete="username"
-              placeholder="请输入注册邮箱或用户名"
-            />
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-              <LabeledInput
-                label="验证码"
-                value={resetCode}
-                onChange={value => setResetCode(value.replace(/\D/g, "").slice(0, 6))}
-                autoComplete="one-time-code"
-                placeholder="6 位验证码"
-              />
-              <button
-                type="button"
-                disabled={resetBusy}
-                onClick={() => void handleSendResetCode()}
-                className="mt-[25px] h-12 rounded-[10px] border border-white/15 bg-white/8 px-4 text-sm font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
-              >
-                {resetBusy ? "发送中" : "发送验证码"}
-              </button>
-            </div>
-            <LabeledInput
-              label="新密码"
-              type="password"
-              value={resetPasswordValue}
-              onChange={setResetPasswordValue}
-              name="new-password"
-              autoComplete="new-password"
-              placeholder="至少 8 位"
-            />
-            <LabeledInput
-              label="确认新密码"
-              type="password"
-              value={resetConfirmPassword}
-              onChange={setResetConfirmPassword}
-              name="confirm-new-password"
-              autoComplete="new-password"
-              placeholder="再次输入新密码"
-            />
-          </div>
-
-          <p className={`mt-4 min-h-5 text-left text-[13px] font-medium ${resetMessage ? "text-amber-100" : "text-transparent"}`}>
-            {resetMessage || " "}
-          </p>
-
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              disabled={resetBusy}
-              onClick={() => setResetMode(false)}
-              className="h-12 rounded-[10px] border border-white/15 bg-white/8 text-base font-semibold text-white transition-all hover:bg-white/12 disabled:opacity-60"
-            >
-              返回登录
-            </button>
-            <button
-              type="submit"
-              disabled={resetBusy}
-              className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-            >
-              {resetBusy ? "重置中..." : "重置密码"}
-            </button>
-          </div>
-        </form>
-      </GlassPanel>
-    );
-  }
-
-  return (
-    <GlassPanel>
-      <form className="flex h-full flex-col" onSubmit={onSubmit} autoComplete="on">
-        <PanelHeader title={isRegister ? "创建 ArtX Studio 账号" : "欢迎使用 ArtX Studio"} />
-
-        {/*
-          邀请落地提示。
-          ⚠️ 刻意**不做成输入框** —— 邀请码已随链接自动带上，
-          让用户再抄一遍只会增加出错机会。这里的职责是回答朋友心里
-          那两个问题：「谁邀我」和「我能得到什么」，
-          并明确告知奖励条件（注册 + 首次付费），避免事后预期落差。
-        */}
-        {inviteCode && (
-          <div className="mt-5 rounded-[12px] border border-[#936CFF]/35 bg-[#936CFF]/12 px-4 py-3">
-            <div className="flex items-center gap-2 text-[13px] font-semibold text-white">
-              <Gift size={15} className="text-[#C4AEFF]" />
-              好友邀请你加入 ArtX Studio
-            </div>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-white/70">
-              邀请码 <span className="font-mono font-semibold text-[#C4AEFF]">{inviteCode}</span> 已自动填好，无需手动输入。
-              注册后完成首次付费（满 HKD {INVITE_REWARD_CONFIG.minPaidAmountHkd}），
-              你可得 {INVITE_REWARD_CONFIG.inviteeCredits} 积分，邀请你的好友可得 {INVITE_REWARD_CONFIG.inviterCredits} 积分。
-            </p>
-          </div>
-        )}
-
-        <div className="mt-8 flex flex-col gap-5">
-          <LabeledInput
-            label="用户名或邮箱"
-            value={email}
-            onChange={onEmailChange}
-            name="username"
-            id="artx-login-username"
-            autoComplete="username"
-            placeholder="请输入用户名或邮箱"
-          />
-          <LabeledInput
-            label="密码"
-            type="password"
-            value={password}
-            onChange={onPasswordChange}
-            name={isRegister ? "new-password" : "password"}
-            id={isRegister ? "artx-register-password" : "artx-login-password"}
-            autoComplete={isRegister ? "new-password" : "current-password"}
-            placeholder="请输入密码"
-          />
-        </div>
-
-        {!isRegister && (
-          <div className="mt-3 flex h-5 items-center justify-between gap-3">
-            {/*
-              ⚠️ 这里的文案必须是「记住账号」。
-
-              勾选后 ArtX **不保存任何密码**，只做两件事：把用户名写进 cookie
-              供下次回填，以及调 navigator.credentials.store 把凭据交给浏览器
-              自带的密码管理器（见 handleAuthAction）。密码全程由浏览器/系统
-              钥匙串保管，ArtX 侧永远拿不到、也不该拿到。
-
-              若把文案写成「记住」+「密码」，用户会预期下次密码自动出现在输入框里，
-              而那永远不会发生 —— 这正是 2026-09-13 用户报上来的"bug"，
-              根因是文案与行为不一致，不是功能坏了。
-
-              要做到由 ArtX 自己保管凭据，必须先落实安全的存储方案；
-              注意项目根 MEMORY.md 明令禁止把明文密码写进 cookie / localStorage。
-
-              ⚠️ 注意：本注释刻意避免出现「记住」紧跟「密码」的完整词组 ——
-              HomePage.auth-project.test.ts 用 toContain 扫源码来断言 UI 文案，
-              注释里写了那个词会让断言命中注释本身，变成永远为真的假通过。
-            */}
-            <label
-              className="flex min-w-0 cursor-pointer items-center gap-2 text-left"
-              title="勾选后下次自动填入账号；密码由浏览器的密码管理器保存，登录时在密码框选择即可"
-            >
-              <input
-                type="checkbox"
-                checked={rememberPassword}
-                onChange={event => onRememberPasswordChange(event.target.checked)}
-                className="h-4 w-4 rounded border-white/20 bg-[#222] accent-[#936CFF]"
-              />
-              <span className="truncate text-[13px] font-medium text-white">
-                记住账号
-              </span>
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                setResetUsername(email.trim());
-                setResetMessage("");
-                setResetMode(true);
-              }}
-              className="shrink-0 appearance-none bg-transparent text-[13px] font-medium text-[#7d7d7d] transition-colors hover:text-white"
-            >
-              忘记密码？
-            </button>
-          </div>
-        )}
-
-        <p className={`mt-4 h-5 min-w-0 truncate text-left text-[13px] font-medium text-red-300 ${error ? "visible" : "invisible"}`}>
-          {error || " "}
-        </p>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onAuthAction("register")}
-            className="h-12 rounded-[10px] bg-[#2F80ED] text-base font-semibold text-white shadow-[0_10px_28px_rgba(47,128,237,0.24)] transition-all hover:bg-[#4A96FF] disabled:opacity-60"
-          >
-            {busy ? "请稍候..." : "注 册"}
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="h-12 rounded-[10px] bg-[#936CFF] text-base font-semibold text-white shadow-[0_10px_28px_rgba(147,108,255,0.25)] transition-all hover:bg-[#A384FF] disabled:opacity-60"
-          >
-            {busy ? "请稍候..." : "登 录"}
-          </button>
-        </div>
-
-        <p className="mt-5 text-center text-[13px] text-[#7d7d7d]">
-          用户名或邮箱注册/登陆
-        </p>
-      </form>
-    </GlassPanel>
-  );
-}
-
-function usePromptTypingAnimation(text: string, paused: boolean) {
-  const [displayedText, setDisplayedText] = useState("");
-
-  useEffect(() => {
-    if (paused) return;
-
-    const characters = Array.from(text);
-    const cycleDuration = PROMPT_TYPE_DURATION_MS + PROMPT_PAUSE_DURATION_MS;
-    const startedAt = Date.now();
-
-    const update = () => {
-      const elapsed = (Date.now() - startedAt) % cycleDuration;
-      if (elapsed >= PROMPT_TYPE_DURATION_MS) {
-        setDisplayedText(text);
-        return;
-      }
-
-      const visibleCount = Math.floor((elapsed / PROMPT_TYPE_DURATION_MS) * characters.length);
-      setDisplayedText(characters.slice(0, visibleCount).join(""));
-    };
-
-    update();
-    const intervalId = window.setInterval(update, PROMPT_FRAME_MS);
-    return () => window.clearInterval(intervalId);
-  }, [paused, text]);
-
-  return paused ? text : displayedText;
-}
-
-function PanelHeader({
-  title = "欢迎使用 ArtX Studio",
-}: {
-  title?: string;
-}) {
-  return (
-    <div>
-      <h2 className="text-[26px] font-bold leading-[31px] text-white">{title}</h2>
-      <p className="mt-5 text-sm text-[#86868b]">用AI打开你的创意世界之门</p>
-    </div>
-  );
-}
-
-function LabeledInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  name,
-  id,
-  autoComplete,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  type?: string;
-  name?: string;
-  id?: string;
-  autoComplete?: string;
-}) {
-  return (
-    <label className="block" htmlFor={id}>
-      <span className="mb-1.5 block text-[13px] font-medium text-white">{label}</span>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        onChange={event => onChange(event.target.value)}
-        placeholder={placeholder}
-        name={name}
-        autoComplete={autoComplete}
-        className="h-[46px] w-full rounded-[10px] border border-[#545454] bg-[#222] px-3.5 text-sm text-white outline-none transition-[border-color,box-shadow] placeholder:text-[#7d7d7d] focus:border-[#936CFF] focus:shadow-[0_0_0_3px_rgba(147,108,255,0.22)]"
-      />
-    </label>
-  );
-}
