@@ -683,34 +683,48 @@ export default function EcommerceCanvasPage() {
         
         markEcommerceTaskBackgroundStarted(accountId, generationId);
         
-        const collected: string[] = [];
-        let lastError: unknown = null;
-        for (let index = 0; index < startedCount; index += 1) {
+        // 并行生成所有图片以提升速度
+        const promises = Array.from({ length: startedCount }, (_, index) => {
           const shot = shots.length
             ? shots[Math.min(shots.length - 1, Math.floor((index * shots.length) / startedCount))]
             : "";
-          try {
-            const imageTaskId = `${generationId}-img${index}`;
-            const single = await editImageWithPrompt({
-              generationId: imageTaskId, // 每张图传独立的 taskId
-              imageSrc: draft.uploads[0],
-              model: draft.model,
-              prompt: [
-                startedPrompt,
-                `这是第 ${index + 1} / ${startedCount} 张${shot ? `，本张分镜：${shot}` : ""}。请在保持上述要求不变的前提下，更换构图角度、道具搭配与光影氛围，与其他张形成明显差异。`,
-              ].join("\n"),
-              preserveSourceSize: false,
-              targetWidth: postSize.targetWidth,
-              targetHeight: postSize.targetHeight,
-              referencedAssets: extraRefs,
-            });
-            const src = single.images[0]?.src;
+          const imageTaskId = `${generationId}-img${index}`;
+          
+          return editImageWithPrompt({
+            generationId: imageTaskId, // 每张图传独立的 taskId
+            imageSrc: draft.uploads[0],
+            model: draft.model,
+            prompt: [
+              startedPrompt,
+              `这是第 ${index + 1} / ${startedCount} 张${shot ? `，本张分镜：${shot}` : ""}。请在保持上述要求不变的前提下，更换构图角度、道具搭配与光影氛围，与其他张形成明显差异。`,
+            ].join("\n"),
+            preserveSourceSize: false,
+            targetWidth: postSize.targetWidth,
+            targetHeight: postSize.targetHeight,
+            referencedAssets: extraRefs,
+          }).then(
+            result => ({ status: "fulfilled" as const, value: result }),
+            error => ({ status: "rejected" as const, reason: error })
+          );
+        });
+
+        const results = await Promise.all(promises);
+        
+        // 收集所有成功生成的图片
+        const collected: string[] = [];
+        const errors: unknown[] = [];
+        
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            const src = result.value.images[0]?.src;
             if (src) collected.push(src);
-          } catch (error) {
-            lastError = error;
+          } else {
+            errors.push(result.reason);
           }
-        }
+        });
+        
         if (collected.length === 0) {
+          const lastError = errors[errors.length - 1];
           markEcommerceTaskFailed(accountId, generationId, lastError instanceof Error ? lastError.message : "图片模型未返回可用图片");
           throw lastError instanceof Error ? lastError : new Error("图片模型未返回可用图片");
         }
