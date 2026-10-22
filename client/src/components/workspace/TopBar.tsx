@@ -522,7 +522,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           className="flex h-7 items-center gap-1.5 px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "#C5ED47",
-            color: "oklch(0.12 0.02 160)",
+            color: isDark ? "oklch(0.12 0.02 160)" : "#FFFFFF",
             borderRadius: 4,
             boxShadow: "none",
             fontWeight: 650,
