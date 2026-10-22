@@ -46,7 +46,12 @@ export default function SubscriptionPanel({
     activePaymentMethod,
     startSubscriptionPayment,
   } = controller;
-  const { isDark, panel, panelStrong, border, text, sub, faint, green } = theme;
+  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen, alipayBlue, purple } = theme;
+  
+  // 根据选择的支付方式获取按钮颜色
+  const getButtonColor = () => {
+    return selectedPaymentMethod === "wechat" ? wechatGreen : alipayBlue;
+  };
 
   return (
     <section
@@ -96,8 +101,8 @@ export default function SubscriptionPanel({
                 onClick={() => setActiveCycle(cycle.id)}
                 className="h-8 rounded-[var(--radius-md-design)] px-3 type-caption transition-all"
                 style={{
-                  background: active ? green : "transparent",
-                  color: active ? "#10130A" : sub,
+                  background: active ? (isDark ? "#FFFFFF" : "#000000") : "transparent",
+                  color: active ? (isDark ? "#000000" : "#FFFFFF") : sub,
                   fontWeight: active ? 700 : 500,
                 }}
               >
@@ -153,7 +158,7 @@ export default function SubscriptionPanel({
               onClick={() => setSelectedPlanId(plan.id)}
               className={`flex flex-col rounded-[var(--radius-xl-design)] border p-4 ${compact ? "" : "min-h-[480px]"}`}
               style={{
-                background: isFocused
+                background: isFocused && isDark
                   ? "linear-gradient(180deg, rgba(144,88,252,0.18), #222222)"
                   : panelStrong,
                 borderColor: isFocused
@@ -173,7 +178,7 @@ export default function SubscriptionPanel({
                 <div className="min-w-0">
                   <p
                     className="type-caption"
-                    style={{ color: isFocused ? green : sub }}
+                    style={{ color: isFocused ? purple : sub }}
                   >
                     {planConfig.audience}
                   </p>
@@ -192,8 +197,8 @@ export default function SubscriptionPanel({
                 <span
                   className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
                   style={{
-                    background: "oklch(0.78 0.18 110 / 0.16)",
-                    color: green,
+                    background: "oklch(0.68 0.20 292 / 0.28)",
+                    color: purple,
                     visibility: planBadge ? "visible" : "hidden",
                   }}
                 >
@@ -281,7 +286,7 @@ export default function SubscriptionPanel({
                     {feature.included ? (
                       <Check
                         size={13}
-                        style={{ color: green, flex: "0 0 auto", marginTop: 2 }}
+                        style={{ color: wechatGreen, flex: "0 0 auto", marginTop: 2 }}
                       />
                     ) : (
                       <X
@@ -305,13 +310,15 @@ export default function SubscriptionPanel({
                   startSubscriptionPayment(plan.id, plan.name)
                 }
                 disabled={isSubscriptionDisabled}
-                className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
+                onMouseEnter={() => !isSubscriptionDisabled && setHoveredPlanId(plan.id)}
+                onMouseLeave={() => setHoveredPlanId(null)}
+                className="mt-5 h-10 rounded-[var(--radius-md-design)] type-caption transition-all duration-200"
                 style={{
                   background:
                     isCurrentSubscribedPlan || isDowngradePlan
                       ? "oklch(1 0 0 / 7%)"
                       : isSelected
-                        ? green
+                        ? getButtonColor()
                         : "oklch(0.68 0.20 292 / 0.18)",
                   color:
                     isCurrentSubscribedPlan || isDowngradePlan
@@ -323,7 +330,7 @@ export default function SubscriptionPanel({
                     isCurrentSubscribedPlan || isDowngradePlan
                       ? border
                       : isSelected
-                        ? "transparent"
+                        ? getButtonColor()
                         : "oklch(0.68 0.20 292 / 0.32)"
                   }`,
                   cursor:
@@ -333,6 +340,8 @@ export default function SubscriptionPanel({
                         ? "wait"
                         : "pointer",
                   fontWeight: 700,
+                  opacity: hoveredPlanId === plan.id && !isSubscriptionDisabled ? 0.85 : 1,
+                  transform: hoveredPlanId === plan.id && !isSubscriptionDisabled ? "scale(1.01)" : "scale(1)",
                 }}
               >
                 <span className="inline-flex items-center justify-center gap-2">
