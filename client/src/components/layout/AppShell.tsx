@@ -110,6 +110,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const shouldHideSidebar = hideSidebar;
 
   // ── Theme tokens ──────────────────────────────────────────────
+  const mainBg       = isDark ? "#090909" : "#f2f2f7";
   const sidebarBg    = isDark ? "#171717" : "var(--design-surface-soft)";
   const sidebarBorder= isDark ? "transparent" : "var(--hairline)";
   const textPrimary  = isDark ? "#f1f1f3" : "rgba(20,20,36,0.82)";
@@ -687,7 +688,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   };
 
   return (
-    <div className="flex h-screen gap-3 overflow-hidden p-3" style={{ background: "#090909" }}>
+    <div className="flex h-screen gap-3 overflow-hidden p-3" style={{ background: mainBg }}>
       {/* ── Left Sidebar ── */}
       <aside
         className="flex flex-col flex-shrink-0 overflow-hidden"
