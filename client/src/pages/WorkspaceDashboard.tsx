@@ -213,8 +213,9 @@ function ProjectCard({
     if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
   }, [renaming, project.title]);
 
-  const cardBg = isDark ? "#232326" : "oklch(1 0 0)";
-  const cardBorder = isDark ? "#36363b" : "oklch(0.88 0.006 255)";
+  const cardBg = isDark ? "#222222" : "oklch(1 0 0)";
+  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "oklch(0.88 0.006 255)";
+  const cardShadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
   const text = isDark ? "#f0f0f1" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
 
@@ -226,7 +227,7 @@ function ProjectCard({
         background: cardBg,
         border: `1px solid ${cardBorder}`,
         borderRadius: 6,
-        boxShadow: "none",
+        boxShadow: cardShadow,
         transition: "all 0.18s ease",
       }}
       onClick={onOpen}
@@ -240,7 +241,7 @@ function ProjectCard({
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#19191b" : "oklch(0.92 0.005 270)" }}>
+          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "oklch(0.92 0.005 270)" }}>
             <FolderOpen size={32} style={{ color: sub }} />
           </div>
         )}
@@ -294,8 +295,9 @@ function ProjectCard({
 
 // ── Create Project Card ────────────────────────────────────────
 function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
-  const bg = isDark ? "#171717" : "oklch(0.97 0.004 270)";
-  const border = isDark ? "#3a3a3e" : "rgba(0,0,0,0.08)";
+  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
+  const shadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
   const text = isDark ? "#99999e" : "oklch(0.65 0.010 270)";
   return (
     <button
@@ -306,6 +308,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
         background: bg,
         border: `1px dashed ${border}`,
         borderRadius: 6,
+        boxShadow: shadow,
       }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.borderColor = isDark ? "#77777d" : "oklch(0.62 0.22 290 / 0.5)";
@@ -340,7 +343,7 @@ export default function WorkspaceDashboard() {
   const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
-  const bg = isDark ? "#0a0a0b" : "oklch(0.975 0.004 80)";
+  const bg = isDark ? "#222222" : "#ffffff";
   const text = isDark ? "#f4f4f5" : "oklch(0.22 0.018 255)";
   const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
 
