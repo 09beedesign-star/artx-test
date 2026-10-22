@@ -59,8 +59,8 @@ export function ThemeModeSwitcher({ className, variant = "icon" }: ThemeModeSwit
         aria-label="主题模式"
         title={currentLabel ?? "主题模式"}
         className={cn(
-          "inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-[var(--artx-line)] bg-[var(--artx-fill)] text-[var(--artx-text-muted)] outline-none transition-colors hover:bg-[var(--artx-fill-hover)] hover:text-[var(--artx-text-strong)] focus-visible:ring-2 focus-visible:ring-[var(--artx-brand-purple)]/45",
-          variant === "icon" ? "w-10 shrink-0" : "px-3 text-sm",
+          "inline-flex h-10 items-center justify-center gap-1.5 rounded-md text-[var(--artx-text-muted)] outline-none transition-colors hover:text-[var(--artx-text-strong)] focus-visible:ring-2 focus-visible:ring-[var(--artx-brand-purple)]/45",
+          variant === "icon" ? "w-10 shrink-0" : "border border-[var(--artx-line)] bg-[var(--artx-fill)] px-3 text-sm hover:bg-[var(--artx-fill-hover)]",
           className,
         )}
       >

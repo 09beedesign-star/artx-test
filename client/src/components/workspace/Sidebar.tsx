@@ -76,7 +76,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
                 "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-left group",
                 isActive
                   ? "text-white"
-                  : "text-[oklch(0.72_0.012_270)] hover:text-white"
+                  : "text-[oklch(0.82_0.012_270)] hover:text-white"
               )}
               style={isActive ? {
                 background: "oklch(1 0 0 / 8%)",
@@ -114,11 +114,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             size={13}
             className="transition-transform duration-200"
             style={{
-              color: "oklch(0.78 0.010 270)",
+              color: "oklch(0.85 0.010 270)",
               transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)",
             }}
           />
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.75 0.010 270)" }}>
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.82 0.010 270)" }}>
             最近项目
           </span>
           <div
@@ -126,7 +126,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             onClick={(e) => { e.stopPropagation(); toast("新建项目", { description: "功能即将上线" }); }}
             className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <Plus size={12} style={{ color: "oklch(0.78 0.010 270)" }} />
+            <Plus size={12} style={{ color: "oklch(0.85 0.010 270)" }} />
           </div>
         </div>
 
@@ -167,9 +167,9 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "oklch(0.78 0.010 270)" }}>免费版 · 0 积分</div>
+            <div className="text-[11px]" style={{ color: "oklch(0.85 0.010 270)" }}>免费版 · 0 积分</div>
           </div>
-          <ChevronRight size={12} style={{ color: "oklch(0.75 0.010 270)" }} />
+          <ChevronRight size={12} style={{ color: "oklch(0.82 0.010 270)" }} />
         </div>
       </div>
 
@@ -189,7 +189,7 @@ function ProjectItem({ project, isActive, onSelect, delay }: {
       onClick={() => onSelect(project.id)}
       className={cn(
         "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all duration-150 animate-fade-up group",
-        isActive ? "text-white" : "text-[oklch(0.70_0.01_270)] hover:text-white hover:bg-white/5"
+        isActive ? "text-white" : "text-[oklch(0.80_0.01_270)] hover:text-white hover:bg-white/5"
       )}
       style={{
         animationDelay: `${delay}ms`,
@@ -203,7 +203,7 @@ function ProjectItem({ project, isActive, onSelect, delay }: {
       />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium truncate">{project.title}</div>
-        <div className="text-[10px] truncate" style={{ color: "oklch(0.59 0.010 270)" }}>{project.updatedAt}</div>
+        <div className="text-[10px] truncate" style={{ color: "oklch(0.68 0.010 270)" }}>{project.updatedAt}</div>
       </div>
     </button>
   );
