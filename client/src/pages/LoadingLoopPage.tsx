@@ -151,9 +151,10 @@ function LoadingAnimationStyles({ themeMode = "dark" }: { themeMode?: "light" | 
   const isDark = themeMode === "dark";
   
   // 动态颜色
+  // ⚠️ Logo SVG 本身内置白色滤镜，需要用 brightness(0) 变成黑色
   const logoFilter = isDark 
     ? "brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.57))"
-    : "drop-shadow(0 0 6px rgba(0,0,0,0.08))";
+    : "brightness(0) drop-shadow(0 0 6px rgba(0,0,0,0.08))";
   
   const glowGradient = isDark
     ? "radial-gradient(circle, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.22) 34%, transparent 68%)"
