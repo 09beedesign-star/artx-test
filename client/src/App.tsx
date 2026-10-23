@@ -191,11 +191,16 @@ function AppRoutes() {
         - 而 /* 编译成 ^/ecommerce-canvas/(.*)，**不匹配不带斜杠的 /ecommerce-canvas** ——
           侧栏入口正是这个地址，站内点击直接掉进 NotFound（2026-10-17 线上 404 事故）。
         /*? 三种形态都能匹配，且不会误吞 /ecommerce-canvasx。
+        
+        ⚠️ 2026-10-24 安全修复：电商画布会消耗 AI 积分（带货图文 180/张，产品图 480/次），
+        必须要求登录才能进入。未登录用户点击任何生成按钮都会触发扣费，属于严重漏洞。
       */}
       <Route path="/ecommerce-canvas/*?">
-        <AppShell>
-          <EcommerceCanvasPage />
-        </AppShell>
+        <RequireLogin>
+          <AppShell>
+            <EcommerceCanvasPage />
+          </AppShell>
+        </RequireLogin>
       </Route>
 
       {/* 长期记忆：跟随账号的通用记忆（项目记忆 / Skill / 通用规则 / 常规记忆 四维度） */}
