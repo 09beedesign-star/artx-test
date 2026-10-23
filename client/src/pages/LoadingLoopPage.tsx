@@ -153,11 +153,11 @@ function LoadingAnimationStyles({ themeMode = "dark" }: { themeMode?: "light" | 
   // 动态颜色
   const logoFilter = isDark 
     ? "brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.57))"
-    : "drop-shadow(0 0 9px rgba(0,0,0,0.12))";
+    : "drop-shadow(0 0 6px rgba(0,0,0,0.08))";
   
   const glowGradient = isDark
     ? "radial-gradient(circle, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.22) 34%, transparent 68%)"
-    : "radial-gradient(circle, rgba(147,108,255,0.42) 0%, rgba(147,108,255,0.12) 34%, transparent 68%)";
+    : "radial-gradient(circle, rgba(147,108,255,0.22) 0%, rgba(147,108,255,0.08) 34%, transparent 68%)";
   
   const skeletonBg = isDark ? "rgba(128, 128, 128, 0.10)" : "rgba(0, 0, 0, 0.04)";
   const skeletonSweep = isDark
