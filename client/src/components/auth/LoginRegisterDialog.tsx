@@ -21,7 +21,7 @@ export default function LoginRegisterDialog() {
 
   // 主题相关颜色变量
   const isDark = themeMode === "dark";
-  const overlayBg = isDark ? "bg-[#222222]/30" : "bg-black/15";
+  const overlayBg = isDark ? "bg-[#222222]/30" : "bg-black/50";
   const closeBtnBg = isDark ? "bg-[#222222]/90" : "bg-white/95";
   const closeBtnBorder = isDark ? "border-white/15" : "border-black/12";
   const closeBtnText = isDark ? "text-white/70" : "text-black/65";
