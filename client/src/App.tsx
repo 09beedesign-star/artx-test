@@ -4,7 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider } from "./contexts/ThemeContext";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import AppShell from "./components/layout/AppShell";
 import OnboardingProvider from "./components/onboarding/OnboardingProvider";
@@ -302,6 +302,8 @@ function isSamePageTransition(from: string, to: string): boolean {
 
 function RouteLoadingGate({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   const [location] = useLocation();
   const routePath = normalizeRoutePath(location);
   const previousPathRef = useRef(routePath);
@@ -326,11 +328,13 @@ function RouteLoadingGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [loadingPath]);
 
+  const overlayBg = isDark ? "bg-[#222222]" : "bg-white";
+
   return (
     <>
       {children}
       {loadingPath && (
-        <div className="fixed inset-0 z-[2147483000] bg-[#222222]" role="status" aria-live="polite">
+        <div className={`fixed inset-0 z-[2147483000] ${overlayBg}`} role="status" aria-live="polite">
           {loadingPath.startsWith("/project/") ? <CanvasPageLoading /> : <GeneralPageLoading />}
         </div>
       )}

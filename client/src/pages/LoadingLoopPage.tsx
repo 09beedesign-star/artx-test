@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import loadingLogo from "@/assets/loading/artx-loading-logo.svg";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const defaultLoadingCopy = "正在努力为您加载中，请稍后。";
 const canvasLoadingCopy = "正在帮您加载画布，请稍后。";
@@ -67,6 +68,7 @@ function useLoadingTip(seed?: unknown) {
 }
 
 export default function LoadingLoopPage() {
+  const { theme } = useTheme();
   const showCyclePreview = window.location.hash === "#cycle";
   const [cycleIndex, setCycleIndex] = useState(0);
   const [tipSeed, setTipSeed] = useState(0);
@@ -84,42 +86,60 @@ export default function LoadingLoopPage() {
   }, [showCyclePreview]);
 
   return (
-    <LoadingSurface canvas={showCanvasOnly}>
-      {showCanvasOnly ? <CanvasLoadingSkeleton tip={loadingTip} /> : <GeneralLoadingContent tip={loadingTip} />}
+    <LoadingSurface canvas={showCanvasOnly} themeMode={theme}>
+      {showCanvasOnly ? (
+        <CanvasLoadingSkeleton tip={loadingTip} themeMode={theme} />
+      ) : (
+        <GeneralLoadingContent tip={loadingTip} themeMode={theme} />
+      )}
     </LoadingSurface>
   );
 }
 
 export function GeneralPageLoading() {
+  const { theme } = useTheme();
   const loadingTip = useLoadingTip();
 
   return (
-    <LoadingSurface>
-      <GeneralLoadingContent tip={loadingTip} />
+    <LoadingSurface themeMode={theme}>
+      <GeneralLoadingContent tip={loadingTip} themeMode={theme} />
     </LoadingSurface>
   );
 }
 
 export function CanvasPageLoading() {
+  const { theme } = useTheme();
   const loadingTip = useLoadingTip();
 
   return (
-    <LoadingSurface canvas>
-      <CanvasLoadingSkeleton tip={loadingTip} />
+    <LoadingSurface canvas themeMode={theme}>
+      <CanvasLoadingSkeleton tip={loadingTip} themeMode={theme} />
     </LoadingSurface>
   );
 }
 
-function LoadingSurface({ canvas = false, children }: { canvas?: boolean; children: React.ReactNode }) {
+function LoadingSurface({ 
+  canvas = false, 
+  children,
+  themeMode = "dark"
+}: { 
+  canvas?: boolean; 
+  children: React.ReactNode;
+  themeMode?: "light" | "dark";
+}) {
+  const isDark = themeMode === "dark";
+  const bgColor = isDark ? "#222222" : "#ffffff";
+  const textColor = isDark ? "text-white" : "text-black";
+  
   return (
     <main
-      className="min-h-screen overflow-y-auto text-white"
+      className={`min-h-screen overflow-y-auto ${textColor}`}
       style={{
-        background: "#222222",
+        background: bgColor,
         padding: canvas ? 20 : "40px 24px",
       }}
     >
-      <LoadingAnimationStyles />
+      <LoadingAnimationStyles themeMode={themeMode} />
       <section className={canvas ? "flex w-full flex-col" : "mx-auto flex w-full max-w-[1180px] flex-col gap-8"}>
         {children}
       </section>
@@ -127,7 +147,23 @@ function LoadingSurface({ canvas = false, children }: { canvas?: boolean; childr
   );
 }
 
-function LoadingAnimationStyles() {
+function LoadingAnimationStyles({ themeMode = "dark" }: { themeMode?: "light" | "dark" }) {
+  const isDark = themeMode === "dark";
+  
+  // 动态颜色
+  const logoFilter = isDark 
+    ? "brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.57))"
+    : "drop-shadow(0 0 9px rgba(0,0,0,0.12))";
+  
+  const glowGradient = isDark
+    ? "radial-gradient(circle, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.22) 34%, transparent 68%)"
+    : "radial-gradient(circle, rgba(147,108,255,0.42) 0%, rgba(147,108,255,0.12) 34%, transparent 68%)";
+  
+  const skeletonBg = isDark ? "rgba(128, 128, 128, 0.10)" : "rgba(0, 0, 0, 0.04)";
+  const skeletonSweep = isDark
+    ? "linear-gradient(90deg, transparent, rgba(180,180,180,0.10), transparent)"
+    : "linear-gradient(90deg, transparent, rgba(0,0,0,0.06), transparent)";
+
   return (
     <style>{`
       @keyframes artx-line-drift {
@@ -154,13 +190,13 @@ function LoadingAnimationStyles() {
       }
 
       .artx-loading-logo {
-        filter: brightness(0) invert(1) drop-shadow(0 0 9px rgba(255,255,255,0.57));
+        filter: ${logoFilter};
         animation: artx-logo-breathe 2.4s ease-in-out infinite;
         transform-origin: center;
       }
 
       .artx-logo-glow {
-        background: radial-gradient(circle, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.22) 34%, transparent 68%);
+        background: ${glowGradient};
         animation: artx-logo-glow-breathe 2.8s ease-in-out infinite;
         transform-origin: center;
       }
@@ -173,7 +209,7 @@ function LoadingAnimationStyles() {
       .artx-skeleton-block {
         position: relative;
         overflow: hidden;
-        background: rgba(128, 128, 128, 0.10);
+        background: ${skeletonBg};
       }
 
       .artx-skeleton-block::after {
@@ -181,24 +217,24 @@ function LoadingAnimationStyles() {
         position: absolute;
         inset: 0;
         width: 42%;
-        background: linear-gradient(90deg, transparent, rgba(180,180,180,0.10), transparent);
+        background: ${skeletonSweep};
         animation: artx-skeleton-sweep 2.6s ease-in-out infinite;
       }
     `}</style>
   );
 }
 
-function GeneralLoadingContent({ tip }: { tip: string }) {
+function GeneralLoadingContent({ tip, themeMode = "dark" }: { tip: string; themeMode?: "light" | "dark" }) {
   return (
     <>
       <section className="grid min-h-[calc(100vh-80px)] place-items-center">
         <article className="flex h-[420px] w-full max-w-[720px] flex-col p-5">
           <div className="flex flex-1 items-center justify-center">
-            <LoadingLogoBlock copy={defaultLoadingCopy} />
+            <LoadingLogoBlock copy={defaultLoadingCopy} themeMode={themeMode} />
           </div>
         </article>
       </section>
-      <LoadingTip text={tip} />
+      <LoadingTip text={tip} themeMode={themeMode} />
     </>
   );
 }
@@ -206,13 +242,16 @@ function GeneralLoadingContent({ tip }: { tip: string }) {
 function LoadingTip({
   text,
   className = "fixed bottom-6 left-1/2 -translate-x-1/2",
+  themeMode = "dark"
 }: {
   text: string;
   className?: string;
+  themeMode?: "light" | "dark";
 }) {
+  const textColor = themeMode === "dark" ? "text-white/59" : "text-black/59";
   return (
     <p
-      className={`z-20 max-w-[min(720px,calc(100vw-40px))] text-center text-[10px] leading-[16px] text-white/59 ${className}`}
+      className={`z-20 max-w-[min(720px,calc(100vw-40px))] text-center text-[10px] leading-[16px] ${textColor} ${className}`}
       aria-live="polite"
     >
       {text}
@@ -220,25 +259,39 @@ function LoadingTip({
   );
 }
 
-function LoadingLogoBlock({ delay = 0, copy }: { delay?: number; copy: string }) {
+function LoadingLogoBlock({ 
+  delay = 0, 
+  copy,
+  themeMode = "dark" 
+}: { 
+  delay?: number; 
+  copy: string;
+  themeMode?: "light" | "dark";
+}) {
+  const isDark = themeMode === "dark";
   const lines = copy
     .split(/[，,]/)
     .map(line => line.trim().replace(/[。.]$/, ""))
     .filter(Boolean)
     .slice(0, 2);
 
+  // 动态颜色
+  const circleStroke = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const orbitStroke = isDark ? "rgba(255,255,255,0.76)" : "rgba(0,0,0,0.76)";
+  const textColor = isDark ? "text-white/69" : "text-black/69";
+
   return (
     <div className="flex flex-col items-center">
       <div className="relative grid h-[116px] w-[116px] place-items-center">
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 116 116" aria-hidden="true">
-          <circle cx="58" cy="58" r="48" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          <circle cx="58" cy="58" r="48" fill="none" stroke={circleStroke} strokeWidth="1" />
           <circle
             className="artx-orbit-line"
             cx="58"
             cy="58"
             r="48"
             fill="none"
-            stroke="rgba(255,255,255,0.76)"
+            stroke={orbitStroke}
             strokeLinecap="round"
             strokeWidth="1.5"
             style={{ animationDelay: `${delay}s` }}
@@ -256,7 +309,7 @@ function LoadingLogoBlock({ delay = 0, copy }: { delay?: number; copy: string })
           style={{ animationDelay: `${delay}s` }}
         />
       </div>
-      <p className="mt-3 max-w-[156px] text-center text-[8.4px] leading-[12.6px] text-white/69">
+      <p className={`mt-3 max-w-[156px] text-center text-[8.4px] leading-[12.6px] ${textColor}`}>
         {lines.map((line, index) => (
           <span key={line} className="block">
             {line}
@@ -268,23 +321,33 @@ function LoadingLogoBlock({ delay = 0, copy }: { delay?: number; copy: string })
   );
 }
 
-function CanvasLoadingSkeleton({ tip }: { tip: string }) {
+function CanvasLoadingSkeleton({ 
+  tip,
+  themeMode = "dark"
+}: { 
+  tip: string;
+  themeMode?: "light" | "dark";
+}) {
+  const isDark = themeMode === "dark";
+  const bgColor = isDark ? "#222222" : "#ffffff";
+  
   return (
-    <section className="h-[calc(100vh-40px)] w-full" style={{ background: "#222222" }}>
+    <section className="h-[calc(100vh-40px)] w-full" style={{ background: bgColor }}>
       <div
         className="grid h-full gap-4"
         style={{
-          background: "#222222",
+          background: bgColor,
           gridTemplateColumns: "minmax(0, 1fr) clamp(280px, 32vw, 372px)",
         }}
       >
         <div className="artx-skeleton-block grid place-items-center rounded-md">
           <div className="relative z-10 flex flex-col items-center">
-            <LoadingLogoBlock copy={canvasLoadingCopy} />
+            <LoadingLogoBlock copy={canvasLoadingCopy} themeMode={themeMode} />
           </div>
           <LoadingTip
             text={tip}
             className="absolute bottom-6 left-1/2 -translate-x-1/2"
+            themeMode={themeMode}
           />
         </div>
         <aside className="artx-skeleton-block rounded-md" />
