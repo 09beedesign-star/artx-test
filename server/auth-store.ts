@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -410,11 +411,101 @@ const authPostgresStore = AUTH_DATA_BACKEND === "postgres"
   ? new PostgresJsonDocumentStore<AuthDatabase>(process.env.DATABASE_URL || "", "auth-users")
   : null;
 
+/** 同一把 API key 的 lastUsedAt 最短落盘间隔。 */
+const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * ⚠️⚠️⚠️ auth-users 写锁（2026-10-24）。
+ *
+ * auth-users 是一整行 JSON（全站用户/会话/API key/审计日志），所有写入都是
+ * 「读整份 → 改一处 → 写整份」。不加锁时两个请求并发，后写的整份抹掉先写的，
+ * 双方都返回成功（线上实测：同账号并发建 10 把 key 只落库 7 把）。
+ *
+ * 规则：**任何会 saveDatabase 的路径都必须在 withAuthWriteLock 内完成「读 + 写」**。
+ * - Postgres：事务 + pg_advisory_xact_lock，跨进程/多实例都有效；
+ * - JSON（本地/测试）：进程内串行队列。
+ * - 可重入：锁内再调 withAuthWriteLock / mutateDatabase 直接复用当前锁。
+ * - ⚠️ 锁内禁止慢速外部 IO（发短信/邮件），否则整站登录排队。
+ * - admin-store 改积分也必须走这里（updateAuthUserCreditsSnapshot），
+ *   自己 new 一个 store 直接 save 等于绕过锁。
+ */
+type AuthTxContext = {
+  active: boolean;
+  tx: { load(): Promise<Partial<AuthDatabase> | null>; save(data: AuthDatabase): Promise<void> } | null;
+};
+const authTxStorage = new AsyncLocalStorage<AuthTxContext>();
+let authJsonWriteChain: Promise<unknown> = Promise.resolve();
+
+function currentAuthTx() {
+  const ctx = authTxStorage.getStore();
+  return ctx?.active ? ctx : undefined;
+}
+
+async function withAuthWriteLock<R>(fn: () => Promise<R>): Promise<R> {
+  if (currentAuthTx()) return fn();
+
+  const runInContext = async (tx: AuthTxContext["tx"]) => {
+    const ctx: AuthTxContext = { active: true, tx };
+    try {
+      return await authTxStorage.run(ctx, fn);
+    } finally {
+      // 锁释放后，残留的异步回调不能再拿着已归还的连接读写。
+      ctx.active = false;
+    }
+  };
+
+  /**
+   * 两层锁，顺序不能反：
+   * 1. 进程内串行队列 —— 保证本进程同一时刻最多只有 1 个连接卡在 advisory lock 上。
+   *    ⚠️ 不加这层的话：连接池 max=5，5 个并发写各占一个连接排队等锁，
+   *    持锁者内部再要连接（读 admin-data 邀请配置）就拿不到 → 5 秒超时报错，
+   *    且同池的全站其他查询一起饿死。
+   * 2. Postgres 事务 + advisory lock —— 跨进程/多实例互斥。
+   */
+  const run = () => authPostgresStore
+    ? authPostgresStore.transaction((tx) => runInContext(tx))
+    : runInContext(null);
+  const result = authJsonWriteChain.then(run, run);
+  authJsonWriteChain = result.catch(() => undefined);
+  return result;
+}
+
+/** 在写锁内读取最新数据、修改、写回。fn 只做内存修改，不要 save。 */
+async function mutateDatabase<R>(fn: (db: AuthDatabase) => R | Promise<R>): Promise<R> {
+  return withAuthWriteLock(async () => {
+    const db = await loadDatabase();
+    const result = await fn(db);
+    await saveDatabase(db);
+    return result;
+  });
+}
+
+/**
+ * admin-store 发积分后，把余额快照同步到 auth-users.users[].credits。
+ * 必须走这里而不是在 admin-store 里自己 load/save —— 那样会绕过写锁，
+ * 且历史上还因只写回 `{ users }` 抹掉过全站 API key 与会话（0d4453e）。
+ */
+export async function updateAuthUserCreditsSnapshot(userId: string, credits: number): Promise<boolean> {
+  return mutateDatabase((db) => {
+    const user = db.users.find((item) => item.id === userId) as (StoredUser & { credits?: number }) | undefined;
+    if (!user) return false;
+    user.credits = credits;
+    return true;
+  });
+}
+
 async function loadDatabase(): Promise<AuthDatabase> {
+  /**
+   * 读取时的自愈写入（JSON 损坏恢复 / 冷启动补管理员 / dev 免登会话）。
+   * ⚠️ 这些写也是整份覆盖：不在锁内时绝不能直接 save，而是进锁重读重做一遍，
+   * 否则会用这份旧快照抹掉别人刚写入的数据。
+   */
+  let dirty = false;
   let db: AuthDatabase = { users: [], sessions: [], smsChallenges: [], auditLogs: [] };
 
   if (authPostgresStore) {
-    const stored = await authPostgresStore.load();
+    const tx = currentAuthTx()?.tx;
+    const stored = tx ? await tx.load() : await authPostgresStore.load();
     if (stored) {
       db = normalizeDatabase(stored);
     }
@@ -424,9 +515,7 @@ async function loadDatabase(): Promise<AuthDatabase> {
       const raw = await fs.readFile(DATA_FILE, "utf-8");
       const parsed = parseAuthDatabase(raw);
       db = parsed.db;
-      if (parsed.recovered) {
-        await saveDatabase(db);
-      }
+      if (parsed.recovered) dirty = true;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") throw error;
@@ -452,11 +541,16 @@ async function loadDatabase(): Promise<AuthDatabase> {
       target: admin.id,
       meta: { username: bootstrapAdmin.username, role: DEFAULT_ADMIN_ROLE },
     });
-    await saveDatabase(db);
+    dirty = true;
   }
 
-  if (isDevAutoLoginEnabled()) {
-    await ensureDevAutoLoginSession(db);
+  if (isDevAutoLoginEnabled() && ensureDevAutoLoginSession(db)) {
+    dirty = true;
+  }
+
+  if (dirty) {
+    if (!currentAuthTx()) return withAuthWriteLock(() => loadDatabase());
+    await saveDatabase(db);
   }
 
   return db;
@@ -466,7 +560,8 @@ async function loadDatabase(): Promise<AuthDatabase> {
  * 为本地测试播种一个固定的测试账号与长期会话。
  * 走的是真实的 users / sessions 结构，因此所有后端鉴权逻辑保持原样不变。
  */
-async function ensureDevAutoLoginSession(db: AuthDatabase) {
+/** 只改内存，返回是否有改动；落盘由 loadDatabase 在写锁内统一完成。 */
+function ensureDevAutoLoginSession(db: AuthDatabase): boolean {
   let changed = false;
 
   let user = db.users.find((item) => item.loginKey === loginKey(DEV_AUTO_LOGIN_USERNAME));
@@ -507,9 +602,7 @@ async function ensureDevAutoLoginSession(db: AuthDatabase) {
     }
   }
 
-  if (changed) {
-    await saveDatabase(db);
-  }
+  return changed;
 }
 
 function normalizeDatabase(parsed: Partial<AuthDatabase>): AuthDatabase {
@@ -618,6 +711,14 @@ function extractTopLevelJsonObjects(raw: string) {
 
 async function saveDatabase(db: AuthDatabase) {
   if (authPostgresStore) {
+    const tx = currentAuthTx()?.tx;
+    if (tx) {
+      await tx.save(db);
+      return;
+    }
+    // 走到这里说明有写入路径漏包 withAuthWriteLock（或是 loadDatabase 内的
+    // 冷启动补齐）。留日志，便于发现新的漏网之鱼。
+    console.warn("[auth-store] saveDatabase outside write lock", new Error().stack?.split("\n")[2]?.trim());
     await authPostgresStore.save(db);
     return;
   }
@@ -721,8 +822,11 @@ async function getUserByToken(token: string) {
   const db = await loadDatabase();
   const session = token ? db.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined;
   if (session?.expiresAt && Date.parse(session.expiresAt) <= Date.now()) {
-    db.sessions = db.sessions.filter((item) => item !== session);
-    await saveDatabase(db);
+    // 锁内重读再删，避免拿旧快照写回抹掉别人的并发修改。
+    const expiredHash = session.tokenHash;
+    await mutateDatabase((fresh) => {
+      fresh.sessions = fresh.sessions.filter((item) => item.tokenHash !== expiredHash);
+    });
     return { db, session: undefined, user: undefined };
   }
   const user = session ? db.users.find((item) => item.id === session.userId) : undefined;
@@ -762,7 +866,7 @@ export async function listApiKeysForAuthorization(authorization: unknown) {
   return { status: 200 as const, body: { keys } };
 }
 
-export async function createApiKeyForAuthorization(authorization: unknown, payload: unknown) {
+async function createApiKeyForAuthorizationUnlocked(authorization: unknown, payload: unknown) {
   const session = await getSessionUserFromAuthorization(authorization);
   if (session.status !== 200 || !("user" in session.body)) return session;
   const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
@@ -811,8 +915,21 @@ export async function getApiKeyUserFromAuthorization(authorization: unknown) {
   if (!key || !user) {
     return { status: 401 as const, body: { error: "API key 无效或已被停用" } };
   }
-  key.lastUsedAt = new Date().toISOString();
-  await saveDatabase(db);
+  /**
+   * ⚠️ lastUsedAt 节流写：同一把 key 5 分钟内只落盘一次。
+   * auth-users 是整文档读改写，每次 MCP/API 调用都 save 会让外部 agent 的
+   * 调用频率直接放大成整站写竞争（与登录、发 key、发积分抢同一行）。
+   * 「最后使用时间」精确到 5 分钟足够用，不值得为它每次重写 66KB 文档。
+   */
+  const nowMs = Date.now();
+  const lastMs = key.lastUsedAt ? Date.parse(key.lastUsedAt) : NaN;
+  if (!Number.isFinite(lastMs) || nowMs - lastMs >= API_KEY_LAST_USED_WRITE_INTERVAL_MS) {
+    const keyId = key.id;
+    await mutateDatabase((fresh) => {
+      const target = (fresh.apiKeys || []).find((item) => item.id === keyId);
+      if (target) target.lastUsedAt = new Date(nowMs).toISOString();
+    });
+  }
   return { status: 200 as const, body: { user: publicUser(user), apiKey: { id: key.id, prefix: key.prefix } } };
 }
 
@@ -896,7 +1013,7 @@ async function bindInviteRelationIfEligible(params: {
  *
  * 返回 reward 为 null 表示「无需发奖」，调用方不应视为错误。
  */
-export async function settleFirstPaymentForInvite(input: {
+async function settleFirstPaymentForInviteUnlocked(input: {
   userId: string;
   paidAmountHkd: number;
   now?: Date;
@@ -969,7 +1086,7 @@ export async function settleFirstPaymentForInvite(input: {
  *
  * 返回 false 表示用户不存在或本来就没标记过付费，调用方据此跳过后续处理。
  */
-export async function revokeFirstPaymentForInvite(userId: string): Promise<{
+async function revokeFirstPaymentForInviteUnlocked(userId: string): Promise<{
   reverted: boolean;
   inviterId?: string;
 }> {
@@ -985,16 +1102,26 @@ export async function revokeFirstPaymentForInvite(userId: string): Promise<{
 
 /** 读取某位用户的邀请面板数据（邀请码、已获奖人数、剩余配额等）。 */
 export async function getInviteSummaryForUser(userId: string, options: { actualEarnedCredits?: number } = {}) {
-  const db = await loadDatabase();
-  const user = db.users.find((item) => item.id === userId);
+  let db = await loadDatabase();
+  let user = db.users.find((item) => item.id === userId);
   if (!user) {
     return null;
   }
   // 历史账号没有邀请码（功能上线前注册的），首次访问时补发并落库，
   // 否则老用户永远看不到自己的邀请码。
+  // ⚠️ 只有需要补发时才进写锁，并在锁内重读最新数据（别人可能刚补过）。
   if (!user.inviteCode) {
-    user.inviteCode = generateUniqueInviteCode(db.users);
-    await saveDatabase(db);
+    db = await withAuthWriteLock(async () => {
+      const fresh = await loadDatabase();
+      const target = fresh.users.find((item) => item.id === userId);
+      if (target && !target.inviteCode) {
+        target.inviteCode = generateUniqueInviteCode(fresh.users);
+        await saveDatabase(fresh);
+      }
+      return fresh;
+    });
+    user = db.users.find((item) => item.id === userId);
+    if (!user) return null;
   }
   return buildInviteSummary(user, db.users, new Date(), await getActiveInviteRewardConfig(), options.actualEarnedCredits);
 }
@@ -1009,7 +1136,7 @@ export async function getInviteSummaryForUser(userId: string, options: { actualE
  * 一旦顺手把码重新生成，已发出的旧链接会全部失效，
  * 那就退化成了「换码」，与本功能的设计意图正好相反。
  */
-export async function setInviteAcceptDisabled(userId: string, disabled: boolean) {
+async function setInviteAcceptDisabledUnlocked(userId: string, disabled: boolean) {
   const db = await loadDatabase();
   const user = db.users.find((item) => item.id === userId);
   if (!user) {
@@ -1049,7 +1176,7 @@ export async function listInviteRelationsForAdmin() {
   }));
 }
 
-export async function createAuthUserForAdmin(input: {
+async function createAuthUserForAdminUnlocked(input: {
   actorId: string;
   actorName: string;
   username: string;
@@ -1081,7 +1208,7 @@ export async function createAuthUserForAdmin(input: {
   };
 }
 
-export async function updateAuthUserAdmin(input: {
+async function updateAuthUserAdminUnlocked(input: {
   actorId: string;
   actorName: string;
   userId: string;
@@ -1191,7 +1318,29 @@ export interface AuthRequestContext {
   userAgent?: string;
 }
 
+/**
+ * auth 动作入口。锁策略：
+ * - `me`：只读、调用最频繁 → 不进锁；
+ * - 三个发验证码分支：外发（短信/邮件）在锁外，落库在锁内重读后只写本次 challenge；
+ *   ⚠️ 已知遗留：频控（60 秒间隔/每日上限）在锁外用快照判定，并发请求仍可能各发一条。
+ *   与改造前行为一致，未变差；要根治需「锁内先占位 → 锁外发送 → 失败回滚」。
+ * - 其余分支：整段在写锁内执行（读 → 改 → 写原子）。
+ */
 export async function handleAuthAction(
+  action: AuthAction,
+  payload: unknown,
+  context: AuthRequestContext = {},
+) {
+  if (action === "me") {
+    return handleAuthActionUnlocked(action, payload, context);
+  }
+  if (action === "email-send-code" || action === "sms-send-code" || action === "forgot-password") {
+    return handleAuthActionUnlocked(action, payload, context);
+  }
+  return withAuthWriteLock(() => handleAuthActionUnlocked(action, payload, context));
+}
+
+async function handleAuthActionUnlocked(
   action: AuthAction,
   payload: unknown,
   context: AuthRequestContext = {},
@@ -1258,17 +1407,19 @@ export async function handleAuthAction(
       dailyKey: today,
       dailyCount: dailyCount + 1,
     };
-    db.emailChallenges = [
-      challenge,
-      ...(db.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "login")),
-    ].slice(0, 1000);
-    appendAuditLog(db, {
-      actorId: "email",
-      action: "auth.email.send",
-      target: email,
-      meta: { provider: sent.provider || "email" },
+    // 外发已在锁外完成；落库进锁、重读最新数据，只写本次的 challenge 与日志。
+    await mutateDatabase((fresh) => {
+      fresh.emailChallenges = [
+        challenge,
+        ...(fresh.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "login")),
+      ].slice(0, 1000);
+      appendAuditLog(fresh, {
+        actorId: "email",
+        action: "auth.email.send",
+        target: email,
+        meta: { provider: sent.provider || "email" },
+      });
     });
-    await saveDatabase(db);
 
     return {
       status: 200,
@@ -1383,17 +1534,19 @@ export async function handleAuthAction(
       dailyKey: today,
       dailyCount: dailyCount + 1,
     };
-    db.smsChallenges = [
-      challenge,
-      ...(db.smsChallenges || []).filter((item) => item.phone !== phone),
-    ].slice(0, 1000);
-    appendAuditLog(db, {
-      actorId: "sms",
-      action: "auth.sms.send",
-      target: phoneUsername(phone),
-      meta: { provider: sent.provider, requestId: sent.requestId },
+    // 外发已在锁外完成；落库进锁、重读最新数据。
+    await mutateDatabase((fresh) => {
+      fresh.smsChallenges = [
+        challenge,
+        ...(fresh.smsChallenges || []).filter((item) => item.phone !== phone),
+      ].slice(0, 1000);
+      appendAuditLog(fresh, {
+        actorId: "sms",
+        action: "auth.sms.send",
+        target: phoneUsername(phone),
+        meta: { provider: sent.provider, requestId: sent.requestId },
+      });
     });
-    await saveDatabase(db);
 
     return {
       status: 200,
@@ -1619,6 +1772,7 @@ export async function handleAuthAction(
     const message = "如果账号存在，验证码已发送到对应邮箱，请在 10 分钟内完成密码重置。";
     let debugCode: string | undefined;
     let emailProvider = "email";
+    let resetChallenge: EmailChallenge | undefined;
 
     if (user) {
       pruneEmailChallenges(db);
@@ -1675,23 +1829,29 @@ export async function handleAuthAction(
         dailyKey: today,
         dailyCount: dailyCount + 1,
       };
-      db.emailChallenges = [
-        challenge,
-        ...(db.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "password_reset")),
-      ].slice(0, 1000);
+      resetChallenge = challenge;
       debugCode = process.env.EMAIL_DRY_RUN === "true" ? code : undefined;
     }
-    appendAuditLog(db, {
-      actorId: user?.id || "system",
-      action: "auth.password.reset.requested",
-      target: user?.id || loginKey(email),
-      meta: {
-        username: email,
-        matched: Boolean(user),
-        provider: emailProvider,
-      },
+    // 外发已在锁外完成；落库进锁、重读最新数据。
+    await mutateDatabase((fresh) => {
+      if (resetChallenge) {
+        const pending = resetChallenge;
+        fresh.emailChallenges = [
+          pending,
+          ...(fresh.emailChallenges || []).filter((item) => !(item.email === email && emailChallengePurpose(item) === "password_reset")),
+        ].slice(0, 1000);
+      }
+      appendAuditLog(fresh, {
+        actorId: user?.id || "system",
+        action: "auth.password.reset.requested",
+        target: user?.id || loginKey(email),
+        meta: {
+          username: email,
+          matched: Boolean(user),
+          provider: emailProvider,
+        },
+      });
     });
-    await saveDatabase(db);
     return {
       status: 200,
       body: {
@@ -1820,3 +1980,29 @@ export async function handleAuthAction(
 
   return { status: 404, body: { error: "Unknown auth action" } };
 }
+
+// ---- 写锁包装（自动生成形态，见 withAuthWriteLock 注释）----
+export function createApiKeyForAuthorization(...args: Parameters<typeof createApiKeyForAuthorizationUnlocked>): ReturnType<typeof createApiKeyForAuthorizationUnlocked> {
+  return withAuthWriteLock(() => createApiKeyForAuthorizationUnlocked(...args));
+}
+
+export function settleFirstPaymentForInvite(...args: Parameters<typeof settleFirstPaymentForInviteUnlocked>): ReturnType<typeof settleFirstPaymentForInviteUnlocked> {
+  return withAuthWriteLock(() => settleFirstPaymentForInviteUnlocked(...args));
+}
+
+export function revokeFirstPaymentForInvite(...args: Parameters<typeof revokeFirstPaymentForInviteUnlocked>): ReturnType<typeof revokeFirstPaymentForInviteUnlocked> {
+  return withAuthWriteLock(() => revokeFirstPaymentForInviteUnlocked(...args));
+}
+
+export function setInviteAcceptDisabled(...args: Parameters<typeof setInviteAcceptDisabledUnlocked>): ReturnType<typeof setInviteAcceptDisabledUnlocked> {
+  return withAuthWriteLock(() => setInviteAcceptDisabledUnlocked(...args));
+}
+
+export function createAuthUserForAdmin(...args: Parameters<typeof createAuthUserForAdminUnlocked>): ReturnType<typeof createAuthUserForAdminUnlocked> {
+  return withAuthWriteLock(() => createAuthUserForAdminUnlocked(...args));
+}
+
+export function updateAuthUserAdmin(...args: Parameters<typeof updateAuthUserAdminUnlocked>): ReturnType<typeof updateAuthUserAdminUnlocked> {
+  return withAuthWriteLock(() => updateAuthUserAdminUnlocked(...args));
+}
+

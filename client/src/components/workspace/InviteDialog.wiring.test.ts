@@ -138,7 +138,7 @@ describe("邀请入口接线", () => {
     // 🔒 绑定阶段绝不发积分，发放统一在首次付费（invite-rewards.ts）。
     const bindBody = store.slice(
       store.indexOf("function bindInviteRelationIfEligible"),
-      store.indexOf("export async function settleFirstPaymentForInvite"),
+      store.indexOf("async function settleFirstPaymentForInviteUnlocked"),
     );
     expect(bindBody.length).toBeGreaterThan(0);
     expect(bindBody).not.toContain("grantCredits");

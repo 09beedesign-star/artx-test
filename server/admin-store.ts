@@ -30,7 +30,7 @@ import {
   isHighRiskCreditAdjustment,
   isHighRiskCreditGift,
 } from "../shared/admin-risk-policy";
-import { createAuthUserForAdmin, getAdminSessionFromAuthorization, listAuthUsers, listInviteRelationsForAdmin, type PublicAuthUser, revokeFirstPaymentForInvite, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
+import { createAuthUserForAdmin, getAdminSessionFromAuthorization, updateAuthUserCreditsSnapshot, listAuthUsers, listInviteRelationsForAdmin, type PublicAuthUser, revokeFirstPaymentForInvite, settleFirstPaymentForInvite, updateAuthUserAdmin } from "./auth-store";
 import {
   buildInviteIdempotencyKey,
   buildInviteRewardReason,
@@ -59,30 +59,16 @@ import { PostgresJsonDocumentStore } from "./postgres-json-store";
  * @param newCredits - 新的积分余额（从 admin-data.users 读取）
  */
 async function syncUserCreditsToAuthStore(userId: string, newCredits: number): Promise<void> {
+  /**
+   * ⚠️⚠️⚠️ 必须走 auth-store 的 updateAuthUserCreditsSnapshot（带写锁）。
+   * 历史两次事故都出在这里自己 new store 直接 save：
+   * 1. 写回 `{ users }` 抹掉全站 apiKeys/sessions/auditLogs（0d4453e 修）；
+   * 2. 绕过写锁，与登录/建 key 并发时互相覆盖（本次修）。
+   * 仅 Postgres 后端同步，与原行为一致（JSON 后端 auth 与 admin 各存各的文件）。
+   */
+  if ((process.env.ARTX_AUTH_DATA_BACKEND || process.env.ARTX_ADMIN_DATA_BACKEND || "json") !== "postgres") return;
   try {
-    const authStore = new PostgresJsonDocumentStore<
-      Record<string, unknown> & { users: Array<{ id: string; credits?: number }> }
-    >(
-      process.env.DATABASE_URL || "",
-      "auth-users",
-    );
-    const authData = await authStore.load();
-    if (authData && authData.users) {
-      const authUser = authData.users.find((u) => u.id === userId);
-      if (authUser) {
-        authUser.credits = newCredits;
-        /**
-         * ⚠️⚠️⚠️ 必须把整份文档原样带回去，只改 users。
-         * save() 是整文档 UPSERT：此前写的是 `save({ users })`，
-         * 每发一次积分（注册赠送 / 后台赠送 / 支付到账 / 邀请奖励）
-         * 就把 auth-users 里的 apiKeys、sessions、auditLogs、
-         * sms/emailChallenges 全部抹成空 —— 全站 API key 失效、
-         * 所有人被踢下线，零报错（2026-10-24 线上实测 apiKeys=0、auditLogs=0）。
-         * 锁测试：server/admin-store.auth-sync-preserve.test.ts
-         */
-        await authStore.save({ ...authData, users: authData.users });
-      }
-    }
+    await updateAuthUserCreditsSnapshot(userId, newCredits);
   } catch (error) {
     console.error("[sync-credits] auth-users 同步失败", {
       userId,

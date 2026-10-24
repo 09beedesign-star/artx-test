@@ -15,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 
 const docs = new Map<string, unknown>();
+const nakedSaves: string[] = [];
+const transactions: string[] = [];
 
 vi.mock("./postgres-json-store", () => ({
   PostgresJsonDocumentStore: class {
@@ -24,7 +26,20 @@ vi.mock("./postgres-json-store", () => ({
       return value ? JSON.parse(JSON.stringify(value)) : null;
     }
     async save(data: unknown) {
+      nakedSaves.push(this.key);
       docs.set(this.key, JSON.parse(JSON.stringify(data)));
+    }
+    async transaction<R>(fn: (tx: { load(): Promise<unknown>; save(data: unknown): Promise<void> }) => Promise<R>) {
+      transactions.push(this.key);
+      return fn({
+        load: async () => {
+          const value = docs.get(this.key);
+          return value ? JSON.parse(JSON.stringify(value)) : null;
+        },
+        save: async (data: unknown) => {
+          docs.set(this.key, JSON.parse(JSON.stringify(data)));
+        },
+      });
     }
   },
 }));
@@ -33,6 +48,8 @@ let dir = "";
 
 afterEach(async () => {
   docs.clear();
+  nakedSaves.length = 0;
+  transactions.length = 0;
   if (dir) await rm(dir, { recursive: true, force: true });
   delete process.env.ARTX_DATA_DIR;
   delete process.env.ARTX_ADMIN_DATA_BACKEND;
@@ -42,7 +59,8 @@ describe("syncUserCreditsToAuthStore 只改 users[].credits", () => {
   it("发注册积分后 apiKeys / sessions / auditLogs 原样保留", async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "artx-auth-sync-"));
     process.env.ARTX_DATA_DIR = dir;
-    process.env.ARTX_ADMIN_DATA_BACKEND = "json";
+    // 线上就是 postgres；积分同步只在 postgres 后端发生。
+    process.env.ARTX_ADMIN_DATA_BACKEND = "postgres";
 
     const apiKeys = [{ id: "k1", userId: "u1", name: "agent", prefix: "artx_sk_abcdefgh", keyHash: "h", createdAt: "2026-10-24T00:00:00Z", status: "active" }];
     const sessions = [{ tokenHash: "t", userId: "u1", expiresAt: "2099-01-01T00:00:00Z" }];
@@ -66,5 +84,8 @@ describe("syncUserCreditsToAuthStore 只改 users[].credits", () => {
     expect(after.apiKeys).toEqual(apiKeys);
     expect(after.sessions).toEqual(sessions);
     expect(after.auditLogs).toEqual(auditLogs);
+    // 必须走带锁事务写 auth-users，禁止裸 save（绕过写锁 = 与登录/建 key 互相覆盖）。
+    expect(transactions).toContain("auth-users");
+    expect(nakedSaves).not.toContain("auth-users");
   });
 });
