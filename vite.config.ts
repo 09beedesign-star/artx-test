@@ -979,18 +979,34 @@ function sendJson(res: import("node:http").ServerResponse, status: number, paylo
 }
 
 function vitePluginDeveloperApi(): Plugin {
+  // Align with server/index.ts getMcpTools() for dev/prod consistency
   const tools = [
     {
+      name: "artx_health",
+      description: "验证 ArtX API key 和 MCP 服务是否可用,不消耗积分。",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+    {
       name: "artx_generate_image",
-      description: "Use ArtX image generation to create images from a text prompt.",
+      description: "使用 ArtX 图片生成能力根据提示词生成图片。该工具会消耗账号积分。",
       inputSchema: {
         type: "object",
         properties: {
-          prompt: { type: "string" },
-          ratio: { type: "string" },
-          count: { type: "number" },
+          prompt: { type: "string", description: "图片生成提示词" },
+          model: {
+            type: "string",
+            description: "可选模型 id 或展示名,例如 vod-gg36 / banana 2.1、vod-og25-sunburst-medium / image2.5 medium。不传或传 auto 用默认模型;无法识别的模型直接报错,不会静默回落。",
+          },
+          ratio: { type: "string", description: "可选画幅比例,例如 1:1、4:5、16:9" },
+          count: { type: "number", description: "生成数量,默认 1,最多 9" },
+          skillId: { type: "string", description: "可选 ArtX Skill ID" },
         },
         required: ["prompt"],
+        additionalProperties: true,
       },
     },
   ];
@@ -998,6 +1014,15 @@ function vitePluginDeveloperApi(): Plugin {
   return {
     name: "artx-developer-api",
     configureServer(server: ViteDevServer) {
+      // Add /api/health endpoint
+      server.middlewares.use("/api/health", (req, res, next) => {
+        if (req.method !== "GET") {
+          next();
+          return;
+        }
+        sendJson(res, 200, { ok: true });
+      });
+
       server.middlewares.use("/api/developer/api-keys", async (req, res, next) => {
         try {
           if (req.method === "GET") {
@@ -1024,8 +1049,8 @@ function vitePluginDeveloperApi(): Plugin {
           return;
         }
         sendJson(res, 200, {
-          name: "ArtX Image MCP",
-          version: "0.1.0",
+          name: "artx-image",
+          version: "1.0.0",
           transport: "streamable-http",
           endpoint: "/api/mcp",
           tools,
@@ -1041,28 +1066,68 @@ function vitePluginDeveloperApi(): Plugin {
           const payload = await readRequestJson(req);
           const id = payload.id ?? null;
           const method = typeof payload.method === "string" ? payload.method : "";
+
+          // Require API key auth on initialize, matching production
+          const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
+          if (auth.status !== 200) {
+            sendJson(res, auth.status, {
+              jsonrpc: "2.0",
+              id,
+              error: { code: -32001, message: "Unauthorized" },
+            });
+            return;
+          }
+
           if (method === "initialize") {
             sendJson(res, 200, {
               jsonrpc: "2.0",
               id,
               result: {
-                protocolVersion: "2024-11-05",
+                protocolVersion: "2025-03-26",
                 capabilities: { tools: {} },
-                serverInfo: { name: "ArtX Image MCP", version: "0.1.0" },
+                serverInfo: { name: "artx-image", version: "1.0.0" },
               },
             });
             return;
           }
-          const auth = await getApiKeyUserFromAuthorization(req.headers.authorization);
-          if (auth.status !== 200) {
-            sendJson(res, auth.status, auth.body);
+
+          if (method === "notifications/initialized") {
+            sendJson(res, 202, { ok: true });
             return;
           }
+
           if (method === "tools/list") {
             sendJson(res, 200, { jsonrpc: "2.0", id, result: { tools } });
             return;
           }
-          sendJson(res, 404, { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+
+          if (method === "tools/call") {
+            const params = payload.params || {};
+            const toolName = typeof params.name === "string" ? params.name : "";
+
+            if (toolName === "artx_health") {
+              const user = "user" in auth.body ? auth.body.user : null;
+              const apiKey = "apiKey" in auth.body ? auth.body.apiKey : null;
+              sendJson(res, 200, {
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                      ok: true,
+                      user: user?.username,
+                      apiKeyPrefix: apiKey?.prefix,
+                      tools: tools.map(t => t.name),
+                    }, null, 2),
+                  }],
+                },
+              });
+              return;
+            }
+          }
+
+          sendJson(res, 400, { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
         } catch (error) {
           const message = error instanceof Error ? error.message : "MCP request failed";
           sendJson(res, 500, { error: message });

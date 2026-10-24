@@ -3063,6 +3063,17 @@ async function startServer() {
 
   app.use(express.static(staticPath));
 
+  // MCP manifest route (must come before SPA fallback)
+  app.get("/api/mcp/manifest", (_req, res) => {
+    res.json({
+      name: "artx-image",
+      version: "1.0.0",
+      transport: "streamable-http",
+      endpoint: "/api/mcp",
+      tools: getMcpTools(),
+    });
+  });
+
   // Handle client-side routing - serve index.html for all routes
   app.get("*", (_req, res) => {
     res.sendFile(path.join(staticPath, "index.html"));
