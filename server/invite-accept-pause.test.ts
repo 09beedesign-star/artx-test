@@ -197,7 +197,7 @@ describe("暂停开关 — 与邀请码的边界", () => {
 
   it("⭐⭐ 切换开关的实现绝不能改动 inviteCode（改了就退化成换码）", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "server/auth-store.ts"), "utf8");
-    const start = src.indexOf("export async function setInviteAcceptDisabled");
+    const start = src.indexOf("async function setInviteAcceptDisabledUnlocked");
     expect(start).toBeGreaterThan(-1);
     const body = src.slice(start, src.indexOf("\n}", start));
     // 只允许把 inviteCode 读出来写进审计日志，不许赋值。
