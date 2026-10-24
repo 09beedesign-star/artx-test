@@ -60,7 +60,9 @@ import { PostgresJsonDocumentStore } from "./postgres-json-store";
  */
 async function syncUserCreditsToAuthStore(userId: string, newCredits: number): Promise<void> {
   try {
-    const authStore = new PostgresJsonDocumentStore<{ users: Array<{ id: string; credits?: number }> }>(
+    const authStore = new PostgresJsonDocumentStore<
+      Record<string, unknown> & { users: Array<{ id: string; credits?: number }> }
+    >(
       process.env.DATABASE_URL || "",
       "auth-users",
     );
@@ -69,8 +71,16 @@ async function syncUserCreditsToAuthStore(userId: string, newCredits: number): P
       const authUser = authData.users.find((u) => u.id === userId);
       if (authUser) {
         authUser.credits = newCredits;
-        // 确保类型完整，满足 save() 方法的要求
-        await authStore.save({ users: authData.users });
+        /**
+         * ⚠️⚠️⚠️ 必须把整份文档原样带回去，只改 users。
+         * save() 是整文档 UPSERT：此前写的是 `save({ users })`，
+         * 每发一次积分（注册赠送 / 后台赠送 / 支付到账 / 邀请奖励）
+         * 就把 auth-users 里的 apiKeys、sessions、auditLogs、
+         * sms/emailChallenges 全部抹成空 —— 全站 API key 失效、
+         * 所有人被踢下线，零报错（2026-10-24 线上实测 apiKeys=0、auditLogs=0）。
+         * 锁测试：server/admin-store.auth-sync-preserve.test.ts
+         */
+        await authStore.save({ ...authData, users: authData.users });
       }
     }
   } catch (error) {
