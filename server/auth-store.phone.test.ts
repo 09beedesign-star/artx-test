@@ -6,13 +6,14 @@ import { PHONE_AUTH_MESSAGES, validatePhoneAuthPassword } from "../shared/phone-
 
 let dataDir = "";
 
-async function loadAuthStore() {
+async function loadAuthStore(phoneAuth = true) {
   vi.resetModules();
   process.env.ARTX_AUTH_DATA_BACKEND = "json";
   process.env.ARTX_ADMIN_DATA_BACKEND = "json";
   process.env.ARTX_DATA_DIR = dataDir;
   process.env.ADMIN_SESSION_SECRET = "test-secret";
   process.env.SMS_DRY_RUN = "true";
+  process.env.ARTX_PHONE_AUTH_ENABLED = phoneAuth ? "true" : "";
   return import("./auth-store");
 }
 
@@ -26,7 +27,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dataDir, { recursive: true, force: true });
-  for (const key of ["ARTX_AUTH_DATA_BACKEND", "ARTX_ADMIN_DATA_BACKEND", "ARTX_DATA_DIR", "ADMIN_SESSION_SECRET", "SMS_DRY_RUN"]) {
+  for (const key of ["ARTX_AUTH_DATA_BACKEND", "ARTX_ADMIN_DATA_BACKEND", "ARTX_DATA_DIR", "ADMIN_SESSION_SECRET", "SMS_DRY_RUN", "ARTX_PHONE_AUTH_ENABLED"]) {
     delete process.env[key];
   }
 });
@@ -145,5 +146,33 @@ describe("phone + password account flow (SparkX structure)", () => {
     expect(reg.status).toBe(200);
     const login = await handleAuthAction("login", { username: "legacy@example.com", password: "legacy-pass" });
     expect(login.status).toBe(200);
+  });
+});
+
+describe("phone auth feature switch (ARTX_PHONE_AUTH_ENABLED)", () => {
+  it("switch off: every phone-* action is 404 and features report off", async () => {
+    const { handleAuthAction, getAuthFeatures } = await loadAuthStore(false);
+    expect(getAuthFeatures()).toEqual({ phoneAuth: false });
+    for (const action of ["phone-send-code", "phone-register", "phone-login", "phone-reset-password"] as const) {
+      const res = await handleAuthAction(action, { phone: "13900139100", purpose: "register", password: "abc12345", code: "123456", agreed: true });
+      expect(res.status, action).toBe(404);
+    }
+  });
+
+  it("switch on: features report on", async () => {
+    const { getAuthFeatures } = await loadAuthStore(true);
+    expect(getAuthFeatures()).toEqual({ phoneAuth: true });
+  });
+
+  it("switch on: existing username/email accounts (even with short legacy passwords) still log in unchanged", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    const reg = await handleAuthAction("register", { username: "old-user@example.com", password: "1234" });
+    expect(reg.status).toBe(200);
+    const userId = (reg.body as { user: { id: string } }).user.id;
+
+    const login = await handleAuthAction("login", { username: "old-user@example.com", password: "1234" });
+    expect(login.status).toBe(200);
+    // 同一个账号 id —— 积分 / 会员 / 作品都挂在 id 上，所以权益不变
+    expect((login.body as { user: { id: string } }).user.id).toBe(userId);
   });
 });

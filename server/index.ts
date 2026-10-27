@@ -60,7 +60,7 @@ import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays
 import { searchReferenceImages } from "./reference-search";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
-import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
+import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getAuthFeatures, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
 import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getPlanIdForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail, getInviteEarnedCreditsForUser } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
@@ -2407,6 +2407,12 @@ async function startServer() {
       const message = error instanceof Error ? error.message : "Dev session failed";
       res.status(500).json({ error: message });
     }
+  });
+
+  // 登录界面开关（见 auth-store.ts isPhoneAuthEnabled）。⚠️ 必须注册在 /api/auth/:action 之前，且不缓存。
+  app.get("/api/auth/features", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(getAuthFeatures());
   });
 
   app.post("/api/auth/:action", async (req, res) => {

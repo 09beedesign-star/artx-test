@@ -1379,11 +1379,30 @@ export interface AuthRequestContext {
  *   与改造前行为一致，未变差；要根治需「锁内先占位 → 锁外发送 → 失败回滚」。
  * - 其余分支：整段在写锁内执行（读 → 改 → 写原子）。
  */
+/**
+ * 手机号账号体系（对齐 sparkx.zone）的总开关。
+ * - 关（默认）：phone-* 接口一律 404，前端显示原 ArtX 登录界面 —— 正式环境上线代码不等于上线功能。
+ * - 开：前端切到手机号三视图；老账号（用户名/邮箱）仍可通过「账号/邮箱登录」入口登录，权益与积分不变。
+ * ⚠️ 开关只在服务端读，前端经 GET /api/auth/features 取，禁止用 VITE_ 变量（那是构建期常量，改了要重新打包）。
+ */
+export function isPhoneAuthEnabled() {
+  return /^(1|true|yes|on)$/i.test(String(process.env.ARTX_PHONE_AUTH_ENABLED || "").trim());
+}
+
+export function getAuthFeatures() {
+  return { phoneAuth: isPhoneAuthEnabled() };
+}
+
+const PHONE_AUTH_ACTIONS = new Set<AuthAction>(["phone-send-code", "phone-register", "phone-login", "phone-reset-password"]);
+
 export async function handleAuthAction(
   action: AuthAction,
   payload: unknown,
   context: AuthRequestContext = {},
 ) {
+  if (PHONE_AUTH_ACTIONS.has(action) && !isPhoneAuthEnabled()) {
+    return { status: 404, body: { error: "Unknown auth action" } };
+  }
   if (action === "me") {
     return handleAuthActionUnlocked(action, payload, context);
   }

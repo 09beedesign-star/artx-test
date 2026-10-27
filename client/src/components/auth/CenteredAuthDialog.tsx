@@ -1,5 +1,7 @@
 import { X, Gift } from "lucide-react";
 import { PhoneAuthPanel } from "./PhoneAuthPanel";
+import { LegacyCenteredAuthDialog } from "./LegacyCenteredAuthDialog";
+import { useAuthFeatures } from "./useAuthFeatures";
 import { useTheme } from "@/contexts/ThemeContext";
 import { INVITE_REWARD_CONFIG } from "@shared/billing-config";
 
@@ -16,7 +18,15 @@ interface CenteredAuthDialogProps {
  * 居中的登录/注册弹窗。
  * 支持黑白模式，出现在画面正中间，带半透明背景遮罩。
  */
-export function CenteredAuthDialog({
+export function CenteredAuthDialog(props: CenteredAuthDialogProps) {
+  // 开关（ARTX_PHONE_AUTH_ENABLED）：关 → 原 ArtX 登录界面；开 → 手机号三视图 + 老账号入口。
+  const features = useAuthFeatures();
+  if (!features) return null;
+  if (!features.phoneAuth) return <LegacyCenteredAuthDialog {...props} />;
+  return <PhoneCenteredAuthDialog {...props} />;
+}
+
+function PhoneCenteredAuthDialog({
   open,
   onClose,
   defaultMode = "login",

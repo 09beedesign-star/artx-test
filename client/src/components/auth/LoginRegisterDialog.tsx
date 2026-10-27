@@ -3,11 +3,26 @@ import { X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { PhoneAuthPanel } from "./PhoneAuthPanel";
+import LegacyLoginRegisterDialog from "./LegacyLoginRegisterDialog";
+import { useAuthFeatures } from "./useAuthFeatures";
 
 // Global Login / Register Dialog
 // 首页使用 HomePage 内部的 CenteredAuthDialog；其它场景统一使用这个居中弹窗。
 // 表单本体是 PhoneAuthPanel（登录 / 注册 / 重置三视图，流程对齐 sparkx.zone）。
 export default function LoginRegisterDialog() {
+  // 开关（ARTX_PHONE_AUTH_ENABLED）：关 → 原 ArtX 登录界面；开 → 手机号三视图 + 老账号入口。
+  const features = useAuthFeatures();
+  const { loginModalOpen } = useAuth();
+  if (!features) return loginModalOpen ? <AuthFeaturesLoading /> : null;
+  if (!features.phoneAuth) return <LegacyLoginRegisterDialog />;
+  return <PhoneLoginRegisterDialog />;
+}
+
+function AuthFeaturesLoading() {
+  return <div className="fixed inset-0 z-[9999] bg-black/[0.06]" aria-busy="true" />;
+}
+
+function PhoneLoginRegisterDialog() {
   const { loginModalOpen, closeLoginModal } = useAuth();
   const { mode: themeMode } = useTheme();
   const isDark = themeMode === "dark";

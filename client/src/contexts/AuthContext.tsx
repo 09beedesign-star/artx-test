@@ -768,7 +768,7 @@ async function fetchDevSession(): Promise<AuthSession | null> {
   }
 }
 
-function getAuthApiBaseUrl() {
+export function getAuthApiBaseUrl() {
   const configured = normalizeApiBaseUrl(
     import.meta.env.VITE_AUTH_API_BASE_URL ||
     import.meta.env.VITE_API_BASE_URL ||
