@@ -1,0 +1,176 @@
+name: Deploy SparkX Account Combine Test
+
+# 「sparkx account combine test」测试环境发布（2026-10-27 建）。
+#
+# ⚠️⚠️⚠️ 与正式发布（deploy-tencent-cloud.yml → www.artxsd.com）完全隔离：
+#   - 只部署 sparkx-account-combine-test 分支（下面 guard 步骤强校验，别的分支直接失败）
+#   - 目标：/opt/artx-sparkx-test · artx-sparkx-test.service · 127.0.0.1:3003
+#           · 库 artx_sparkx_test · 数据 /var/lib/artx-sparkx-test
+#   - 不读、不写、不重启 /opt/artx-gray-backend 与 artx-gray-backend.service 的任何东西
+#   - 对外地址：https://sparkx-test.artxsd.com
+#
+# 只能手动触发。不要加 push 触发器（同正式发布的约定）。
+# 测试完成后上正式 = 把分支合进 main，再走「推送到正式环境」那条流程。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 与正式发布共用同一个 group：同一台机器，pnpm install / 重启排队执行，不并发抢资源。
+# cancel-in-progress 必须为 false（理由见 deploy-tencent-cloud.yml 顶部）。
+concurrency:
+  group: tencent-cloud-test
+  cancel-in-progress: false
+
+env:
+  PUBLIC_URL: https://sparkx-test.artxsd.com
+  SERVER_HOST: 43.161.241.133
+  SERVER_PORT: "22"
+  SERVER_USER: root
+  APP_BASE: /opt/artx-sparkx-test
+  SERVICE_NAME: artx-sparkx-test.service
+  APP_PORT: "3003"
+  ALLOWED_BRANCH: sparkx-account-combine-test
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard branch
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "${ALLOWED_BRANCH}" ]; then
+            echo "本工作流只允许部署 ${ALLOWED_BRANCH}，当前是 ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm run check
+
+      - name: Package release
+        env:
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+          GRAY_PUBLIC_URL: ${{ env.PUBLIC_URL }}
+          ARTX_DEPLOY_TARGET: tencent-cloud
+          ARTX_ENV_LABEL: sparkx-account-combine-test
+          VITE_ADMIN_HOST: admin.artxsd.com
+        run: pnpm run package:tencent-cloud
+
+      - name: Prepare SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TENCENT_CLOUD_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "${SSH_PRIVATE_KEY}" || (echo "Missing secret TENCENT_CLOUD_SSH_PRIVATE_KEY" >&2; exit 1)
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/tencent_cloud_deploy_key
+          chmod 600 ~/.ssh/tencent_cloud_deploy_key
+          ssh-keyscan -p "${SERVER_PORT}" "${SERVER_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        env:
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+        run: |
+          scp -i ~/.ssh/tencent_cloud_deploy_key -P "${SERVER_PORT}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            "output/tencent-cloud/${RELEASE_NAME}.tar.gz" \
+            "${SERVER_USER}@${SERVER_HOST}:/tmp/${RELEASE_NAME}.tar.gz"
+
+      - name: Activate release
+        env:
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+        run: |
+          ssh -i ~/.ssh/tencent_cloud_deploy_key -p "${SERVER_PORT}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            "${SERVER_USER}@${SERVER_HOST}" \
+            "RELEASE_NAME='${RELEASE_NAME}' APP_BASE='${APP_BASE}' SERVICE_NAME='${SERVICE_NAME}' APP_PORT='${APP_PORT}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          release="${RELEASE_NAME}"
+          base="${APP_BASE}"
+          service="${SERVICE_NAME}"
+          port="${APP_PORT}"
+
+          # 硬隔离闸：目标路径/服务/端口任何一个指向正式环境就中止
+          case "${base}" in /opt/artx-gray-backend*) echo "拒绝：APP_BASE 指向正式环境" >&2; exit 1 ;; esac
+          [ "${service}" != "artx-gray-backend.service" ] || { echo "拒绝：SERVICE 指向正式环境" >&2; exit 1; }
+          [ "${port}" != "3002" ] || { echo "拒绝：端口 3002 属于正式环境" >&2; exit 1; }
+          test -f "${base}/.env.gray" || { echo "缺少 ${base}/.env.gray（测试环境配置）" >&2; exit 1; }
+          grep -q '^DATABASE_URL=.*/artx_sparkx_test$' "${base}/.env.gray" \
+            || { echo "拒绝：测试配置的 DATABASE_URL 不是 artx_sparkx_test" >&2; exit 1; }
+
+          mkdir -p "${base}/releases" /var/log/artx
+          target="${base}/releases/${release}"
+          if [[ -L "${base}/current" ]] && [[ "$(readlink -f "${base}/current")" == "$(readlink -f "${target}" 2>/dev/null || echo "${target}")" ]]; then
+            echo "拒绝删除 current 正指向的目录" >&2; exit 1
+          fi
+          rm -rf "${target}"
+          tar -xzf "/tmp/${release}.tar.gz" -C "${base}/releases"
+          rm -f "/tmp/${release}.tar.gz"
+          cp "${base}/.env.gray" "${target}/.env.gray"
+
+          echo "--- 模型能力凭证门禁 ---"
+          ( cd "${target}" && node scripts/verify-model-env.mjs --file "${base}/.env.gray" )
+
+          ( cd "${target}" && pnpm install --prod --frozen-lockfile )
+          test -d "${target}/node_modules/.pnpm" || { echo "node_modules/.pnpm 缺失" >&2; exit 1; }
+          ls -d "${target}"/node_modules/.pnpm/iconv-lite@*/node_modules/iconv-lite/encodings >/dev/null 2>&1 \
+            || { echo "iconv-lite/encodings 缺失 —— 所有 JSON POST 都会 400" >&2; exit 1; }
+
+          chown -R root:artx "${target}"
+          chmod -R g+rX,o-rwx "${target}"
+          ln -sfn "${target}" "${base}/current"
+
+          systemctl enable "${service}" >/dev/null 2>&1 || true
+          systemctl restart "${service}"
+          ok=""
+          for i in $(seq 1 15); do
+            if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ -n "${ok}" ] || { echo "测试实例 ${port} 健康检查失败" >&2; tail -50 /var/log/artx/artx-sparkx-test.err.log >&2 || true; exit 1; }
+          curl -fsS "http://127.0.0.1:${port}/api/health"; echo
+
+          echo "--- JSON POST 冒烟（不能是 400）---"
+          post_code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${port}/api/invite/send" -H 'Content-Type: application/json' -d '{}')"
+          echo "POST /api/invite/send -> ${post_code}"
+          [ "${post_code}" != "400" ] || { echo "JSON body 解析已损坏" >&2; exit 1; }
+
+          echo "--- 正式环境未受影响 ---"
+          systemctl is-active artx-gray-backend.service
+          curl -fsS http://127.0.0.1:3002/api/health >/dev/null && echo "正式 3002 健康"
+
+          # 轮转：测试环境只留 3 份
+          keep=3; rel="${base}/releases"; cur="$(basename "$(readlink -f "${base}/current")")"
+          ls -1t "${rel}" | tail -n "+$((keep + 1))" | while read -r old; do
+            [ "${old}" = "${cur}" ] && continue
+            case "${old}" in artx-sparkx-test-*) rm -rf "${rel:?}/${old}" && echo "已清理 ${old}" ;; esac
+          done
+          df -h / | tail -1
+          REMOTE
+
+      - name: Verify public URL
+        run: |
+          # 域名 / 证书未就绪时这里会失败，但测试实例本身已在上一步验证可用。
+          metadata="$(curl -fsSL "${PUBLIC_URL}/deployment.json")"
+          echo "${metadata}"
+          printf '%s' "${metadata}" | EXPECTED_SHA="${GITHUB_SHA}" node -e '
+            let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const d=JSON.parse(s);
+              if (d.commitSha !== process.env.EXPECTED_SHA) { console.error(`commitSha ${d.commitSha} != ${process.env.EXPECTED_SHA}`); process.exit(1); }
+              if (d.environment !== "sparkx-account-combine-test") { console.error(`environment=${d.environment}`); process.exit(1); }
+              console.log(`OK: ${d.environment} ${d.shortCommit} ${d.backendUrl}`);
+            });'

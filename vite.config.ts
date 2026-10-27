@@ -296,8 +296,12 @@ function getBuildMetadata() {
     app: "artx",
     // 三个互斥环境：GitHub Pages 镜像 / 腾讯云生产 / 本机开发。
     // ⚠️ 以前只有前两个分支，腾讯云生产构建落进了 "local" 兜底，线上长期显示 environment=local。
+    // ARTX_ENV_LABEL：独立测试环境（如 sparkx-account-combine-test）显式声明自己的名字，
+    // 避免测试产物在 deployment.json 里冒充 "production"。未设置时行为与原来完全一致。
     environment:
-      process.env.GITHUB_PAGES === "true"
+      process.env.ARTX_ENV_LABEL?.trim()
+        ? process.env.ARTX_ENV_LABEL.trim()
+        : process.env.GITHUB_PAGES === "true"
         ? "github-pages-test"
         : process.env.ARTX_DEPLOY_TARGET === "tencent-cloud"
           ? "production"
