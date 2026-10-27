@@ -27,6 +27,7 @@ import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/
 import AdminPrototypePage from "./pages/AdminPrototypePage";
 import BillingPage from "./pages/BillingPage";
 import CreditsGuidePage from "./pages/CreditsGuidePage";
+import PolicyPage from "./pages/PolicyPage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 import BillingDialogProvider from "./components/billing/BillingDialogProvider";
@@ -41,7 +42,7 @@ const grayAdminRouteHosts = new Set(["backstage.artxsd.com"]);
 const routeLoadingDurationMs = 720;
 // 积分规则属于公开说明内容，未登录用户在决定付费前就应该能看到，
 // 因此放进 publicGuestPaths 且不套 RequireLogin。
-const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce", "/credits-guide"];
+const publicGuestPaths = ["/", "/inspiration", "/skills", "/cross-border-commerce", "/credits-guide", "/agreement", "/privacy"];
 const homeAuthPanelStorageKey = "artx:home-auth-panel";
 
 function isAdminHost() {
@@ -243,6 +244,14 @@ function AppRoutes() {
         <AppShell>
           <CreditsGuidePage />
         </AppShell>
+      </Route>
+
+      {/* 用户协议 / 隐私政策：登录弹窗勾选框里的链接以新标签页打开，必须免登录可读 */}
+      <Route path="/agreement">
+        <PolicyPage kind="agreement" />
+      </Route>
+      <Route path="/privacy">
+        <PolicyPage kind="privacy" />
       </Route>
 
       <Route path="/loading">

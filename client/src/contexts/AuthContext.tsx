@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { requestAnnouncementReplay } from "@/components/announcement/announcement-seen-store";
+import { PHONE_AUTH_MESSAGES } from "@shared/phone-auth-rules";
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
 const LOCAL_AUTH_USERS_KEY = "artx-local-auth-users";
@@ -36,6 +37,11 @@ interface AuthContextValue {
   resetPassword: (username: string, code: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
+  /** 手机号 + 密码账号体系（流程对齐 sparkx.zone，规则见 shared/phone-auth-rules.ts） */
+  sendPhoneCode: (phone: string, purpose: "register" | "reset") => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
+  phoneLogin: (phone: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  phoneRegister: (phone: string, password: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  phoneResetPassword: (phone: string, password: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -228,6 +234,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * 手机号登录 / 注册的成功出口。⚠️ 与其它登录方式一样必须走 completeAuthSuccess，
+   * 注册还要带邀请码（漏带 = 邀请关系永远绑不上且零报错）。
+   */
+  const authenticateWithPhone = async (
+    action: "phone-login" | "phone-register",
+    payload: Record<string, unknown>,
+  ) => {
+    try {
+      const inviteCode = action === "phone-register" ? getPendingInviteCode() : "";
+      const result = await fetchAuth(action, { ...payload, agreed: true, ...(inviteCode ? { inviteCode } : {}) });
+      if (!result.ok || !result.token || !result.user) {
+        return { ok: false, error: result.error || PHONE_AUTH_MESSAGES.dataError };
+      }
+      const normalizedUser = normalizeAuthUser(result.user);
+      if (!persistSession({ token: result.token, user: normalizedUser })) {
+        return { ok: false, error: "浏览器本地存储空间不足，已尝试清理旧画布缓存，请重新登录" };
+      }
+      completeAuthSuccess(normalizedUser);
+      if (inviteCode) clearPendingInviteCode();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: describeAuthNetworkError(error) };
+    }
+  };
+
   const authenticateWithEmail = async (email: string, code: string) => {
     try {
       // 与 sms-login 同理：邮箱验证码登录对新邮箱同样会自动建号，
@@ -297,6 +329,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     loginWithEmailCode: authenticateWithEmail,
+    sendPhoneCode: async (phone: string, purpose: "register" | "reset") => {
+      try {
+        const result = await fetchAuth("phone-send-code", { phone, purpose });
+        return { ok: result.ok, error: result.error, retryAfterSeconds: result.retryAfterSeconds };
+      } catch (error) {
+        return { ok: false, error: describeAuthNetworkError(error) };
+      }
+    },
+    phoneLogin: (phone: string, password: string) =>
+      authenticateWithPhone("phone-login", { phone, password }),
+    phoneRegister: (phone: string, password: string, code: string) =>
+      authenticateWithPhone("phone-register", { phone, password, code }),
+    phoneResetPassword: async (phone: string, password: string, code: string) => {
+      try {
+        const result = await fetchAuth("phone-reset-password", { phone, password, code });
+        return { ok: result.ok, error: result.ok ? undefined : result.error || PHONE_AUTH_MESSAGES.dataError };
+      } catch (error) {
+        return { ok: false, error: describeAuthNetworkError(error) };
+      }
+    },
     forgotPassword: async (username: string) => {
       try {
         const result = await fetchAuth("forgot-password", { username });
@@ -591,7 +643,14 @@ export function clearPendingInviteCode() {
   }
 }
 
-async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "reset-password" | "change-password", payload: Record<string, unknown>) {
+/** 网络层错误 → SparkX 网关同款文案。 */
+function describeAuthNetworkError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return PHONE_AUTH_MESSAGES.requestTimeout;
+  if (error instanceof TypeError) return PHONE_AUTH_MESSAGES.networkError;
+  return PHONE_AUTH_MESSAGES.requestFailed;
+}
+
+async function fetchAuth(action: "register" | "login" | "me" | "logout" | "social" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "forgot-password" | "reset-password" | "change-password" | "phone-send-code" | "phone-register" | "phone-login" | "phone-reset-password", payload: Record<string, unknown>) {
   const apiBaseUrl = getAuthApiBaseUrl();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);

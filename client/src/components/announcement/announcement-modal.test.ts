@@ -253,9 +253,10 @@ describe("登录 / 注册后自动重放公告", () => {
     expect(code).toContain("requestAnnouncementReplay");
     expect(code).toContain("const completeAuthSuccess");
     /**
-     * 5 条成功路径必须一条不漏：
+     * 6 条成功路径必须一条不漏：
      *   ① 账号密码登录 / 注册  ② 短信验证码  ③ 邮箱验证码
      *   ④ 第三方登录          ⑤ GitHub Pages 本地兜底(applyStoredSession)
+     *   ⑥ 手机号+密码 登录/注册（authenticateWithPhone，对齐 sparkx.zone）
      * 少一条就是「某种登录方式登进去了却不弹公告」，且全程零报错。
      *
      * ⚠️ 这里只数**调用点**，不含定义。
@@ -263,7 +264,8 @@ describe("登录 / 注册后自动重放公告", () => {
      *    不会被 /completeAuthSuccess\(/ 命中 —— 别再把期望值 +1。
      */
     const calls = (code.match(/completeAuthSuccess\(/g) ?? []).length;
-    expect(calls).toBe(5);
+    expect(calls).toBe(6);
+    expect(code).toMatch(/authenticateWithPhone[\s\S]*?completeAuthSuccess\(/);
     // 收尾函数之外不得再有裸的 setLoginModalOpen(false) 成功分支残留
     const strayCloses = (code.match(/setLoginModalOpen\(false\)/g) ?? []).length;
     expect(strayCloses).toBe(2); // closeLoginModal + completeAuthSuccess 内部各一次

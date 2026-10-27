@@ -108,7 +108,7 @@ type SessionUser = {
   allowedAiModels: string[];
 };
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "phone-send-code" | "phone-register" | "phone-login" | "phone-reset-password";
 
 type AiRouteTracking = {
   capabilityKey: AiBillingCapability;
@@ -1193,15 +1193,16 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const phone = typeof body.phone === "string" ? body.phone.replace(/[^\d]/g, "") : "";
 
-  if ((action === "login" || action === "sms-login" || action === "sms-send-code") && result.status >= 400) {
+  if ((action === "login" || action === "sms-login" || action === "sms-send-code" || action === "phone-login" || action === "phone-send-code") && result.status >= 400) {
+    const isPasswordLogin = action === "login" || action === "phone-login";
     const target = action === "login"
       ? username || "unknown-login"
       : phone ? `phone:${phone.slice(0, 3)}****${phone.slice(-4)}` : "unknown-phone";
     const highRisk = result.status === 429;
     await recordRiskEvent({
-      title: action === "login"
+      title: isPasswordLogin
         ? highRisk ? "账号登录触发锁定" : "账号密码登录失败"
-        : action === "sms-send-code"
+        : action === "sms-send-code" || action === "phone-send-code"
           ? "短信验证码发送异常"
           : highRisk ? "短信验证码错误次数过多" : "短信验证码登录失败",
       detail: typeof responseBody.error === "string" ? responseBody.error : `auth ${action} failed with ${result.status}`,
@@ -1218,7 +1219,7 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
     ? responseBody.user as { username?: string; id?: string }
     : null;
 
-  if ((action === "register" || action === "social" || action === "sms-login") && user?.username) {
+  if ((action === "register" || action === "phone-register" || action === "social" || action === "sms-login") && user?.username) {
     await sendOpsNotification({
       title: action === "sms-login" ? "短信验证码登录" : "新用户注册",
       message: `${user.username} 已完成${action === "sms-login" ? "短信验证码登录" : "注册"}`,
@@ -1228,7 +1229,7 @@ async function notifyAuthAction(action: AuthAction, body: Record<string, unknown
     });
   }
 
-  if (action === "reset-password") {
+  if (action === "reset-password" || action === "phone-reset-password") {
     await sendOpsNotification({
       title: "用户密码已重置",
       message: "有用户完成了密码重置流程。",
@@ -2431,7 +2432,8 @@ async function startServer() {
        * 初始额度绝不能让注册失败。注册是漏斗最顶端，
        * 宁可少发一笔积分，也不能因为积分系统抖动就拦住一个真实用户。
        */
-      if (action === "register" && result.status === 200) {
+      // ⚠️ phone-register 同样是注册出口，必须一起发初始额度（漏掉 = 手机号注册用户零积分且零报错）。
+      if ((action === "register" || action === "phone-register") && result.status === 200) {
         const registeredUser = (result.body as { user?: { id?: string; username?: string } })?.user;
         if (registeredUser?.id && registeredUser.username) {
           await grantSignupInitialCredits({

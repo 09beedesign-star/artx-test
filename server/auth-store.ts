@@ -16,8 +16,14 @@ import {
   type InviteRewardRuntimeConfig,
 } from "./invite-rewards";
 import { SIGNUP_IP_RATE_LIMIT } from "../shared/billing-config";
+import {
+  PHONE_AUTH_MESSAGES,
+  type PhoneCodePurpose,
+  phoneAccountUsername,
+  validatePhoneAuthPassword,
+} from "../shared/phone-auth-rules";
 
-type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login";
+type AuthAction = "register" | "login" | "me" | "logout" | "social" | "forgot-password" | "reset-password" | "change-password" | "sms-send-code" | "sms-login" | "email-send-code" | "email-login" | "phone-send-code" | "phone-register" | "phone-login" | "phone-reset-password";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
 
 const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
@@ -115,6 +121,11 @@ interface StoredApiKey {
 
 interface SmsChallenge {
   phone: string;
+  /**
+   * 验证码用途。缺省（历史数据 / sms-login）= "login"。
+   * ⚠️ 必须按 phone + purpose 区分：注册码不能拿去重置密码，反之亦然。
+   */
+  purpose?: "login" | PhoneCodePurpose;
   codeHash: string;
   sentAt: string;
   expiresAt: string;
@@ -738,7 +749,49 @@ function generateSmsCode() {
 }
 
 function phoneUsername(phone: string) {
-  return `+86${phone}`;
+  return phoneAccountUsername(phone);
+}
+
+function smsChallengePurpose(challenge: SmsChallenge) {
+  return challenge.purpose || "login";
+}
+
+function isSameSmsChallenge(challenge: SmsChallenge, phone: string, purpose: SmsChallenge["purpose"]) {
+  return challenge.phone === phone && smsChallengePurpose(challenge) === (purpose || "login");
+}
+
+function findSmsChallenge(db: AuthDatabase, phone: string, purpose: SmsChallenge["purpose"]) {
+  return (db.smsChallenges || []).find((item) => isSameSmsChallenge(item, phone, purpose));
+}
+
+function removeSmsChallenge(db: AuthDatabase, phone: string, purpose: SmsChallenge["purpose"]) {
+  db.smsChallenges = (db.smsChallenges || []).filter((item) => !isSameSmsChallenge(item, phone, purpose));
+}
+
+/**
+ * 校验短信验证码（命中则不删除，由调用方在业务成功后删除）。
+ * 返回 null 表示通过；否则返回需要直接回给前端的结果（调用方负责 save）。
+ */
+function verifySmsChallenge(
+  db: AuthDatabase,
+  phone: string,
+  purpose: PhoneCodePurpose,
+  code: string,
+): { status: number; body: { error: string } } | null {
+  pruneSmsChallenges(db);
+  const challenge = findSmsChallenge(db, phone, purpose);
+  if (!challenge) {
+    return { status: 400, body: { error: PHONE_AUTH_MESSAGES.codeInvalidOrExpired } };
+  }
+  if (challenge.attempts >= SMS_CODE_MAX_ATTEMPTS) {
+    removeSmsChallenge(db, phone, purpose);
+    return { status: 429, body: { error: PHONE_AUTH_MESSAGES.codeTooManyAttempts } };
+  }
+  if (challenge.codeHash !== hashToken(`${purpose}:${phone}:${code}`)) {
+    challenge.attempts = Number(challenge.attempts || 0) + 1;
+    return { status: 401, body: { error: PHONE_AUTH_MESSAGES.codeWrong } };
+  }
+  return null;
 }
 
 function normalizeEmail(value: unknown) {
@@ -1334,7 +1387,7 @@ export async function handleAuthAction(
   if (action === "me") {
     return handleAuthActionUnlocked(action, payload, context);
   }
-  if (action === "email-send-code" || action === "sms-send-code" || action === "forgot-password") {
+  if (action === "email-send-code" || action === "sms-send-code" || action === "phone-send-code" || action === "forgot-password") {
     return handleAuthActionUnlocked(action, payload, context);
   }
   return withAuthWriteLock(() => handleAuthActionUnlocked(action, payload, context));
@@ -1503,7 +1556,7 @@ async function handleAuthActionUnlocked(
     pruneSmsChallenges(db);
     const now = Date.now();
     const today = currentDayKey();
-    const existing = (db.smsChallenges || []).find((item) => item.phone === phone);
+    const existing = findSmsChallenge(db, phone, "login");
     if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
       return {
         status: 429,
@@ -1538,7 +1591,7 @@ async function handleAuthActionUnlocked(
     await mutateDatabase((fresh) => {
       fresh.smsChallenges = [
         challenge,
-        ...(fresh.smsChallenges || []).filter((item) => item.phone !== phone),
+        ...(fresh.smsChallenges || []).filter((item) => !isSameSmsChallenge(item, phone, "login")),
       ].slice(0, 1000);
       appendAuditLog(fresh, {
         actorId: "sms",
@@ -1570,12 +1623,12 @@ async function handleAuthActionUnlocked(
     }
 
     pruneSmsChallenges(db);
-    const challenge = (db.smsChallenges || []).find((item) => item.phone === phone);
+    const challenge = findSmsChallenge(db, phone, "login");
     if (!challenge) {
       return { status: 400, body: { error: "验证码无效或已过期，请重新获取" } };
     }
     if (challenge.attempts >= SMS_CODE_MAX_ATTEMPTS) {
-      db.smsChallenges = (db.smsChallenges || []).filter((item) => item.phone !== phone);
+      removeSmsChallenge(db, phone, "login");
       await saveDatabase(db);
       return { status: 429, body: { error: "验证码错误次数过多，请重新获取" } };
     }
@@ -1612,7 +1665,7 @@ async function handleAuthActionUnlocked(
       rawInviteCode: body.inviteCode,
       ip: context.ip,
     });
-    db.smsChallenges = (db.smsChallenges || []).filter((item) => item.phone !== phone);
+    removeSmsChallenge(db, phone, "login");
     appendAuditLog(db, {
       actorId: user.id,
       action: "auth.sms.login",
@@ -1622,6 +1675,195 @@ async function handleAuthActionUnlocked(
     const token = createSession(db, user.id);
     await saveDatabase(db);
     return { status: 200, body: { token, user: publicUser(user) } };
+  }
+
+  /*
+   * ── 手机号 + 密码账号体系（流程结构对齐 sparkx.zone）──────────────────────
+   * phone-send-code       { phone, purpose: "register" | "reset" }
+   * phone-register        { phone, password, code, agreed: true, inviteCode? }
+   * phone-login           { phone, password, agreed: true }
+   * phone-reset-password  { phone, password, code }
+   * 规则与文案的唯一事实源：shared/phone-auth-rules.ts。
+   */
+  if (action === "phone-send-code") {
+    const phone = normalizeMainlandPhone(body.phone);
+    const purpose: PhoneCodePurpose = body.purpose === "reset" ? "reset" : "register";
+    if (!phone) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.invalidPhone } };
+    }
+    const exists = db.users.some((item) => item.loginKey === loginKey(phoneUsername(phone)));
+    // 注册时号码已存在 / 重置时号码不存在 → 直接告诉用户，不浪费一条短信。
+    if (purpose === "register" && exists) {
+      return { status: 409, body: { error: PHONE_AUTH_MESSAGES.phoneRegistered } };
+    }
+    if (purpose === "reset" && !exists) {
+      return { status: 404, body: { error: PHONE_AUTH_MESSAGES.phoneNotRegistered } };
+    }
+
+    pruneSmsChallenges(db);
+    const now = Date.now();
+    const today = currentDayKey();
+    const existing = findSmsChallenge(db, phone, purpose);
+    if (existing?.resendAfterAt && Date.parse(existing.resendAfterAt) > now) {
+      return {
+        status: 429,
+        body: {
+          error: "验证码发送太频繁，请稍后再试",
+          retryAfterSeconds: Math.ceil((Date.parse(existing.resendAfterAt) - now) / 1000),
+        },
+      };
+    }
+    const dailyCount = existing?.dailyKey === today ? Number(existing.dailyCount || 0) : 0;
+    if (dailyCount >= SMS_CODE_DAILY_LIMIT) {
+      return { status: 429, body: { error: "今日验证码发送次数已达上限" } };
+    }
+
+    const code = generateSmsCode();
+    const sent = await sendSmsVerificationCode(phone, code);
+    if (!sent.sent) {
+      return { status: 503, body: { error: sent.reason === "sms_not_configured" ? "短信服务暂未开通，请联系管理员" : (sent.reason || "短信发送失败，请稍后重试") } };
+    }
+
+    const challenge: SmsChallenge = {
+      phone,
+      purpose,
+      codeHash: hashToken(`${purpose}:${phone}:${code}`),
+      sentAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + SMS_CODE_TTL_MS).toISOString(),
+      resendAfterAt: new Date(now + SMS_CODE_RESEND_MS).toISOString(),
+      attempts: 0,
+      dailyKey: today,
+      dailyCount: dailyCount + 1,
+    };
+    await mutateDatabase((fresh) => {
+      fresh.smsChallenges = [
+        challenge,
+        ...(fresh.smsChallenges || []).filter((item) => !isSameSmsChallenge(item, phone, purpose)),
+      ].slice(0, 1000);
+      appendAuditLog(fresh, {
+        actorId: "sms",
+        action: "auth.phone.code.send",
+        target: phoneUsername(phone),
+        meta: { purpose, provider: sent.provider, requestId: sent.requestId },
+      });
+    });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        expiresAt: challenge.expiresAt,
+        retryAfterSeconds: Math.ceil(SMS_CODE_RESEND_MS / 1000),
+        ...(process.env.SMS_DRY_RUN === "true" ? { debugCode: code } : {}),
+      },
+    };
+  }
+
+  if (action === "phone-register" || action === "phone-reset-password") {
+    const isRegister = action === "phone-register";
+    const purpose: PhoneCodePurpose = isRegister ? "register" : "reset";
+    const phone = normalizeMainlandPhone(body.phone);
+    const password = typeof body.password === "string" ? body.password : "";
+    const code = typeof body.code === "string" ? body.code.replace(/\D/g, "") : "";
+    if (!phone) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.invalidPhone } };
+    }
+    const passwordError = validatePhoneAuthPassword(password);
+    if (passwordError) {
+      return { status: 400, body: { error: passwordError } };
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return { status: 400, body: { error: code ? PHONE_AUTH_MESSAGES.invalidCode : PHONE_AUTH_MESSAGES.emptyCode } };
+    }
+    // ⚠️ 协议同意必须后端也校验：前端勾选框可被绕过，「用户已同意协议」是要落证据的。
+    if (isRegister && body.agreed !== true) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.agreementRequired } };
+    }
+
+    const username = phoneUsername(phone);
+    const existingUser = db.users.find((item) => item.loginKey === loginKey(username));
+    if (isRegister && existingUser) {
+      return { status: 409, body: { error: PHONE_AUTH_MESSAGES.phoneRegistered } };
+    }
+    if (!isRegister && !existingUser) {
+      return { status: 404, body: { error: PHONE_AUTH_MESSAGES.phoneNotRegistered } };
+    }
+    if (isRegister && isSignupRateLimited(db, context.ip)) {
+      return {
+        status: 429,
+        body: { error: `注册过于频繁，请 ${SIGNUP_IP_RATE_LIMIT.windowHours} 小时后再试，或联系客服协助开通` },
+      };
+    }
+
+    const codeFailure = verifySmsChallenge(db, phone, purpose, code);
+    if (codeFailure) {
+      await saveDatabase(db);
+      return codeFailure;
+    }
+    removeSmsChallenge(db, phone, purpose);
+
+    if (isRegister) {
+      const user = createUser(username, password, "viewer", {
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
+      user.inviteCode = generateUniqueInviteCode(db.users);
+      // 与 register 一致：只绑定邀请关系，不发积分（见 register 分支注释）。
+      await bindInviteRelationIfEligible({
+        db,
+        user,
+        isNewUser: true,
+        rawInviteCode: body.inviteCode,
+        ip: context.ip,
+      });
+      appendAuditLog(db, {
+        actorId: user.id,
+        action: "auth.phone.register",
+        target: user.id,
+        meta: { username, agreedPolicyVersion: "2026-04-01" },
+      });
+      const token = createSession(db, user.id);
+      db.users.push(user);
+      await saveDatabase(db);
+      return { status: 200, body: { token, user: publicUser(user) } };
+    }
+
+    const user = existingUser!;
+    const salt = crypto.randomBytes(16).toString("hex");
+    user.salt = salt;
+    user.passwordHash = hashPassword(password, salt);
+    user.resetTokenHash = undefined;
+    user.resetTokenExpiresAt = undefined;
+    user.failedLoginCount = 0;
+    user.lockedUntil = undefined;
+    db.sessions = db.sessions.filter((item) => item.userId !== user.id);
+    appendAuditLog(db, {
+      actorId: user.id,
+      action: "auth.password.reset.completed",
+      target: user.id,
+      meta: { provider: "sms", username },
+    });
+    await saveDatabase(db);
+    return { status: 200, body: { ok: true } };
+  }
+
+  /*
+   * phone-login 只做入参校验，随后落入下方 login 分支 —— 锁定 / 失败计数 / 会话
+   * 与账号密码登录共用同一份实现，避免两份逻辑漂移。
+   */
+  let phoneLoginUsername = "";
+  if (action === "phone-login") {
+    const phone = normalizeMainlandPhone(body.phone);
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!phone) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.invalidPhone } };
+    }
+    if (!password) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.emptyPassword } };
+    }
+    if (body.agreed !== true) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.agreementRequired } };
+    }
+    phoneLoginUsername = phoneUsername(phone);
   }
 
   if (action === "register") {
@@ -1677,8 +1919,8 @@ async function handleAuthActionUnlocked(
     return { status: 200, body: { token, user: publicUser(user) } };
   }
 
-  if (action === "login") {
-    const username = normalizeUsername(body.username);
+  if (action === "login" || action === "phone-login") {
+    const username = phoneLoginUsername || normalizeUsername(body.username);
     const password = typeof body.password === "string" ? body.password : "";
     if (body.adminLogin === true && username.includes("@")) {
       return { status: 400, body: { error: "管理后台请使用账号 ID 登录，不支持邮件登录" } };
@@ -1702,7 +1944,7 @@ async function handleAuthActionUnlocked(
         }
         await saveDatabase(db);
       }
-      return { status: 401, body: { error: "账号或密码错误，请重新输入" } };
+      return { status: 401, body: { error: phoneLoginUsername ? PHONE_AUTH_MESSAGES.wrongCredentials : "账号或密码错误，请重新输入" } };
     }
     if (user.status === "disabled") {
       return { status: 403, body: { error: "当前账号已被停用，请联系管理员" } };
