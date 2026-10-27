@@ -1869,12 +1869,20 @@ async function handleAuthActionUnlocked(
    * phone-login 只做入参校验，随后落入下方 login 分支 —— 锁定 / 失败计数 / 会话
    * 与账号密码登录共用同一份实现，避免两份逻辑漂移。
    */
+  /*
+   * 新老用户共用同一个登录框（用户 2026-10-27 拍板）：
+   *   body.account 可以是 手机号 / 邮箱 / 老用户名；兼容旧调用 body.phone。
+   *   - 是手机号 → 优先找 +86 手机号账号；不存在时回落到「用户名恰好就是这串数字」的老账号
+   *     （测试库里真有这种账号，不回落他就再也登不进去）。
+   *   - 否则 → 按老账号用户名 / 邮箱登录，规则与原 login 完全一致（老密码可能不足 8 位，不能套新规则）。
+   */
   let phoneLoginUsername = "";
   if (action === "phone-login") {
-    const phone = normalizeMainlandPhone(body.phone);
+    const rawAccount = typeof body.account === "string" ? body.account : typeof body.phone === "string" ? body.phone : "";
+    const account = rawAccount.trim();
     const password = typeof body.password === "string" ? body.password : "";
-    if (!phone) {
-      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.invalidPhone } };
+    if (!account) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.emptyAccount } };
     }
     if (!password) {
       return { status: 400, body: { error: PHONE_AUTH_MESSAGES.emptyPassword } };
@@ -1882,7 +1890,17 @@ async function handleAuthActionUnlocked(
     if (body.agreed !== true) {
       return { status: 400, body: { error: PHONE_AUTH_MESSAGES.agreementRequired } };
     }
-    phoneLoginUsername = phoneUsername(phone);
+    const phone = normalizeMainlandPhone(account);
+    if (phone) {
+      const phoneAccount = phoneUsername(phone);
+      const hasPhoneAccount = db.users.some((item) => item.loginKey === loginKey(phoneAccount));
+      phoneLoginUsername = hasPhoneAccount ? phoneAccount : normalizeUsername(account);
+    } else {
+      phoneLoginUsername = normalizeUsername(account);
+    }
+    if (!phoneLoginUsername) {
+      return { status: 400, body: { error: PHONE_AUTH_MESSAGES.emptyAccount } };
+    }
   }
 
   if (action === "register") {

@@ -17,7 +17,9 @@ export const PHONE_AUTH_MESSAGES = {
   agreementRequired: "请勾选用户协议",
   phoneRegistered: "该手机号已注册，请直接登录",
   phoneNotRegistered: "该手机号未注册",
-  wrongCredentials: "手机号或密码错误",
+  wrongCredentials: "账号或密码错误",
+  emptyAccount: "请输入手机号 / 邮箱 / 账号",
+  invalidPhoneOrEmail: "请输入正确的手机号或注册邮箱",
   codeInvalidOrExpired: "验证码无效或已过期，请重新获取",
   codeWrong: "验证码错误",
   codeTooManyAttempts: "验证码错误次数过多，请重新获取",
@@ -47,6 +49,18 @@ export function validatePhoneAuthPassword(password: string): string {
     return PHONE_AUTH_MESSAGES.passwordNeedsLetterAndDigit;
   }
   return "";
+}
+
+/**
+ * 统一登录窗口里「重置密码」的账号分流：手机号走短信、邮箱走老的邮件验证码。
+ * 前端（决定调哪个接口）与测试共用这一处判断。
+ */
+export type ResetAccountKind = "phone" | "email";
+export function classifyResetAccount(input: string): ResetAccountKind | null {
+  const value = input.trim();
+  if (isValidMainlandPhone(value.replace(/^\+?86/, ""))) return "phone";
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "email";
+  return null;
 }
 
 /** 手机号账号在库里的用户名形态（与既有 sms-login 建号保持一致）。 */

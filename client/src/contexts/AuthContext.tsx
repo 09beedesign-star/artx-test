@@ -39,7 +39,7 @@ interface AuthContextValue {
   socialAuth: (provider: "google" | "wechat" | "apple" | "github" | "meta") => Promise<{ ok: boolean; error?: string }>;
   /** 手机号 + 密码账号体系（流程对齐 sparkx.zone，规则见 shared/phone-auth-rules.ts） */
   sendPhoneCode: (phone: string, purpose: "register" | "reset") => Promise<{ ok: boolean; error?: string; retryAfterSeconds?: number }>;
-  phoneLogin: (phone: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  phoneLogin: (account: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   phoneRegister: (phone: string, password: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   phoneResetPassword: (phone: string, password: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
@@ -337,8 +337,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: describeAuthNetworkError(error) };
       }
     },
-    phoneLogin: (phone: string, password: string) =>
-      authenticateWithPhone("phone-login", { phone, password }),
+    // account = 手机号 / 邮箱 / 老用户名，后端统一解析（新老用户同一个登录框）
+    phoneLogin: (account: string, password: string) =>
+      authenticateWithPhone("phone-login", { account, password }),
     phoneRegister: (phone: string, password: string, code: string) =>
       authenticateWithPhone("phone-register", { phone, password, code }),
     phoneResetPassword: async (phone: string, password: string, code: string) => {

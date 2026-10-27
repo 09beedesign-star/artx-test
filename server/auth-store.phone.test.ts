@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PHONE_AUTH_MESSAGES, validatePhoneAuthPassword } from "../shared/phone-auth-rules";
+import { PHONE_AUTH_MESSAGES, classifyResetAccount, validatePhoneAuthPassword } from "../shared/phone-auth-rules";
 
 let dataDir = "";
 
@@ -174,5 +174,61 @@ describe("phone auth feature switch (ARTX_PHONE_AUTH_ENABLED)", () => {
     expect(login.status).toBe(200);
     // 同一个账号 id —— 积分 / 会员 / 作品都挂在 id 上，所以权益不变
     expect((login.body as { user: { id: string } }).user.id).toBe(userId);
+  });
+});
+
+describe("unified login box: new + old users in the same window (phone-login { account })", () => {
+  const idOf = (r: { body: unknown }) => (r.body as { user: { id: string } }).user.id;
+
+  it("old email account with a short legacy password logs in through the new box, same id", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    const reg = await handleAuthAction("register", { username: "old-mail@example.com", password: "1234" });
+    const login = await handleAuthAction("phone-login", { account: " old-mail@example.com ", password: "1234", agreed: true });
+    expect(login.status).toBe(200);
+    expect(idOf(login)).toBe(idOf(reg));
+  });
+
+  it("old plain username logs in through the new box", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    const reg = await handleAuthAction("register", { username: "designer01", password: "pass" });
+    const login = await handleAuthAction("phone-login", { account: "designer01", password: "pass", agreed: true });
+    expect(login.status).toBe(200);
+    expect(idOf(login)).toBe(idOf(reg));
+  });
+
+  it("new phone account logs in via account field", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    const reg = await registerPhone(handleAuthAction as never, "13900139200");
+    const login = await handleAuthAction("phone-login", { account: "13900139200", password: "abc12345", agreed: true });
+    expect(login.status).toBe(200);
+    expect(idOf(login)).toBe(idOf(reg));
+  });
+
+  it("legacy username that happens to be 11 digits still logs in (no +86 account exists)", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    const reg = await handleAuthAction("register", { username: "13800138000", password: "old1" });
+    expect(reg.status).toBe(200);
+    const login = await handleAuthAction("phone-login", { account: "13800138000", password: "old1", agreed: true });
+    expect(login.status).toBe(200);
+    expect(idOf(login)).toBe(idOf(reg));
+  });
+
+  it("wrong password and empty account give unified copy", async () => {
+    const { handleAuthAction } = await loadAuthStore(true);
+    await handleAuthAction("register", { username: "old2@example.com", password: "1234" });
+    const bad = await handleAuthAction("phone-login", { account: "old2@example.com", password: "nope", agreed: true });
+    expect(bad.status).toBe(401);
+    expect(errorOf(bad)).toBe(PHONE_AUTH_MESSAGES.wrongCredentials);
+    const empty = await handleAuthAction("phone-login", { account: "  ", password: "x", agreed: true });
+    expect(empty.status).toBe(400);
+    expect(errorOf(empty)).toBe(PHONE_AUTH_MESSAGES.emptyAccount);
+  });
+
+  it("classifyResetAccount routes phone → SMS, email → mail code, else null", () => {
+    expect(classifyResetAccount("13900139000")).toBe("phone");
+    expect(classifyResetAccount("+8613900139000")).toBe("phone");
+    expect(classifyResetAccount(" a@b.com ")).toBe("email");
+    expect(classifyResetAccount("designer01")).toBeNull();
+    expect(classifyResetAccount("12345")).toBeNull();
   });
 });
