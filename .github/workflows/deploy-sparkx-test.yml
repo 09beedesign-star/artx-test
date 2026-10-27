@@ -62,9 +62,11 @@ jobs:
       - name: Check
         run: pnpm run check
 
+      # 目录名必须带 run_attempt：「重跑失败步骤」会复用同一个 run_id，
+      # 不带的话第二次会撞上 current 正指向的目录，被下面的安全闸拒绝（2026-10-27 实际踩到）。
       - name: Package release
         env:
-          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           GRAY_PUBLIC_URL: ${{ env.PUBLIC_URL }}
           ARTX_DEPLOY_TARGET: tencent-cloud
           ARTX_ENV_LABEL: sparkx-account-combine-test
@@ -83,7 +85,7 @@ jobs:
 
       - name: Upload release
         env:
-          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           scp -i ~/.ssh/tencent_cloud_deploy_key -P "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
@@ -92,7 +94,7 @@ jobs:
 
       - name: Activate release
         env:
-          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}
+          RELEASE_NAME: artx-sparkx-test-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           ssh -i ~/.ssh/tencent_cloud_deploy_key -p "${SERVER_PORT}" \
             -o BatchMode=yes -o IdentitiesOnly=yes \
