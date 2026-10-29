@@ -68,7 +68,11 @@ describe("语音输入 · 腾讯云签名", () => {
     expect(getVoiceAsrConfig({ TENCENTCLOUD_SECRET_ID: "a", TENCENTCLOUD_SECRET_KEY: "b" } as NodeJS.ProcessEnv)).toBeNull();
     expect(
       getVoiceAsrConfig({ TENCENT_ASR_APP_ID: "1", TENCENTCLOUD_SECRET_ID: "a", TENCENTCLOUD_SECRET_KEY: "b" } as NodeJS.ProcessEnv),
-    ).toEqual({ appId: "1", secretId: "a", secretKey: "b", engine: "16k_zh" });
+    ).toEqual({ appId: "1", secretId: "a", secretKey: "b", engine: "16k_zh_en_2.0" });
+    // 显式配置时以配置为准（可回退到标准版）。
+    expect(
+      getVoiceAsrConfig({ TENCENT_ASR_APP_ID: "1", TENCENT_VOD_SID: "a", TENCENT_VOD_SKEY: "b", TENCENT_ASR_ENGINE: "16k_zh" } as NodeJS.ProcessEnv)?.engine,
+    ).toBe("16k_zh");
   });
 });
 

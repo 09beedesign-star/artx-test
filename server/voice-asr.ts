@@ -12,7 +12,7 @@
  *   TENCENT_ASR_APP_ID        必填，腾讯云账号 APPID（数字）
  *   TENCENT_ASR_SECRET_ID     缺省回退 TENCENTCLOUD_SECRET_ID → TENCENT_VOD_SID
  *   TENCENT_ASR_SECRET_KEY    缺省回退 TENCENTCLOUD_SECRET_KEY → TENCENT_VOD_SKEY
- *   TENCENT_ASR_ENGINE        引擎，默认 16k_zh
+ *   TENCENT_ASR_ENGINE        引擎，默认 16k_zh_en_2.0（大模型 2.0 版）
  */
 
 import crypto from "node:crypto";
@@ -21,6 +21,13 @@ import { VOICE_DURATION_GRACE_MS, VOICE_MAX_SECONDS } from "../shared/voice-inpu
 const SIGN_TTL_SECONDS = 120;
 /** 握手 / 结束包的固定开销，从服务端计时里扣掉，避免把连接时间算给用户。 */
 const HANDSHAKE_OVERHEAD_MS = 600;
+
+/**
+ * 默认引擎：大模型 2.0 版（中英粤 + 30 种方言）。国内 1 元/小时，跨境 2.5 元/小时，
+ * 比标准版 16k_zh（3 / 8.6 元/小时）便宜，识别质量也更好。2026-10-29 已在国内和跨境两条线路实测通过，
+ * 返回结构与标准版相同（result.slice_type / index / voice_text_str）。
+ */
+export const DEFAULT_VOICE_ASR_ENGINE = "16k_zh_en_2.0";
 
 export type VoiceAsrConfig = {
   appId: string;
@@ -35,7 +42,7 @@ export function getVoiceAsrConfig(env: NodeJS.ProcessEnv = process.env): VoiceAs
   const secretId = (env.TENCENT_ASR_SECRET_ID || env.TENCENTCLOUD_SECRET_ID || env.TENCENT_CLOUD_SECRET_ID || env.TENCENT_VOD_SID || "").trim();
   const secretKey = (env.TENCENT_ASR_SECRET_KEY || env.TENCENTCLOUD_SECRET_KEY || env.TENCENT_CLOUD_SECRET_KEY || env.TENCENT_VOD_SKEY || "").trim();
   if (!appId || !secretId || !secretKey) return null;
-  return { appId, secretId, secretKey, engine: (env.TENCENT_ASR_ENGINE || "16k_zh").trim() };
+  return { appId, secretId, secretKey, engine: (env.TENCENT_ASR_ENGINE || DEFAULT_VOICE_ASR_ENGINE).trim() };
 }
 
 /** 生成已签名的实时识别 wss 地址。纯函数（时间、随机数可注入），便于单测对拍官方示例。 */

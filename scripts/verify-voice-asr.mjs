@@ -27,7 +27,7 @@ for (const file of files) {
 
 const secretId = env.TENCENT_ASR_SECRET_ID || env.TENCENTCLOUD_SECRET_ID || env.TENCENT_CLOUD_SECRET_ID || env.TENCENT_VOD_SID || "";
 const secretKey = env.TENCENT_ASR_SECRET_KEY || env.TENCENTCLOUD_SECRET_KEY || env.TENCENT_CLOUD_SECRET_KEY || env.TENCENT_VOD_SKEY || "";
-const engine = env.TENCENT_ASR_ENGINE || "16k_zh";
+const engine = env.TENCENT_ASR_ENGINE || "16k_zh_en_2.0";
 if (!secretId || !secretKey) {
   console.error("✗ 没有可用的腾讯云密钥（TENCENT_ASR_* / TENCENTCLOUD_* / TENCENT_VOD_*）");
   process.exit(1);
