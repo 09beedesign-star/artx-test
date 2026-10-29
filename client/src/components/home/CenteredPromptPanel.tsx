@@ -3,6 +3,7 @@ import { ImagePlus, Send, X } from "lucide-react";
 import { ModelSelector } from "@/components/canvas/ModelSelector";
 import { SkillSelector } from "@/components/canvas/SkillSelector";
 import { SkillCarousel } from "@/components/home/SkillCarousel";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 import type { AiModelOption } from "@/lib/workspace-data";
 import type { HomePromptReference } from "@/lib/home-prompt-handoff";
 import type { PendingSkillLoad } from "@/lib/skill-store";
@@ -480,14 +481,24 @@ export function CenteredPromptPanel({
               compact={false}
             />
           </div>
-          <button
-            type="button"
-            onClick={onSend}
-            className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
-            aria-label="生成图片"
-          >
-            <Send size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <VoiceInputButton
+              value={prompt}
+              onChange={onPromptChange}
+              size={36}
+              iconSize={18}
+              color={textMuted}
+              hoverColor={textPrimary}
+            />
+            <button
+              type="button"
+              onClick={onSend}
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
+              aria-label="生成图片"
+            >
+              <Send size={18} />
+            </button>
+          </div>
         </div>
         </div>
       </div>

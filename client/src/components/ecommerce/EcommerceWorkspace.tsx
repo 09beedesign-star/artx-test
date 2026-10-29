@@ -52,6 +52,7 @@ import {
 } from "./shared";
 import { CountRow, SectionTitle, Select, Switch } from "./primitives";
 import { templateCoverUrl } from "./template-visual";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 
 const MAX_UPLOADS = 5;
 
@@ -609,6 +610,7 @@ export function EcommerceWorkspace({
           >
             商品卖点 &amp; 要求
           </SectionTitle>
+          <div className="relative">
           <textarea
             value={draft.sellingPoints}
             onChange={event => updateDraft({ sellingPoints: event.target.value })}
@@ -616,7 +618,7 @@ export function EcommerceWorkspace({
             onFocus={() => setSellingFocused(true)}
             onBlur={() => setSellingFocused(false)}
             data-testid="ecommerce-selling-points"
-            className="min-h-[96px] w-full resize-none rounded-md p-2.5 text-[12px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150"
+            className="min-h-[96px] w-full resize-none rounded-md p-2.5 pb-9 text-[12px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150"
             style={{
               background: palette.bg,
               // 聚焦态与画布右下角提示词输入框同色值（2026-10-18 用户要求）
@@ -625,6 +627,17 @@ export function EcommerceWorkspace({
               color: palette.text,
             }}
           />
+          <VoiceInputButton
+            value={draft.sellingPoints}
+            onChange={(next) => updateDraft({ sellingPoints: next })}
+            size={26}
+            iconSize={14}
+            color={palette.sub}
+            hoverColor={palette.text}
+            activeColor={lime}
+            className="absolute bottom-2 right-2"
+          />
+          </div>
         </div>
 
           <div className="my-3 h-px" style={{ background: palette.border }} aria-hidden="true" />

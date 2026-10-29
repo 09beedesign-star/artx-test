@@ -81,6 +81,7 @@ async function syncUserCreditsToAuthStore(userId: string, newCredits: number): P
 }
 import { getAllProviderBilling } from "./provider-billing";
 import { DEFAULT_GIFT_EXPIRY_DAYS, GIFT_LEDGER_TYPE, grantCredits } from "./credit-gifting";
+import { settleVoiceRemainder } from "../shared/voice-input";
 import type { InviteEmailSendLog } from "./invite-email";
 
 type AdminStatus = "normal" | "watch" | "blocked" | "cancelled";
@@ -157,6 +158,11 @@ type AdminUserAccount = {
    * 「上次发到第几期」才能算出「现在欠几期」，所以 issuedPeriods 必须落库。
    */
   membership?: MembershipSubscription;
+  /**
+   * 语音输入未结算的小数积分（0 ≤ x < 1）。前端不可见，累计满 1 才真实扣 1 分。
+   * 见 settleVoiceInputUsage。历史用户无此字段，按 0 处理。
+   */
+  voiceCreditRemainder?: number;
 };
 
 /**
@@ -6483,4 +6489,128 @@ export async function sendInviteEmail(input: {
   await saveAdminData(data);
 
   return { success: true };
+}
+
+// =============================================================================
+// 语音输入提示词 · 隐形计费（ericbi 2026-10-28 拍板）
+//   - 付费会员免费，只记用量；Free 用户按时长累计小数积分，满 1 才真实扣 1。
+//   - 前端不展示语音扣费；真实扣分时返回新余额，顶栏随之刷新。
+//   - 赠送积分（gift 批次）在有效期内可抵扣：不传 excludeKinds，按到期先扣。
+// =============================================================================
+
+/**
+ * 语音结算专用串行队列。
+ * admin-data 是「整份读 → 改 → 整份写」，两次语音结算并发会互相覆盖余数。
+ * 生产为单实例 fork，进程内串行即可保证语音这条路径不丢账。
+ */
+let voiceSettlementQueue: Promise<unknown> = Promise.resolve();
+function runVoiceSettlementExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const next = voiceSettlementQueue.then(task, task);
+  voiceSettlementQueue = next.catch(() => undefined);
+  return next;
+}
+
+function isVoiceFreeUser(user: AdminUserAccount | undefined) {
+  if (!user) return false;
+  if (user.testProfile && user.accountType === "test") return true;
+  return !isFreePlanId(getPlanIdFromUserPlan(user.plan));
+}
+
+/** 开始录音前的余额闸门：Free 用户可用余额（含有效赠送积分）+ 未结余数 < 1 时拦截，不开麦克风。 */
+export async function assertCanStartVoiceInput(userId: string) {
+  const data = await loadAdminData();
+  const user = data.users.find((item) => item.id === userId);
+  if (isVoiceFreeUser(user)) return;
+  const balance = getUserCreditBatchBalance(data, userId);
+  if (balance < 1) {
+    throw new AiBillingError({
+      code: resolveAiBillingErrorCode(getPlanIdFromUserPlan(user?.plan), balance),
+      requiredCredits: 1,
+      availableCredits: balance,
+      planId: getPlanIdFromUserPlan(user?.plan),
+    });
+  }
+}
+
+export async function settleVoiceInputUsage(input: {
+  userId: string;
+  username: string;
+  sessionId: string;
+  durationMs: number;
+  recognized: boolean;
+}): Promise<{ chargedCredits: number; balance: number; remainder: number; free: boolean }> {
+  return runVoiceSettlementExclusive(async () => {
+    const data = await loadAdminData();
+    const user = data.users.find((item) => item.id === input.userId);
+    const createdAt = nowIso();
+    const durationMs = Math.max(0, Math.round(input.durationMs));
+    if (!user) return { chargedCredits: 0, balance: 0, remainder: 0, free: false };
+
+    const free = isVoiceFreeUser(user);
+    // 识别为空（没说话 / 立刻取消）不计费；会员不计费。
+    const billable = input.recognized && !free && durationMs > 0;
+    const previous = Number(user.voiceCreditRemainder) || 0;
+    const settled = billable
+      ? settleVoiceRemainder(previous, durationMs)
+      : { cost: 0, whole: 0, remainder: previous };
+
+    let chargedCredits = 0;
+    if (settled.whole > 0) {
+      const available = getUserCreditBatchBalance(data, user.id);
+      chargedCredits = Math.min(settled.whole, available);
+      if (chargedCredits > 0) {
+        deductCreditBatchesForUsage(data, user.id, chargedCredits, createdAt);
+        user.credits = Math.max(0, user.credits - chargedCredits);
+        user.totalConsumed = (Number(user.totalConsumed) || 0) + chargedCredits;
+        data.credits = [
+          {
+            id: `cr_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 4)}`,
+            userId: user.id,
+            user: user.name,
+            type: "AI 消耗",
+            delta: -chargedCredits,
+            reason: "语音输入 累计时长结算",
+            source: input.sessionId,
+            operator: "系统",
+            createdAt,
+          },
+          ...data.credits,
+        ].slice(0, 500);
+      }
+    }
+    // 余额不够扣时余数清零而不是继续挂账：用户已被开始闸门拦住，不会持续欠费。
+    user.voiceCreditRemainder = chargedCredits < settled.whole ? 0 : settled.remainder;
+
+    if (durationMs > 0) {
+      const record: AiTaskRecord = {
+        id: `task_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 4)}`,
+        generationId: input.sessionId,
+        backendTaskId: input.sessionId,
+        providerTaskId: input.sessionId,
+        userId: user.id,
+        user: user.name,
+        capability: "语音输入",
+        provider: "tencent-asr",
+        model: "asr-realtime",
+        status: "success",
+        latencyMs: durationMs,
+        failureReason: free ? "会员免费" : input.recognized ? "" : "识别为空，不计费",
+        inputUnits: Math.round(durationMs / 1000),
+        outputUnits: 0,
+        // 成本：约 0.017 元/分钟，estimatedCost 沿用 aiTasks 的「元」口径。
+        estimatedCost: Number(((durationMs / 60_000) * 0.017).toFixed(5)),
+        chargedCredits,
+        grossMargin: 0,
+        usage: { usageKind: "credits" },
+        startedAt: new Date(Date.parse(createdAt) - durationMs).toISOString(),
+        completedAt: createdAt,
+        createdAt,
+      };
+      data.aiTasks = [record, ...data.aiTasks].slice(0, 3000);
+    }
+
+    await saveAdminData(data);
+    if (chargedCredits > 0) await syncUserCreditsToAuthStore(user.id, user.credits);
+    return { chargedCredits, balance: user.credits, remainder: user.voiceCreditRemainder, free };
+  });
 }

@@ -58,6 +58,7 @@ import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
 import { searchReferenceImages } from "./reference-search";
+import { finishVoiceSession, startVoiceSession } from "./voice-routes";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
@@ -2729,6 +2730,32 @@ async function startServer() {
 
   app.get("/api/billing/config", (_req, res) => {
     res.json(getWallytConfigStatus());
+  });
+
+  /**
+   * 语音输入提示词：签发腾讯云实时 ASR 地址 + 结束时隐形计费。
+   * 音频由浏览器直连腾讯云，不经过、不落地本服务器。实现见 server/voice-routes.ts。
+   */
+  app.post("/api/voice/session", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const result = await startVoiceSession({ id: user.id, username: user.username });
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "语音会话创建失败" });
+    }
+  });
+
+  app.post("/api/voice/session/finish", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const result = await finishVoiceSession({ id: user.id, username: user.username }, req.body);
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "语音会话结算失败" });
+    }
   });
 
   app.get("/api/billing/summary", async (req, res) => {

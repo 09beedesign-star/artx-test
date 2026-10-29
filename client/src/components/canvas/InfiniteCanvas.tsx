@@ -687,6 +687,7 @@ import {
 } from "@/lib/skill-store";
 import generationMark from "@/assets/generation/ai-generation-mark.svg";
 import artxBrandMark from "@/assets/brand/artx-favicon.png";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
 
 const ENABLE_NODE_CONNECTIONS = false;
 
@@ -18376,6 +18377,14 @@ function AssetEditPromptBar({
           />
         </div>
         <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
+          <VoiceInputButton
+            value={prompt}
+            onChange={setPrompt}
+            size={32}
+            iconSize={15}
+            color={iconRowButton.text}
+            hoverColor={text}
+          />
           <button
             type="button"
             disabled={!canSendPrompt}
@@ -27282,6 +27291,36 @@ function CanvasAssistantPanel({
                   />
                 </div>
                 <div className="flex shrink-0 items-center" style={{ gap: 6 }}>
+                  {/*
+                    语音输入：写入最后一个文本段（多段模式下图片/Skill 标签之后的那段）。
+                    点击按钮时焦点离开 contentEditable，上面的 DOM 同步 effect 会把识别文本回写进去。
+                  */}
+                  <VoiceInputButton
+                    value={(() => {
+                      const last = [...composerSegments].reverse().find(segment => segment.type === "text");
+                      return last && last.type === "text" ? last.text : "";
+                    })()}
+                    onChange={next =>
+                      setComposerSegments(prev => {
+                        let index = -1;
+                        for (let i = prev.length - 1; i >= 0; i -= 1) {
+                          if (prev[i].type === "text") {
+                            index = i;
+                            break;
+                          }
+                        }
+                        if (index < 0) return [...prev, createAssistantTextSegment(next)];
+                        return prev.map((segment, i) =>
+                          i === index && segment.type === "text" ? { ...segment, text: next } : segment
+                        );
+                      })
+                    }
+                    disabled={isSubmitting}
+                    size={32}
+                    iconSize={15}
+                    color={sub}
+                    hoverColor={text}
+                  />
                   <button
                     disabled={!canSubmit}
                     className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"

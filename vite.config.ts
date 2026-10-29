@@ -589,6 +589,35 @@ function vitePluginAiOrchestratorApi(): Plugin {
         }
       });
 
+      // 语音输入提示词：与生产 express 共用 server/voice-routes.ts。
+      // 本地未配置 TENCENT_ASR_* 时返回 503，前端会提示「语音输入暂未开通」。
+      server.middlewares.use("/api/voice/session", async (req, res, next) => {
+        if (req.method !== "POST") return next();
+        try {
+          let user: { id: string; username: string } | null = null;
+          const sessionResult = await getSessionUserFromAuthorization(req.headers.authorization);
+          if (sessionResult.status === 200 && "user" in sessionResult.body) {
+            user = { id: sessionResult.body.user.id, username: sessionResult.body.user.username };
+          } else {
+            const session = await getDevAutoLoginSession();
+            const devUser = (session.body as { user?: { id?: string; username?: string } })?.user;
+            if (devUser?.id) user = { id: devUser.id, username: devUser.username || "dev-tester" };
+          }
+          if (!user) return sendJson(res, 401, { error: "请先登录" });
+          const { finishVoiceSession, startVoiceSession } = await import("./server/voice-routes");
+          const subPath = (req.url || "/").split("?")[0].replace(/^\/+|\/+$/g, "");
+          const result = subPath === "finish"
+            ? await finishVoiceSession(user, await readRequestJson(req))
+            : !subPath
+              ? await startVoiceSession(user)
+              : null;
+          if (!result) return next();
+          sendJson(res, result.status, result.body);
+        } catch (error) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : "voice session failed" });
+        }
+      });
+
       // AI 助手编排：原先走 proxyJson 转发到远程后端，而 proxyJson 会原样透传
       // Authorization 头 —— 本地 dev token（artx-dev-auto-login-token）远程 sessions
       // 表里并不存在，于是恒定返回 401「登录已失效」，本地根本用不了 AI 助手。

@@ -261,7 +261,8 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
       bottomBar.length,
       "切片过宽，可能把组件其它区域也圈进来，断言会恒真"
     // 2026-09-29：发送按钮加 data-artx-asset-send / aria-busy（+42 字符），上限放宽到 3700。
-    ).toBeLessThan(3700);
+    // 2026-10-29：发送按钮左侧新增 <VoiceInputButton>（约 +230 字符），上限放宽到 4000。
+    ).toBeLessThan(4000);
   });
 
   it("外层必须是 justify-between 单行容器，不能是 flex-wrap", () => {
