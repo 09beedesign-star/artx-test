@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
@@ -9,30 +9,37 @@ import { AuthProvider } from "./contexts/AuthContext";
 import AppShell from "./components/layout/AppShell";
 import OnboardingProvider from "./components/onboarding/OnboardingProvider";
 import HomePage from "./pages/HomePage";
-import WorkspaceDashboard from "./pages/WorkspaceDashboard";
-import CommunityPage from "./pages/CommunityPage";
-import Workspace from "./pages/Workspace";
-import SettingsPage from "./pages/SettingsPage";
-import ProfilePage from "./pages/ProfilePage";
 import LoginRegisterDialog from "./components/auth/LoginRegisterDialog";
 // ── 新增路由页面（补充缺失交互，不替换已有路由）──
-import InspirationPage from "./pages/InspirationPage";
-import SkillsPage from "./pages/SkillsPage";
-import CrossBorderCommercePage from "./pages/CrossBorderCommercePage";
-import EcommerceCanvasPage from "./pages/EcommerceCanvasPage";
-import LongTermMemoryPage from "./pages/LongTermMemoryPage";
-import AssetsPage from "./pages/AssetsPage";
-import HelpPage from "./pages/HelpPage";
 import LoadingLoopPage, { CanvasPageLoading, GeneralPageLoading } from "./pages/LoadingLoopPage";
-import AdminPrototypePage from "./pages/AdminPrototypePage";
-import BillingPage from "./pages/BillingPage";
-import CreditsGuidePage from "./pages/CreditsGuidePage";
 import { useAuth } from "./contexts/AuthContext";
 import CreditGrantNotification from "./components/billing/CreditGrantNotification";
 import BillingDialogProvider from "./components/billing/BillingDialogProvider";
 import InsufficientCreditsDialog from "./components/billing/InsufficientCreditsDialog";
 import { startWorkspaceAutoSync } from "./lib/workspace-sync";
 import { addEcommerceHistoryEntry, smartCommerceEntryFromTask } from "./lib/image-gen-history";
+
+/*
+ * 路由级代码拆分（2026-10-29）。
+ * 首屏只需要首页；画布（InfiniteCanvas 单文件 1.5MB 源码）、电商、后台等页面
+ * 改为按需加载，避免香港线路晚高峰丢包时首屏 JS 下载过慢导致「站点打不开」。
+ * 首页 / NotFound / LoadingLoopPage 保持同步导入：它们是首屏或 loading 兜底本身。
+ */
+const WorkspaceDashboard = lazy(() => import("./pages/WorkspaceDashboard"));
+const CommunityPage = lazy(() => import("./pages/CommunityPage"));
+const Workspace = lazy(() => import("./pages/Workspace"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const InspirationPage = lazy(() => import("./pages/InspirationPage"));
+const SkillsPage = lazy(() => import("./pages/SkillsPage"));
+const CrossBorderCommercePage = lazy(() => import("./pages/CrossBorderCommercePage"));
+const EcommerceCanvasPage = lazy(() => import("./pages/EcommerceCanvasPage"));
+const LongTermMemoryPage = lazy(() => import("./pages/LongTermMemoryPage"));
+const AssetsPage = lazy(() => import("./pages/AssetsPage"));
+const HelpPage = lazy(() => import("./pages/HelpPage"));
+const AdminPrototypePage = lazy(() => import("./pages/AdminPrototypePage"));
+const BillingPage = lazy(() => import("./pages/BillingPage"));
+const CreditsGuidePage = lazy(() => import("./pages/CreditsGuidePage"));
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -120,6 +127,7 @@ function AppRoutes() {
   }, [isAuthenticated, user?.id]);
 
   return (
+    <Suspense fallback={<RouteChunkFallback />}>
     <Switch>
       {/* 首页 */}
       <Route path="/">
@@ -273,6 +281,19 @@ function AppRoutes() {
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
+  );
+}
+
+/** 懒加载分包下载期间的占位：画布页用画布骨架，其余用通用 loading。 */
+function RouteChunkFallback() {
+  const { theme } = useTheme();
+  const [location] = useLocation();
+  const isCanvas = normalizeRoutePath(location).startsWith("/project/");
+  return (
+    <div className={`fixed inset-0 ${theme === "dark" ? "bg-[#222222]" : "bg-white"}`} role="status" aria-live="polite">
+      {isCanvas ? <CanvasPageLoading /> : <GeneralPageLoading />}
+    </div>
   );
 }
 

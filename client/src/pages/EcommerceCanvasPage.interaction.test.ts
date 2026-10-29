@@ -78,7 +78,10 @@ describe("电商画布：父路由挂载", () => {
   });
 
   it("路由里挂的是 EcommerceCanvasPage，且包在 AppShell 里（保留侧边栏）", () => {
-    expect(appSource).toContain("import EcommerceCanvasPage from");
+    // 静态 import 或路由级懒加载（React.lazy）都算挂载了真实页面。
+    expect(appSource).toMatch(
+      /import EcommerceCanvasPage from|const EcommerceCanvasPage = lazy\(\(\) => import\("\.\/pages\/EcommerceCanvasPage"\)\)/,
+    );
     expect(appSource).toContain("<AppShell>");
     expect(appSource).toContain("<EcommerceCanvasPage />");
   });
