@@ -88,6 +88,7 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
           projectTime={projectCreatedAt}
           onProjectTitleChange={handleProjectTitleChange}
           glass
+          solidLight
         />
       </div>
 

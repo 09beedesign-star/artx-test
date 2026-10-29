@@ -39,6 +39,11 @@ interface TopBarProps {
   onProjectTitleChange?: (title: string) => void;
   showSearch?: boolean;
   glass?: boolean;
+  /**
+   * 浅色模式下用不透明纯白底。画布页外层底色是 #0a0a0b，
+   * 半透明 glass 底会透出黑色变成灰条，所以画布顶栏必须实底。
+   */
+  solidLight?: boolean;
 }
 
 interface ApiKeyRecord {
@@ -91,7 +96,7 @@ function getTopBarAuthToken() {
   }
 }
 
-export default function TopBar({ credits = 0, projectTitle, projectTime, onProjectTitleChange, showSearch = false, glass = false }: TopBarProps) {
+export default function TopBar({ credits = 0, projectTitle, projectTime, onProjectTitleChange, showSearch = false, glass = false, solidLight = false }: TopBarProps) {
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const [location, navigate] = useLocation();
@@ -100,7 +105,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
 
   const surface   = isDark
     ? "#0a0a0b"
-    : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
+    : solidLight
+      ? "#ffffff"
+      : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
   const border    = isDark ? "#242429"                     : "var(--hairline)";
   const textPri   = isDark ? "#f1f1f3"                     : "oklch(0.22 0.018 255)";
   const textSec   = isDark ? "#99999e"                     : "oklch(0.65 0.010 255)";
