@@ -57,6 +57,8 @@ import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isSupportedImageModel
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
+import { handleModel3DDelete, handleModel3DGet, handleModel3DUpload } from "./model3d-routes";
+import { cleanupExpiredModels3D } from "./model3d-storage";
 import { searchReferenceImages } from "./reference-search";
 import { finishVoiceSession, startVoiceSession } from "./voice-routes";
 import { generateText } from "./text-generation";
@@ -195,6 +197,17 @@ function scheduleUploadCleanup() {
     })
     .catch(error => {
       console.warn("[uploads] startup cleanup failed", error instanceof Error ? error.message : error);
+    });
+
+  // 3D 画布模型文件（48 小时保留）的启动兜底清理；周期回收由 systemd timer 每小时执行。
+  cleanupExpiredModels3D()
+    .then(result => {
+      if (result.deletedFiles > 0) {
+        console.log(`[models3d] startup cleanup deleted ${result.deletedFiles} expired model files`);
+      }
+    })
+    .catch(error => {
+      console.warn("[models3d] startup cleanup failed", error instanceof Error ? error.message : error);
     });
 }
 
@@ -1476,7 +1489,8 @@ async function startServer() {
       res.setHeader("Vary", "Origin");
     }
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    // X-Model-Filename：3D 画布上传模型时携带原文件名（/api/models3d）。
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Model-Filename");
 
     if (req.method === "OPTIONS") {
       res.status(204).end();
@@ -2368,6 +2382,29 @@ async function startServer() {
       const message = error instanceof Error ? error.message : "Upload expiry query failed";
       res.status(500).json({ error: message });
     }
+  });
+
+  /**
+   * 3D 画布模型文件（FBX / OBJ / GLB / GLTF）：上传 ≤60MB、只存 48 小时、仅本人可读、no-store 不留底。
+   * 请求体是原始二进制（application/octet-stream），不会被上面的 express.json 消费，
+   * 由 handleModel3DUpload 以流方式边写边计数。实现见 server/model3d-routes.ts。
+   */
+  app.post("/api/models3d", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+    await handleModel3DUpload(req, res, user.username);
+  });
+
+  app.get("/api/models3d/:modelId", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+    await handleModel3DGet(req, res, user.username, req.params.modelId);
+  });
+
+  app.delete("/api/models3d/:modelId", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+    await handleModel3DDelete(req, res, user.username, req.params.modelId);
   });
 
   app.post("/api/brand-kits/parse", async (req, res) => {

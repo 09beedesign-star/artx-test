@@ -75,7 +75,7 @@ describe("需求 1 / 5：定位在节点正下方 8px、左右居中、宽度 +8
 
   it("top 必须由「图片下边缘 + gap」算出，不能用上边缘", () => {
     expect(anchorBlock, "top 必须基于图片下边缘 bottom").toContain(
-      "selectedImageBounds.bottom * viewport.zoom + viewport.y"
+      "bounds.bottom * viewport.zoom + viewport.y"
     );
     expect(anchorBlock, "必须是下边缘 + gap（在图片下方）").toContain(
       "const desiredTop = screenBottom + nodeComposerGap"
@@ -93,13 +93,13 @@ describe("需求 1 / 5：定位在节点正下方 8px、左右居中、宽度 +8
 
   it("left 必须用 centerX，否则不可能与节点左右居中", () => {
     expect(anchorBlock, "left 必须用 centerX 才能左右居中").toContain(
-      "left: selectedImageBounds.centerX * viewport.zoom + viewport.x"
+      "left: bounds.centerX * viewport.zoom + viewport.x"
     );
     // 反向：用左边缘 x 会贴到图片左侧
     expect(
       anchorBlock,
       "left 用了图片左边缘 x —— 会贴左而不是居中"
-    ).not.toContain("left: selectedImageBounds.x * viewport.zoom");
+    ).not.toContain("left: bounds.x * viewport.zoom");
   });
 
   it("宽度基准必须是「右下角输入框宽 + 80」，不是图片宽度", () => {
@@ -114,7 +114,7 @@ describe("需求 1 / 5：定位在节点正下方 8px、左右居中、宽度 +8
     expect(
       anchorBlock,
       "宽度按图片宽度算了 —— 用户已明确改成按右下角输入框算"
-    ).not.toContain("selectedImageBounds.width * viewport.zoom + 80");
+    ).not.toContain("bounds.width * viewport.zoom + 80");
   });
 
   it("必须做底部夹取，否则图片靠近画布底边时整条跑出可视区", () => {

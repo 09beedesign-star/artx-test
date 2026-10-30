@@ -19,10 +19,24 @@
  */
 
 import { cleanupExpiredUploads } from "./local-image-storage";
+import { cleanupExpiredModels3D, getModel3DRoot } from "./model3d-storage";
 
 async function main() {
   const startedAt = Date.now();
   const dryRun = process.argv.includes("--dry-run");
+  // --models3d-only：3D 画布模型文件只保留 48 小时，由 artx-models3d-cleanup.timer 每小时调用，
+  // 只扫 uploads/models3d，不碰图片/反馈附件（它们走每日 03:50 那个 timer）。
+  const models3dOnly = process.argv.includes("--models3d-only");
+
+  if (models3dOnly) {
+    if (dryRun) {
+      console.log(JSON.stringify({ mode: "dry-run", target: "models3d", root: getModel3DRoot() }));
+      return;
+    }
+    const result = await cleanupExpiredModels3D();
+    console.log(JSON.stringify({ mode: "cleanup", target: "models3d", ...result, elapsedMs: Date.now() - startedAt }));
+    return;
+  }
 
   if (dryRun) {
     // 干跑只报告将要清理的口径，不做删除 —— 首次上线到生产时先跑这个确认路径正确。
@@ -41,10 +55,13 @@ async function main() {
   }
 
   const result = await cleanupExpiredUploads();
+  // 每日任务顺带回收一次过期模型，作为每小时 timer 的冗余兜底。
+  const models3d = await cleanupExpiredModels3D();
   console.log(
     JSON.stringify({
       mode: "cleanup",
       ...result,
+      models3dDeletedFiles: models3d.deletedFiles,
       elapsedMs: Date.now() - startedAt,
     })
   );

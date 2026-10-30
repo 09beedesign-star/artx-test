@@ -47,6 +47,24 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { computeOverviewViewport } from "./canvas-overview-viewport";
+import {
+  MODEL3D_CONTAINER_HEIGHT,
+  MODEL3D_CONTAINER_WIDTH,
+  appendContainerModels,
+  findModel3DContainerAt,
+  isInsideModel3DViewport,
+  type Model3DItem,
+  type Model3DNodeData,
+} from "./model3d-container";
+import {
+  MODEL3D_COMPOSER_OPEN_EVENT,
+  MODEL3D_CONTAINER_PICK_EVENT,
+  MODEL3D_HISTORY_PUSH_EVENT,
+  MODEL3D_UNDO_EVENT,
+  MODEL3D_VIEW_CHANGE_EVENT,
+  captureModel3DSnapshot,
+} from "./Model3DNode";
 import { toast } from "sonner";
 import {
   DEFAULT_IMAGE_MODEL_ID,
@@ -171,6 +189,7 @@ import {
   History,
   Undo2,
   Clock,
+  Zap,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -178,6 +197,7 @@ import {
   ModelSelector,
   useImageModelOptions,
 } from "./ModelSelector";
+import { Model3DNode } from "./Model3DNode";
 import {
   HOME_PROMPT_HANDOFF_KEY,
   parseHomePromptHandoff,
@@ -564,7 +584,20 @@ import {
   isAutoRatio,
   resolveImageRatio,
 } from "@shared/image-ratios";
+import {
+  MODEL3D_ACCEPT_ATTRIBUTE,
+  MODEL3D_FORMATS_LABEL,
+  MODEL3D_RETENTION_NOTICE_ZH,
+  MODEL3D_SIZE_LIMIT_NOTICE_ZH,
+  isModel3DOversized,
+  isModel3DFilename,
+} from "@shared/model3d";
+import {
+  uploadModel3DFile,
+  validateModel3DFile,
+} from "@/lib/model3d-client";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+
 import {
   VIEWPOINT_LOCK_PROMPT_ZH,
   VIEWPOINT_LOCK_REWRITE_RULES_ZH,
@@ -769,6 +802,7 @@ const CROSS_CANVAS_COPY_TYPES = [
   "freehand",
   "pen",
   "text",
+  "model3d",
 ] as const;
 
 function clampCanvasZoom(value: number) {
@@ -13729,13 +13763,15 @@ function CanvasEmptyStateOverlay({
   rightInset,
   onUpload,
   onGenerate,
+  onCreate3D,
 }: {
   isDark: boolean;
   rightInset: number;
   onUpload: () => void;
   onGenerate: () => void;
+  onCreate3D: () => void;
 }) {
-  const [hovered, setHovered] = useState<"upload" | "generate" | null>(null);
+  const [hovered, setHovered] = useState<"upload" | "generate" | "model3d" | null>(null);
 
   // 暗纹配色：描边和文字都压到很低的对比度。
   const idleBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
@@ -13745,10 +13781,11 @@ function CanvasEmptyStateOverlay({
   const hoverFill = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
 
   const renderButton = (
-    key: "upload" | "generate",
+    key: "upload" | "generate" | "model3d",
     label: string,
     icon: ReactNode,
-    onClick: () => void
+    onClick: () => void,
+    hint?: string
   ) => {
     const active = hovered === key;
     return (
@@ -13781,6 +13818,14 @@ function CanvasEmptyStateOverlay({
         <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "0.01em" }}>
           {label}
         </span>
+        {hint ? (
+          <span
+            data-testid={`canvas-empty-state-${key}-hint`}
+            style={{ marginTop: -6, fontSize: 11, lineHeight: "16px", opacity: 0.72, whiteSpace: "nowrap" }}
+          >
+            {hint}
+          </span>
+        ) : null}
       </button>
     );
   };
@@ -13804,20 +13849,28 @@ function CanvasEmptyStateOverlay({
     >
       {renderButton("upload", "上传图片", <ImagePlus size={30} strokeWidth={1.5} />, onUpload)}
       {renderButton("generate", "生成图片", <WandSparkles size={30} strokeWidth={1.5} />, onGenerate)}
+      {renderButton(
+        "model3d",
+        "创建 3D 画布",
+        <Box size={30} strokeWidth={1.5} />,
+        onCreate3D,
+        `（支持 ${MODEL3D_FORMATS_LABEL}）`
+      )}
     </div>
   );
 }
 
 // ── Node types & edge types ────────────────────────────────────────────
-const nodeTypes: NodeTypes = {
-  asset: AssetNodeComponent as unknown as NodeTypes["asset"],
-  canvasFrame: CanvasFrameNode as unknown as NodeTypes["canvasFrame"],
-  shape: ShapeNodeComponent as unknown as NodeTypes["shape"],
-  pen: PenNodeComponent as unknown as NodeTypes["pen"],
-  freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
-  text: TextNodeComponent as unknown as NodeTypes["text"],
-  draftImage: DraftImageNodeComponent as unknown as NodeTypes["draftImage"],
-};
+  const nodeTypes: NodeTypes = {
+    asset: AssetNodeComponent as unknown as NodeTypes["asset"],
+    canvasFrame: CanvasFrameNode as unknown as NodeTypes["canvasFrame"],
+    shape: ShapeNodeComponent as unknown as NodeTypes["shape"],
+    pen: PenNodeComponent as unknown as NodeTypes["pen"],
+    freehand: FreehandNodeComponent as unknown as NodeTypes["freehand"],
+    text: TextNodeComponent as unknown as NodeTypes["text"],
+    draftImage: DraftImageNodeComponent as unknown as NodeTypes["draftImage"],
+    model3d: Model3DNode as unknown as NodeTypes["model3d"],
+  };
 
 function areStringArraysEqual(a: string[], b: string[]) {
   return a.length === b.length && a.every((item, index) => item === b[index]);
@@ -14179,6 +14232,20 @@ function getCanvasNodeSize(node: Node): CanvasNodeSize {
     typeof node.style?.width === "number" ? node.style.width : undefined;
   const styleHeight =
     typeof node.style?.height === "number" ? node.style.height : undefined;
+  /*
+   * ⚠️ 3D 画布容器可被 NodeResizer 拖拽改尺寸：React Flow 12 只更新
+   *    node.width/height 与 measured，style 里仍是**创建时**的初始尺寸。
+   *    先读 style 会让下方悬浮框按旧尺寸定位 —— 偏左、并压进容器里（2026-10-30 实测）。
+   */
+  if (node.type === "model3d") {
+    const w =
+      nodeWithRuntimeSize.measured?.width ?? nodeWithRuntimeSize.width ?? styleWidth;
+    const h =
+      nodeWithRuntimeSize.measured?.height ?? nodeWithRuntimeSize.height ?? styleHeight;
+    if (typeof w === "number" && w > 0 && typeof h === "number" && h > 0) {
+      return { width: w, height: h };
+    }
+  }
   const measuredWidth =
     styleWidth ??
     nodeWithRuntimeSize.measured?.width ??
@@ -17576,10 +17643,22 @@ function AssetEditPromptBar({
   canvasRightInset,
   anchor,
   busyState,
+  regionSelectEnabled = true,
+  opaqueSurface = false,
   onClose,
   onSubmit,
 }: {
   asset: { id: string; title: string; src: string };
+  /**
+   * 是否提供「框选局部」入口（默认 true）。3D 画布的悬浮框传 false：
+   * 它的源图是提交时现截的视角快照，节点上没有可框选的位图。
+   */
+  regionSelectEnabled?: boolean;
+  /**
+   * 不透明底（默认 false）。浅色模式的默认底色只有 4% 黑，靠背后的浅色画布衬托；
+   * 3D 画布的框一旦被视口底部夹回、压到深色 3D 视口上，就会看不清，所以 3D 传 true。
+   */
+  opaqueSurface?: boolean;
   isDark: boolean;
   canvasRightInset: number;
   /**
@@ -18025,6 +18104,8 @@ function AssetEditPromptBar({
         // 底色 = 画布助手对话里 AI 气泡的灰（2026-09-21 用户点名）。
         // 颜色取自对话气泡的 chipBg，别在这里另调一个"差不多的灰"。
         background: isDark ? "#232326" : "oklch(0 0 0 / 4%)",
+        // 同名键覆盖（不用 backgroundColor，避免与 background 简写冲突的 React 警告）
+        ...(opaqueSurface && !isDark ? { background: "#f4f4f6" } : {}),
         backdropFilter: "blur(24px)",
         border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
         boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
@@ -18135,6 +18216,7 @@ function AssetEditPromptBar({
           ⚠️ 尺寸取 COMPOSER_REF_TOKEN_SIZE.iconSize，与左边标签里的缩略图同源 ——
              别再写一个字面量，否则标签尺寸一改这里就对不齐了。
         */}
+        {regionSelectEnabled && (
         <button
           type="button"
           data-region-select-toggle
@@ -18173,6 +18255,7 @@ function AssetEditPromptBar({
             <SquareDashedMousePointer size={COMPOSER_REF_TOKEN_SIZE.iconSize} />
           </AiDecoratedIcon>
         </button>
+        )}
         <div className="flex-1" />
         <button
           onClick={onClose}
@@ -20423,6 +20506,8 @@ function CanvasTopToolPalette({
     },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
     { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
+    // 2026-10-30：3D 入口紧跟「上传图片」，图标用立方体（原 Zap 闪电不直观，用户找不到）
+    { id: "model3d", label: "添加 3D 画布", icon: <Box size={17} /> },
     {
       id: "smart-canvas",
       label: "创建画板",
@@ -20504,6 +20589,20 @@ function CanvasTopToolPalette({
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
       );
       window.dispatchEvent(new CustomEvent("workspace-upload-request"));
+      return;
+    }
+    if (id === "model3d") {
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setImageGeneratorOpen(false);
+      setProductBackgroundOpen(false);
+      // 放置一个空的 3D 画布容器；画布保持 move 模式。
+      // ⚠️ 画布没有 "model3d" 工具模式，广播它会让画布卡在未知模式里。
+      setActive("move");
+      window.dispatchEvent(
+        new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
+      );
+      window.dispatchEvent(new CustomEvent("workspace-create-model3d-container"));
       return;
     }
     setShapeOpen(false);
@@ -28366,6 +28465,51 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     touchWorkspaceProjectHistory(projectId);
   }, [projectId]);
 
+  /**
+   * 进入画布 → 全局概览视口（2026-10-30 用户要求「任何时候进入画布都看到全局」）。
+   * 每个 projectId 只执行一次：等画布存档恢复完（canvasRestoreTick 变化），
+   * 再等节点完成测量（最多约 40 帧），然后调用 computeOverviewViewport。
+   * ⚠️ 只统计顶层节点：子节点的 position 是相对父画板的，而且本来就在父画板范围内。
+   */
+  const overviewAppliedProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!didHydrateCanvasStateRef.current) return;
+    if (overviewAppliedProjectRef.current === projectId) return;
+    overviewAppliedProjectRef.current = projectId;
+    let frame = 0;
+    let rafId = 0;
+    const apply = () => {
+      const topLevel = getNodes().filter(n => !n.parentId && !n.hidden);
+      const ready = topLevel.every(
+        n => (n.measured?.width ?? n.width ?? 0) > 0
+      );
+      if (!ready && frame++ < 40) {
+        rafId = requestAnimationFrame(apply);
+        return;
+      }
+      const rect = containerRef.current?.getBoundingClientRect();
+      const inset = isAssistantCollapsed ? 112 : assistantPanelWidth;
+      const next = computeOverviewViewport(
+        topLevel.map(n => ({
+          x: n.position.x,
+          y: n.position.y,
+          width: Number(n.measured?.width ?? n.width ?? n.style?.width ?? 0),
+          height: Number(n.measured?.height ?? n.height ?? n.style?.height ?? 0),
+        })),
+        {
+          width: Math.max(240, (rect?.width || window.innerWidth) - inset),
+          height: rect?.height || window.innerHeight,
+        },
+        { minZoom: CANVAS_MIN_ZOOM, maxZoom: CANVAS_MAX_ZOOM }
+      );
+      // 空画布：保持默认的 100% 缩放，原点在左上角
+      setViewport(next ?? { x: 0, y: 0, zoom: 1 });
+    };
+    rafId = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(rafId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasRestoreTick, projectId]);
+
   useEffect(() => {
     if (
       typeof window === "undefined" ||
@@ -28635,6 +28779,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── 工具模式 ──
   const [activeToolMode, setActiveToolMode] = useState<string>("move");
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const model3dUploadInputRef = useRef<HTMLInputElement>(null);
 
   const getDerivedImagePlacement = useCallback(
     (sourceNode: Node, displayW: number, displayH: number) => {
@@ -29576,6 +29721,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, []);
 
   /**
+   * 空画布引导「创建 3D 画布」：与工具栏同一个全局事件，
+   * 在视口中心放一个空的 3D 画布容器（不弹文件框）。
+   */
+  const handleEmptyStateCreate3D = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("workspace-create-model3d-container"));
+  }, []);
+
+  /**
    * 空画布引导「生成图片」：在画布正中插入一个 70% 正方形草稿节点。
    *
    * ⚠️ 尺寸按**屏幕可视区**算完再换算到 flow 坐标，不能直接拿 flow 坐标乘 0.7：
@@ -30045,6 +30198,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setEdges,
     setNodes,
   ]);
+
+  /*
+   * 3D 画布里的位移 / 旋转 / 缩放 / 删除 → 并入画布统一历史栈；
+   * 3D 画布标题栏的回退按钮 → 与 ⌘/Ctrl+Z 走同一个 undoCanvas。
+   * 不做单独的 3D 回退分支：回退步数、提示「还可回退 N 步」都是同一套。
+   */
+  useEffect(() => {
+    const onPush = () => pushHistory();
+    const onUndo = () => undoCanvas();
+    window.addEventListener(MODEL3D_HISTORY_PUSH_EVENT, onPush);
+    window.addEventListener(MODEL3D_UNDO_EVENT, onUndo);
+    return () => {
+      window.removeEventListener(MODEL3D_HISTORY_PUSH_EVENT, onPush);
+      window.removeEventListener(MODEL3D_UNDO_EVENT, onUndo);
+    };
+  }, [pushHistory, undoCanvas]);
 
   // ── 监听画布帧节点的拖拽调整尺寸事件 ──
   useEffect(() => {
@@ -31010,6 +31179,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (!root) return;
 
     const stopMiddleAuxClick = (event: MouseEvent) => {
+      if (isInsideModel3DViewport(event.target)) return;
       if (event.button === 1) event.preventDefault();
     };
 
@@ -31017,6 +31187,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (event.button !== 1 || isCanvasLocked) return;
       if (!(event.target instanceof Element) || !root.contains(event.target))
         return;
+      // 3D 画布视口内的中键由 3D 场景自己处理平移，原始画布不跟着动。
+      if (isInsideModel3DViewport(event.target)) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -31115,6 +31287,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         navigator.userAgent.includes("Mac");
       const shouldZoomCanvas = event.ctrlKey || (isMacPlatform && event.metaKey);
       if (!shouldZoomCanvas) return;
+      // 3D 画布视口内（含触控板捏合）只推拉 3D 镜头，原始画布不缩放。
+      if (isInsideModel3DViewport(event.target)) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -31131,12 +31305,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       scale: number;
     };
     const handleGestureStart = (event: Event) => {
+      if (isInsideModel3DViewport(event.target)) return;
       const gesture = event as SafariGestureEvent;
       event.preventDefault();
       event.stopPropagation();
       pinchScaleRef.current = gesture.scale || 1;
     };
     const handleGestureChange = (event: Event) => {
+      if (isInsideModel3DViewport(event.target)) return;
       const gesture = event as SafariGestureEvent;
       event.preventDefault();
       event.stopPropagation();
@@ -34093,6 +34269,321 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     []
   );
 
+  /**
+   * 3D 画布容器（2026-10-30 交互改版）：
+   * - 创建 = 在画布上放一个空的 3D 容器，不弹文件框；
+   * - 模型拖进容器 → 上传后追加到该容器；
+   * - 模型拖到空白处 → 在落点自动新建容器，再把模型放进去。
+   * 节点里只存 modelId，不存二进制：几十 MB 的模型塞进 nodes 会撑爆持久化存储和撤销栈。
+   */
+  const createModel3DContainerNode = useCallback(
+    (center: { x: number; y: number }): Node<Model3DNodeData> => ({
+      id: `model3d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      type: "model3d",
+      selected: true,
+      position: {
+        x: center.x - MODEL3D_CONTAINER_WIDTH / 2,
+        y: center.y - MODEL3D_CONTAINER_HEIGHT / 2,
+      },
+      style: { width: MODEL3D_CONTAINER_WIDTH, height: MODEL3D_CONTAINER_HEIGHT },
+      data: { models: [] },
+    }),
+    []
+  );
+
+  /** 只读 ref，给 pick 事件拿「上传进哪个容器」。 */
+  const model3dPickTargetRef = useRef<string | null>(null);
+
+  const addModel3DContainerAt = useCallback(
+    (center: { x: number; y: number }) => {
+      const node = createModel3DContainerNode(center);
+      pushHistory();
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), node]);
+      setSelectedNodeIds([node.id]);
+      window.dispatchEvent(
+        new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
+      );
+      return node.id;
+    },
+    [createModel3DContainerNode, pushHistory, setNodes]
+  );
+
+  const patchModel3DContainer = useCallback(
+    (nodeId: string, patch: (data: Record<string, unknown>) => Record<string, unknown>) => {
+      setNodes(nds =>
+        nds.map(n =>
+          n.id === nodeId && n.type === "model3d"
+            ? { ...n, data: patch((n.data || {}) as Record<string, unknown>) }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  /** 上传一批模型到指定容器（逐个串行；单个失败只跳过它自己）。 */
+  const uploadModel3DFilesIntoContainer = useCallback(
+    async (files: File[], containerId: string) => {
+      const rejected: string[] = [];
+      const uploadable: File[] = [];
+      for (const file of files) {
+        const reason = validateModel3DFile(file);
+        if (reason) rejected.push(`${file.name}：${reason}`);
+        else uploadable.push(file);
+      }
+      if (uploadable.length === 0) {
+        toast("3D 模型无法上传", { description: rejected.join("；") });
+        return false;
+      }
+
+      patchModel3DContainer(containerId, d => ({
+        ...d,
+        uploadingCount: Number(d.uploadingCount || 0) + uploadable.length,
+        uploadingSince: Date.now(),
+      }));
+      const apiBaseUrl = getCanvasApiBaseUrl();
+      let added = 0;
+      for (let i = 0; i < uploadable.length; i += 1) {
+        const file = uploadable[i];
+        try {
+          const result = await uploadModel3DFile(file, { apiBaseUrl });
+          const item: Model3DItem = {
+            modelId: result.modelId,
+            modelName: file.name,
+            uploadedAt: result.uploadedAt,
+            expiresAt: result.expiresAt,
+          };
+          added += 1;
+          patchModel3DContainer(containerId, d => ({
+            ...d,
+            models: appendContainerModels(d, [item]),
+            // 放入新模型后，旧的「已过期自动清除」提示就不再显示。
+            expiredCleared: undefined,
+            uploadingCount: Math.max(0, Number(d.uploadingCount || 0) - 1),
+          }));
+        } catch (error) {
+          rejected.push(
+            `${file.name}：${error instanceof Error ? error.message : "上传失败"}`
+          );
+          patchModel3DContainer(containerId, d => ({
+            ...d,
+            uploadingCount: Math.max(0, Number(d.uploadingCount || 0) - 1),
+          }));
+        }
+      }
+
+      if (added === 0) {
+        toast.error("3D 模型上传失败", { description: rejected.join("；") });
+        return false;
+      }
+      toast.success(`已加载 ${added} 个 3D 模型`, {
+        description:
+          rejected.length > 0
+            ? `${rejected.length} 个已跳过：${rejected.join("；")}`
+            : MODEL3D_RETENTION_NOTICE_ZH,
+      });
+      return true;
+    },
+    [patchModel3DContainer]
+  );
+
+  /**
+   * 拖入 / 选择模型的统一入口。
+   * - targetId 有值：放进这个容器；
+   * - 否则：落点在已有容器内 → 放进该容器；落点在空白处 → 在落点新建容器。
+   */
+  const addDroppedModel3DFiles = useCallback(
+    async (
+      files: File[],
+      origin: { x: number; y: number },
+      targetId?: string | null
+    ) => {
+      if (files.length === 0) return false;
+      // 体积超限单独拦截，弹全局 toast 明确告知用户（产品要求：上限 60MB）。
+      const oversized = files.filter(f => isModel3DOversized(f.size));
+      if (oversized.length > 0) {
+        toast.error(MODEL3D_SIZE_LIMIT_NOTICE_ZH, {
+          description: oversized
+            .map(f => `${f.name}（${(f.size / 1024 / 1024).toFixed(1)}MB）`)
+            .join("、"),
+        });
+        files = files.filter(f => !isModel3DOversized(f.size));
+        if (files.length === 0) return false;
+      }
+      const valid = files.filter(f => !validateModel3DFile(f));
+      if (valid.length === 0) {
+        toast("3D 模型无法上传", {
+          description: files
+            .map(f => `${f.name}：${validateModel3DFile(f)}`)
+            .join("；"),
+        });
+        return false;
+      }
+      let containerId =
+        targetId && nodesRef.current.some(n => n.id === targetId && n.type === "model3d")
+          ? targetId
+          : null;
+      if (!containerId) {
+        const rects = nodesRef.current
+          .filter(n => n.type === "model3d" && !n.parentId)
+          .map(n => ({
+            id: n.id,
+            x: n.position.x,
+            y: n.position.y,
+            width: Number(n.measured?.width ?? n.width ?? n.style?.width ?? MODEL3D_CONTAINER_WIDTH),
+            height: Number(n.measured?.height ?? n.height ?? n.style?.height ?? MODEL3D_CONTAINER_HEIGHT),
+          }));
+        containerId = findModel3DContainerAt(origin, rects);
+      }
+      if (!containerId) containerId = addModel3DContainerAt(origin);
+      return uploadModel3DFilesIntoContainer(files, containerId);
+    },
+    [addModel3DContainerAt, uploadModel3DFilesIntoContainer]
+  );
+
+  // 工具栏 / 空画布引导「创建 3D 画布」→ 在视口中心放一个空容器。
+  useEffect(() => {
+    const handler = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const inset = isAssistantCollapsed ? 112 : assistantPanelWidth;
+      const center = screenToFlowPosition({
+        x: rect ? rect.left + Math.max(240, rect.width - inset) / 2 : window.innerWidth / 2,
+        y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      });
+      // 空画布上 <ReactFlow> 可能还有排队的自适应视图，撤掉它，避免新容器被放大铺满。
+      reactFlowStore.setState({ fitViewQueued: false });
+      addModel3DContainerAt(center);
+    };
+    window.addEventListener("workspace-create-model3d-container", handler);
+    return () =>
+      window.removeEventListener("workspace-create-model3d-container", handler);
+  }, [
+    addModel3DContainerAt,
+    assistantPanelWidth,
+    isAssistantCollapsed,
+    reactFlowStore,
+    screenToFlowPosition,
+  ]);
+
+  // 容器标题栏「添加模型」→ 打开文件框，选中的文件只进这个容器。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      model3dPickTargetRef.current = nodeId;
+      model3dUploadInputRef.current?.click();
+    };
+    window.addEventListener(MODEL3D_CONTAINER_PICK_EVENT, handler);
+    return () => window.removeEventListener(MODEL3D_CONTAINER_PICK_EVENT, handler);
+  }, []);
+
+  /**
+   * ── 3D 画布 → 悬浮提示词框（2026-10-30）────────────────────────────────
+   *
+   * 点容器右上角闪电 → 选中该容器 + 在它正下方弹出与图片节点**同一个**
+   * AssetEditPromptBar。model3dComposer 只记「哪个容器开着框」和「框里的
+   * 已引用缩略图」；缩略图在每次视角拖拽结束时刷新，让用户看到将被引用的画面。
+   *
+   * ⚠️ 缩略图只是预览。真正送去生成的视角图在**点发送那一刻**重新截取
+   *    （handleModel3DComposerSubmit），不吃这里的缓存 —— 否则滚轮缩放
+   *    （不触发 end）之后提交的会是旧视角，且零报错。
+   */
+  /** 3D 悬浮框的估算高度（无 busy 提示条时实测约 236px），用于打开时腾出下方空间。 */
+  const MODEL3D_COMPOSER_ESTIMATED_HEIGHT = 240;
+  const [model3dComposer, setModel3dComposer] = useState<{
+    nodeId: string;
+    thumb: string;
+  } | null>(null);
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      const snapshot = captureModel3DSnapshot(nodeId);
+      if (!snapshot) {
+        toast("3D 画布里还没有模型", {
+          description: "先拖入或添加一个模型，再用当前视角生成图片",
+        });
+        return;
+      }
+      setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
+      setSelectedNodeIds([nodeId]);
+      setModel3dComposer({ nodeId, thumb: snapshot.src });
+      /*
+       * 悬浮框必须完整落在容器**下方 8px**。容器底边贴近屏幕底部时，框会被
+       * 视口底部硬下限夹回、整块压进 3D 视口里（2026-10-30 用户截图）——
+       * 所以打开时先把画布往上平移出足够空间，而不是让框去盖住模型。
+       */
+      const node = nodesRef.current.find(n => n.id === nodeId);
+      if (node) {
+        const vp = getViewport();
+        const bounds = getCanvasNodeBounds(node);
+        const rect = containerRef.current?.getBoundingClientRect();
+        const originY = rect?.top ?? 0;
+        const containerTopOnScreen = bounds.y * vp.zoom + vp.y;
+        const composerBottom =
+          originY +
+          bounds.bottom * vp.zoom +
+          vp.y +
+          8 +
+          MODEL3D_COMPOSER_ESTIMATED_HEIGHT +
+          NODE_COMPOSER_VIEWPORT_BOTTOM_GAP;
+        const overflow = composerBottom - window.innerHeight;
+        if (overflow > 0) {
+          // 上移量不超过「容器顶边移到距画布顶 120px」，避免把容器标题栏推出屏幕。
+          const maxShift = Math.max(0, containerTopOnScreen - 120);
+          const shift = Math.min(overflow, maxShift);
+          if (shift > 0) {
+            void setViewport(
+              { x: vp.x, y: vp.y - shift, zoom: vp.zoom },
+              { duration: 280 }
+            );
+          }
+        }
+      }
+    };
+    const onViewChange = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) return;
+      setModel3dComposer(prev => {
+        if (!prev || prev.nodeId !== nodeId) return prev;
+        const snapshot = captureModel3DSnapshot(nodeId);
+        return snapshot ? { nodeId, thumb: snapshot.src } : prev;
+      });
+    };
+    window.addEventListener(MODEL3D_COMPOSER_OPEN_EVENT, onOpen);
+    window.addEventListener(MODEL3D_VIEW_CHANGE_EVENT, onViewChange);
+    return () => {
+      window.removeEventListener(MODEL3D_COMPOSER_OPEN_EVENT, onOpen);
+      window.removeEventListener(MODEL3D_VIEW_CHANGE_EVENT, onViewChange);
+    };
+  }, [getViewport, setNodes, setViewport]);
+  // 选中别的东西 / 取消选中 → 收起 3D 悬浮框（与图片悬浮框「跟随选中」的行为一致）。
+  useEffect(() => {
+    if (!model3dComposer) return;
+    if (
+      selectedNodeIds.length !== 1 ||
+      selectedNodeIds[0] !== model3dComposer.nodeId
+    ) {
+      setModel3dComposer(null);
+    }
+  }, [model3dComposer, selectedNodeIds]);
+
+  const handleModel3DInputChange = useCallback(
+    (fileList: FileList | null) => {
+      const files = Array.from(fileList || []);
+      if (model3dUploadInputRef.current) model3dUploadInputRef.current.value = "";
+      const targetId = model3dPickTargetRef.current;
+      model3dPickTargetRef.current = null;
+      if (files.length === 0) return;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const origin = screenToFlowPosition({
+        x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+        y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      });
+      void addDroppedModel3DFiles(files, origin, targetId);
+    },
+    [addDroppedModel3DFiles, screenToFlowPosition]
+  );
   const addDroppedImageSources = useCallback(
     async (
       sources: string[],
@@ -34254,6 +34745,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         x: (rect?.left || 0) + baseX,
         y: (rect?.top || 0) + baseY,
       });
+      /**
+       * ⚠️ 3D 模型必须在图片分支之前按扩展名分流。
+       * .glb / .fbx / .obj 等在浏览器里 file.type 通常是空串，而
+       * fileLooksLikeImage 把「无 MIME + 非空」当作图片兜底 —— 不先拦下，
+       * 模型会被 FileReader 读成 dataURL 塞进 <img>，然后报「图片文件加载失败」。
+       */
+      const model3dFiles = Array.from(
+        new Map(
+          Array.from(e.dataTransfer.files || [])
+            .filter(file => isModel3DFilename(file.name))
+            .map(file => [
+              `${file.name}-${file.size}-${file.lastModified}`,
+              file,
+            ])
+        ).values()
+      );
+      if (model3dFiles.length > 0) {
+        void addDroppedModel3DFiles(model3dFiles, origin);
+        const hasOtherFiles = Array.from(e.dataTransfer.files || []).some(
+          file => !isModel3DFilename(file.name)
+        );
+        // 纯模型拖入到此结束，不再走图片 / 网页链接解析，避免误报「请拖入图片」。
+        if (!hasOtherFiles) return;
+      }
       const itemFiles = Array.from(e.dataTransfer.items || [])
         .filter(
           item =>
@@ -34262,10 +34777,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         )
         .map(item => item.getAsFile())
         .filter((file): file is File => Boolean(file))
+        .filter(file => !isModel3DFilename(file.name))
         .filter(fileLooksLikeImage);
       const files = Array.from(
         new Map(
           [...Array.from(e.dataTransfer.files), ...itemFiles]
+            .filter(file => !isModel3DFilename(file.name))
             .filter(fileLooksLikeImage)
             .map(file => [
               `${file.name}-${file.type}-${file.size}-${file.lastModified}`,
@@ -34393,6 +34910,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [
       addDroppedImageSources,
+      addDroppedModel3DFiles,
       createDroppedImageSourceNode,
       createDroppedImageFileNode,
       pushHistory,
@@ -36705,6 +37223,224 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     },
     [getLatestAssetImageSource, handleAssetEditSubmit, nodesRef]
   );
+  /**
+   * 3D 画布悬浮框的提交（2026-10-30）：提示词 + 模型 + 3D 当前视角 → 一张新图。
+   *
+   * 与 handleAssetEditSubmit 同一套出图规则（Skill 拼接、LLM 改写、视角锁、
+   * 先占位再出图、单张走后台任务 / 多张前台并发），只有源图不同：
+   *   · 源图 = 发送瞬间截取的 3D 视口（不含网格），不是节点里的位图；
+   *   · 结果**永远新建**在容器右侧，不做就地重绘（容器里是模型，不是图）；
+   *   · 没有局部框选。
+   *
+   * ⚠️ 占位 payload 必须带 editMode / sourceImageSrc / backgroundTaskInput
+   *    三件套，理由同 handleAssetEditSubmit 里 2026-09-21 那段：缺了会被
+   *    恢复守护器当成文生图抢跑，出来的图与 3D 视角毫无关系且零报错。
+   */
+  const model3dComposerInFlightRef = useRef<Set<string>>(new Set());
+  const handleModel3DComposerSubmit = useCallback(
+    async (
+      nodeId: string,
+      payload: {
+        prompt: string;
+        model: string;
+        references: Array<{ id: string; title: string; src: string }>;
+        ratio: CanvasAssistantImageRatio;
+        count: number;
+        skill: PendingSkillLoad | null;
+      }
+    ) => {
+      if (!requireAiAccess()) return;
+      const sourceNode = nodesRef.current.find(
+        n => n.id === nodeId && n.type === "model3d"
+      );
+      if (!sourceNode) return;
+      if (model3dComposerInFlightRef.current.has(nodeId)) {
+        toast("该 3D 画布正在生成中", {
+          description: "完成后才能继续生成，请勿重复提交",
+        });
+        return;
+      }
+      // 发送瞬间现截视角（见 model3dComposer 注释）
+      const snapshot = captureModel3DSnapshot(nodeId);
+      if (!snapshot) {
+        toast("3D 画布里还没有模型", {
+          description: "先拖入或添加一个模型，再用当前视角生成图片",
+        });
+        return;
+      }
+      model3dComposerInFlightRef.current.add(nodeId);
+      const promptText = payload.prompt.trim();
+      const refText =
+        payload.references.length > 0
+          ? ` · 参考图 ${payload.references.length} 张`
+          : "";
+      const countText = payload.count > 1 ? ` · ${payload.count} 张` : "";
+      window.dispatchEvent(
+        new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "user",
+            content: `用「3D 画布」当前视角生成：${promptText || "智能渲染"}${refText}${countText}`,
+          },
+        })
+      );
+      const sourceSrc = snapshot.src;
+      const skill = payload.skill || null;
+      const skillRatio = getSkillPreferredRatio(skill, "");
+      const selectedRatio =
+        payload.ratio && payload.ratio !== "auto"
+          ? payload.ratio
+          : skillRatio || inferImageRatio(snapshot.width, snapshot.height);
+      // 显示尺寸：宽度沿用视口宽，高度按最终画幅换算（用户显式选了比例就按比例出）。
+      const ratioParts = String(selectedRatio).split(":").map(Number);
+      const ratioValue =
+        ratioParts.length === 2 && ratioParts[0] > 0 && ratioParts[1] > 0
+          ? ratioParts[0] / ratioParts[1]
+          : snapshot.width / snapshot.height;
+      const displayW = Math.round(snapshot.width);
+      const displayH = Math.max(1, Math.round(displayW / ratioValue));
+      const requestedCount = Math.max(1, Math.min(Number(payload.count) || 1, 4));
+      const skillContext = skill ? buildSkillPromptContext(skill) : "";
+      const generationId = `3D渲染结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const style = skill?.name || "3D渲染结果";
+      const modelId = payload.model || DEFAULT_IMAGE_AI_MODEL_ID;
+      const placeholderPrompt = promptText || "基于 3D 模型当前视角渲染";
+      const placement = getDerivedImagePlacement(sourceNode, displayW, displayH);
+      const model3dPlaceholderPayload: ImageGeneratorPayload = {
+        projectId,
+        prompt: placeholderPrompt,
+        model: modelId,
+        ratio: selectedRatio,
+        count: requestedCount,
+        style,
+        referencesEnabled: payload.references.length > 0,
+        generationId,
+        placement,
+        displaySize: { w: displayW, h: displayH },
+        titleBase: style,
+        editMode: true,
+        sourceImageSrc: sourceSrc,
+        backgroundTaskInput:
+          requestedCount === 1
+            ? {
+                taskId: generationId,
+                capability: "image_edit",
+                operation: "edit",
+                imageSrc: sourceSrc,
+                prompt: placeholderPrompt,
+                model: modelId,
+                targetWidth: displayW,
+                targetHeight: displayH,
+                images: payload.references,
+                skillId: skill?.id,
+              }
+            : undefined,
+      };
+      dispatchImageGenerationTask(
+        { ...model3dPlaceholderPayload, status: "pending" },
+        projectId
+      );
+      try {
+        const optimizedPrompt = await callLLM({
+          module: "model3d-view-render-prompt",
+          model: DEFAULT_TEXT_MODEL,
+          images: [
+            { src: sourceSrc, title: "3D 模型当前视角" },
+            ...payload.references,
+          ],
+          prompt: [
+            "主图是 3D 模型在当前镜头视角下的截图（可能是白模或简单材质）。",
+            "请理解模型的外形、结构和镜头视角，结合可选参考图，为图片模型生成一段中文生图提示词，",
+            "把它渲染成一张完整、真实、有质感的图片。",
+            ...VIEWPOINT_LOCK_REWRITE_RULES_ZH,
+            "只输出可直接给图片模型使用的提示词，不要解释。",
+            `用户要求：${promptText || "请按模型本身的结构做高质量的写实渲染，补全合理的材质、光影和环境。"}`,
+            ...(skill
+              ? [skillContext, "必须优先遵守上方 Skill 的能力说明与执行规则。"]
+              : []),
+          ].join("\n"),
+        });
+        const optimizedText = optimizedPrompt.text.trim() || placeholderPrompt;
+        // 视角锁加在 LLM 改写**之后**，否则会被改写洗掉（同 handleAssetEditSubmit）。
+        const finalPrompt = [
+          VIEWPOINT_LOCK_PROMPT_ZH,
+          `具体要求：${optimizedText}`,
+        ].join("\n");
+        const runSingleEdit = async () =>
+          editImageWithPrompt({
+            imageSrc: sourceSrc,
+            prompt: finalPrompt,
+            model: modelId,
+            targetWidth: displayW,
+            targetHeight: displayH,
+            referencedAssets: payload.references,
+            skillId: skill?.id,
+          });
+        await runDerivedImageGeneration({
+          sourceNode,
+          prompt: finalPrompt,
+          style,
+          nextW: displayW,
+          nextH: displayH,
+          preserveSourceDisplaySize: false,
+          displayW,
+          displayH,
+          model: modelId,
+          resultCount: requestedCount,
+          placement,
+          generationId,
+          backgroundTaskInput:
+            requestedCount === 1
+              ? {
+                  capability: "image_edit",
+                  operation: "edit",
+                  imageSrc: sourceSrc,
+                  prompt: finalPrompt,
+                  model: modelId,
+                  targetWidth: displayW,
+                  targetHeight: displayH,
+                  images: payload.references,
+                  skillId: skill?.id,
+                }
+              : undefined,
+          run: async () => {
+            const settled = await Promise.allSettled(
+              Array.from({ length: requestedCount }, () => runSingleEdit())
+            );
+            const fulfilled = settled.filter(
+              (item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof editImageWithPrompt>>> =>
+                item.status === "fulfilled"
+            );
+            if (fulfilled.length === 0) {
+              throw (settled[0] as PromiseRejectedResult).reason;
+            }
+            return {
+              ...fulfilled[0].value,
+              images: fulfilled.flatMap(item => item.value.images || []),
+              providerTaskIds: fulfilled.flatMap(
+                item => item.value.providerTaskIds || []
+              ),
+            } as Awaited<ReturnType<typeof editImageWithPrompt>>;
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "请稍后重试";
+        dispatchImageGenerationTask(
+          { ...model3dPlaceholderPayload, status: "failed", error: message },
+          projectId
+        );
+        notifyAiFailure("3D 视角生成失败", message);
+      } finally {
+        model3dComposerInFlightRef.current.delete(nodeId);
+      }
+    },
+    [
+      getDerivedImagePlacement,
+      nodesRef,
+      projectId,
+      requireAiAccess,
+      runDerivedImageGeneration,
+    ]
+  );
   const handleSingleImageToolbarAction = useCallback(
     async (action: string) => {
       const nodeId = selectedVisualNodeIds[0];
@@ -38083,21 +38819,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const assistantComposerInnerWidth =
     (isAssistantCollapsed ? 372 : assistantPanelWidth) - 24;
   const nodeComposerWidth = assistantComposerInnerWidth + 80;
+  // 图片节点与 3D 画布共用同一套「挂在节点正下方」的定位口径，不许各写一份。
+  const getNodeComposerAnchor = (bounds: CanvasNodeBounds) => {
+    const screenBottom = bounds.bottom * viewport.zoom + viewport.y;
+    const desiredTop = screenBottom + nodeComposerGap;
+    const maxTop =
+      (typeof window !== "undefined" ? window.innerHeight : 900) -
+      nodeComposerViewportPadding -
+      nodeComposerEstimatedHeight;
+    return {
+      left: bounds.centerX * viewport.zoom + viewport.x,
+      top: Math.min(desiredTop, Math.max(nodeComposerViewportPadding, maxTop)),
+      width: nodeComposerWidth,
+    };
+  };
   const attachedNodeComposerAnchor = selectedImageBounds
-    ? (() => {
-        const screenBottom =
-          selectedImageBounds.bottom * viewport.zoom + viewport.y;
-        const desiredTop = screenBottom + nodeComposerGap;
-        const maxTop =
-          (typeof window !== "undefined" ? window.innerHeight : 900) -
-          nodeComposerViewportPadding -
-          nodeComposerEstimatedHeight;
-        return {
-          left: selectedImageBounds.centerX * viewport.zoom + viewport.x,
-          top: Math.min(desiredTop, Math.max(nodeComposerViewportPadding, maxTop)),
-          width: nodeComposerWidth,
-        };
-      })()
+    ? getNodeComposerAnchor(selectedImageBounds)
+    : null;
+  const model3dComposerNode = model3dComposer
+    ? nodes.find(n => n.id === model3dComposer.nodeId && n.type === "model3d")
+    : undefined;
+  const model3dComposerAnchor = model3dComposerNode
+    ? getNodeComposerAnchor(getCanvasNodeBounds(model3dComposerNode))
     : null;
   const displayNodesBase = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
@@ -38364,8 +39107,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onPaneContextMenu={handlePaneContextMenu as any}
         onClick={handlePaneClick}
         elevateNodesOnSelect={false}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
+        // 2026-10-30：不再用 fitView（会把单张图放大铺满）。
+        // 首屏视口改由「全局概览」effect（computeOverviewViewport）统一计算：看全局、缩放不超过 100%。
         minZoom={CANVAS_MIN_ZOOM}
         maxZoom={CANVAS_MAX_ZOOM}
         defaultEdgeOptions={{ type: "tapnow" }}
@@ -38450,6 +39193,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           rightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
           onUpload={handleEmptyStateUpload}
           onGenerate={handleEmptyStateGenerate}
+          onCreate3D={handleEmptyStateCreate3D}
         />
       )}
 
@@ -38643,6 +39387,33 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               void handleNodeComposerSubmit(selectedImageNode.id, payload);
             }}
             onClose={() => setSelectedNodeIds([])}
+          />
+        )}
+
+      {/*
+        3D 画布的悬浮提示词框：点容器右上角闪电激活，复用同一个 AssetEditPromptBar。
+        「已引用」缩略图 = 当前视角预览；发送时会重新截取最新视角。
+      */}
+      {model3dComposer &&
+        model3dComposerNode &&
+        model3dComposerAnchor &&
+        !editAsset && (
+          <AssetEditPromptBar
+            key={`model3d-composer-${model3dComposer.nodeId}`}
+            asset={{
+              id: model3dComposer.nodeId,
+              title: "3D 画布当前视角",
+              src: model3dComposer.thumb,
+            }}
+            isDark={isDark}
+            canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+            anchor={model3dComposerAnchor}
+            regionSelectEnabled={false}
+            opaqueSurface
+            onSubmit={payload => {
+              void handleModel3DComposerSubmit(model3dComposer.nodeId, payload);
+            }}
+            onClose={() => setModel3dComposer(null)}
           />
         )}
 
@@ -40774,6 +41545,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         multiple
         style={{ display: "none" }}
         onChange={e => handleUploadFiles(e.target.files)}
+      />
+      {/* 3D 画布：模型文件选择 input（工具栏「3D 画布」触发） */}
+      <input
+        ref={model3dUploadInputRef}
+        type="file"
+        accept={MODEL3D_ACCEPT_ATTRIBUTE}
+        multiple
+        style={{ display: "none" }}
+        onChange={e => handleModel3DInputChange(e.target.files)}
       />
 
       {/* 全局注释气泡层 — 位于画布内容上方、右侧对话区下方 */}

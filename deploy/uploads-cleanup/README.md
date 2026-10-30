@@ -68,3 +68,21 @@ systemctl list-timers artx-uploads-cleanup.timer --no-pager
 04:02  artx-cos-sync-daily
 04:10  artx-release-cleanup   （仅周日）
 ```
+
+## 3D 画布模型文件（48 小时保留，每小时回收）
+
+- 存放目录：`/var/lib/artx-shared/uploads/models3d/<用户>/`，单文件 ≤60MB（FBX / OBJ / GLB / GLTF），常量见 `shared/model3d.ts`。
+- 不留底：模型不走 `/uploads` 静态托管（30 天 immutable 缓存），只能经 `/api/models3d/:id` 由上传者本人读取，响应 `Cache-Control: no-store`；`artx-backup` 不打包 uploads 根目录，模型不会进入备份 tar / COS。
+- 三道闸：读取时超过 48h 当场删除并 404；每次上传顺手清扫；systemd timer 每小时物理回收。
+
+```bash
+install -m 0644 artx-models3d-cleanup.service /etc/systemd/system/
+install -m 0644 artx-models3d-cleanup.timer   /etc/systemd/system/
+systemctl daemon-reload
+sudo -u artx env ARTX_DATA_DIR=/var/lib/artx-gray ARTX_UPLOADS_DIR=/var/lib/artx-shared/uploads \
+  /usr/bin/node /opt/artx-gray-backend/current/dist/cleanup-uploads-cli.js --models3d-only --dry-run
+# 期望 root=/var/lib/artx-shared/uploads/models3d
+systemctl enable --now artx-models3d-cleanup.timer
+```
+
+⚠️ 模型上限已调为 60MB，线上 nginx 需把 `client_max_body_size` 从 60m 调到 64m（见 deploy/tencent-cloud/artx-gray.nginx.conf），然后 `nginx -t && systemctl reload nginx`；否则 60MB 附近的文件会被 nginx 直接 413，用户看不到统一中文提示。

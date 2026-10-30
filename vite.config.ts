@@ -589,6 +589,38 @@ function vitePluginAiOrchestratorApi(): Plugin {
         }
       });
 
+      // 3D 画布模型文件：与生产 express 共用 server/model3d-routes.ts 的同一份实现。
+      // 身份优先取 Authorization 对应的会话，取不到时退回 dev 免登录会话。
+      server.middlewares.use("/api/models3d", async (req, res, next) => {
+        try {
+          let username = "";
+          const sessionResult = await getSessionUserFromAuthorization(req.headers.authorization);
+          if (sessionResult.status === 200 && "user" in sessionResult.body) {
+            username = sessionResult.body.user.username;
+          } else {
+            const session = await getDevAutoLoginSession();
+            username = (session.body as { user?: { username?: string } })?.user?.username || "dev-tester";
+          }
+          const { handleModel3DDelete, handleModel3DGet, handleModel3DUpload } = await import("./server/model3d-routes");
+          const subPath = decodeURIComponent((req.url || "/").split("?")[0]).replace(/^\/+/, "");
+          if (req.method === "POST" && !subPath) {
+            await handleModel3DUpload(req, res, username);
+            return;
+          }
+          if ((req.method === "GET" || req.method === "HEAD") && subPath) {
+            await handleModel3DGet(req, res, username, subPath);
+            return;
+          }
+          if (req.method === "DELETE" && subPath) {
+            await handleModel3DDelete(req, res, username, subPath);
+            return;
+          }
+          return next();
+        } catch (error) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : "3D model request failed" });
+        }
+      });
+
       // 语音输入提示词：与生产 express 共用 server/voice-routes.ts。
       // 本地未配置 TENCENT_ASR_* 时返回 503，前端会提示「语音输入暂未开通」。
       server.middlewares.use("/api/voice/session", async (req, res, next) => {

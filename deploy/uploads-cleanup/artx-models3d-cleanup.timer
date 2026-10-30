@@ -1,0 +1,14 @@
+[Unit]
+Description=Run ArtX 3D model files cleanup hourly
+
+[Timer]
+# 模型文件只保留 48 小时：每小时整点后 7 分回收一次，文件最多多存约 1 小时。
+# 访问层另有硬保证——超过 48 小时的模型在读取时会被当场删除并返回 404，
+# 所以 timer 的粒度只影响磁盘回收及时性，不影响「过期不可访问」。
+OnCalendar=*-*-* *:07:00
+Persistent=true
+RandomizedDelaySec=120
+Unit=artx-models3d-cleanup.service
+
+[Install]
+WantedBy=timers.target
