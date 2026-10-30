@@ -1,6 +1,6 @@
 [Unit]
 Description=ArtX 3D canvas model files cleanup (48h retention)
-Documentation=删除超过 48 小时的 3D 画布模型文件（/var/lib/artx-shared/uploads/models3d），不做任何备份
+# 删除超过 48 小时的 3D 画布模型文件（/var/lib/artx-shared/uploads/models3d），不做任何备份
 After=network-online.target
 
 [Service]
@@ -13,8 +13,9 @@ WorkingDirectory=/opt/artx-gray-backend/current
 Environment=NODE_ENV=production
 Environment=ARTX_DATA_DIR=/var/lib/artx-gray
 Environment=ARTX_UPLOADS_DIR=/var/lib/artx-shared/uploads
-EnvironmentFile=-/opt/artx-gray-backend/current/.env.gray
-EnvironmentFile=-/opt/artx-gray-backend/.env.gray
+# ⚠️ 不要加 EnvironmentFile=.env.gray：systemd 里 EnvironmentFile 的值会覆盖上面的 Environment=，
+#    而 .env.gray 写的是旧目录 /var/lib/artx-gray/uploads —— 清理会扫错目录、零报错地什么都不删。
+#    后端进程实际用的是 artx-gray-backend.service.d 覆盖后的 /var/lib/artx-shared/uploads。
 
 ExecStart=/usr/bin/node /opt/artx-gray-backend/current/dist/cleanup-uploads-cli.js --models3d-only
 
