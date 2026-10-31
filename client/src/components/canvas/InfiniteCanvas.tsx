@@ -686,6 +686,7 @@ import {
   updateWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
+import { resolveCanvasCoverSource } from "@/lib/project-cover";
 import {
   isInRecoveryWindow,
   hasPromptedThisSession,
@@ -15690,15 +15691,19 @@ function safeWriteCanvasState(projectId: string, state: PersistedCanvasState) {
   }
 }
 
-function getCanvasStateCoverSource(nodes: Node[]) {
-  const imageNode = nodes.find(
-    node =>
-      node.type === "asset" &&
-      typeof (node.data as Record<string, unknown>)?.localSrc === "string"
+/**
+ * 自动封面的图片来源。会优先尊重用户右键「设为封面」手动指定的节点
+ * （project.coverNodeId）；指定节点被删掉后自动退回第一张图，并清掉失效标记。
+ */
+function getCanvasStateCoverSource(projectId: string, nodes: Node[]) {
+  const project = readWorkspaceProjectHistory().find(
+    item => item.id === projectId
   );
-  return imageNode
-    ? ((imageNode.data as Record<string, unknown>).localSrc as string)
-    : null;
+  const resolved = resolveCanvasCoverSource(nodes, project?.coverNodeId);
+  if (project?.coverNodeId && !resolved.coverNodeId) {
+    updateWorkspaceProjectHistory(projectId, { coverNodeId: null });
+  }
+  return resolved.src;
 }
 
 async function createCanvasCoverThumbnail(src: string) {
@@ -16991,6 +16996,18 @@ function NodeContextMenu({
           },
         ]
       : [];
+  // 图片节点：设为工作台项目封面（只对单张图片节点出现）
+  const setCoverItems =
+    menu.nodeType === "asset" && selectedCount === 1
+      ? [
+          {
+            icon: <ImageIcon size={13} />,
+            label: "设为封面",
+            action: "set-cover",
+            color: iconColor,
+          },
+        ]
+      : [];
 
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
@@ -17092,6 +17109,7 @@ function NodeContextMenu({
       color: iconColor,
     },
     ...textDownloadItems,
+    ...setCoverItems,
     {
       icon: <Type size={13} />,
       label: "添加文本备注",
@@ -28413,7 +28431,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       projectId,
       getCanvasProjectHistoryPatch(restoredNodes, updatedAt)
     );
-    const coverSource = getCanvasStateCoverSource(restoredNodes);
+    const coverSource = getCanvasStateCoverSource(projectId, restoredNodes);
     if (coverSource) {
       createCanvasCoverThumbnail(coverSource)
         .then(cover =>
@@ -28430,7 +28448,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (cancelled || hydratedNodes === restoredNodes) return;
         isRestoringRef.current = true;
         setNodes(hydratedNodes);
-        const hydratedCoverSource = getCanvasStateCoverSource(hydratedNodes);
+        const hydratedCoverSource = getCanvasStateCoverSource(
+          projectId,
+          hydratedNodes
+        );
         if (hydratedCoverSource) {
           createCanvasCoverThumbnail(hydratedCoverSource)
             .then(cover =>
@@ -28675,7 +28696,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       isRestoringRef.current
     )
       return;
-    const coverSource = getCanvasStateCoverSource(nodes);
+    const coverSource = getCanvasStateCoverSource(projectId, nodes);
     if (!coverSource) return;
     let cancelled = false;
     const updatedAt = formatProjectHistoryTimestamp();
@@ -31859,6 +31880,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             window as unknown as Record<string, unknown>
           ).__artx_frame_download__ = undefined;
         }
+      } else if (action === "set-cover") {
+        const node = getLatestAssetNode(nodeId);
+        if (!node || node.type !== "asset") return;
+        const { src } = resolveCanvasCoverSource([node], node.id);
+        if (!src) {
+          toast("该节点还没有图片，无法设为封面");
+          return;
+        }
+        try {
+          const cover = await createCanvasCoverThumbnail(src);
+          updateWorkspaceProjectHistory(projectId, {
+            cover,
+            coverNodeId: node.id,
+            updatedAt: formatProjectHistoryTimestamp(),
+          });
+          toast("已设为项目封面", {
+            description: "工作台中该项目将显示这张图片",
+          });
+        } catch {
+          toast("设置封面失败", { description: "图片读取失败，请稍后重试" });
+        }
       } else if (action === "add-asset") {
         const node = nodes.find(n => n.id === nodeId);
         if (node) {
@@ -31936,6 +31978,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       getLatestAssetNode,
       nodeCtxMenu,
       pasteCrossCanvasClipboard,
+      projectId,
       pushHistory,
       prepareCrossCanvasCopyNodes,
       screenToFlowPosition,

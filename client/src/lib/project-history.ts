@@ -4,6 +4,8 @@ export interface WorkspaceHistoryProject {
   id: string;
   title: string;
   cover: string | null;
+  /** 用户右键「设为封面」手动指定的图片节点 id；为空时封面自动取画布第一张图。 */
+  coverNodeId?: string | null;
   updatedAt: string;
   nodeCount: number;
   createdAt: string;
@@ -152,6 +154,7 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     id,
     title: patch.title || `新建画布 ${createdAt}`,
     cover: normalizeCover(patch.cover),
+    coverNodeId: patch.coverNodeId || null,
     updatedAt: patch.updatedAt || createdAt,
     nodeCount: patch.nodeCount ?? 0,
     createdAt,

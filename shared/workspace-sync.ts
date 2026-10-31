@@ -20,6 +20,7 @@ export type SyncedWorkspaceProject = {
   id: string;
   title: string;
   cover: string | null;
+  coverNodeId?: string | null;
   updatedAt: string;
   nodeCount: number;
   createdAt: string;
@@ -242,6 +243,7 @@ function normalizeProject(value: unknown): SyncedWorkspaceProject | null {
     id,
     title: typeof value.title === "string" ? value.title : "",
     cover: typeof value.cover === "string" ? value.cover : null,
+    coverNodeId: typeof value.coverNodeId === "string" && value.coverNodeId ? value.coverNodeId : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     nodeCount: typeof value.nodeCount === "number" ? value.nodeCount : 0,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",

@@ -91,4 +91,23 @@ describe("workspace project history", () => {
       expect.objectContaining({ title: "A 的项目" }),
     ]);
   });
+
+  it("persists a manually chosen cover (设为封面) and its node id", () => {
+    const project = createWorkspaceHistoryProject("封面项目");
+    updateWorkspaceProjectHistory(project.id, {
+      cover: "data:image/jpeg;base64,AAAA",
+      coverNodeId: "asset-1",
+    });
+
+    expect(readWorkspaceProjectHistory()[0]).toEqual(
+      expect.objectContaining({
+        cover: "data:image/jpeg;base64,AAAA",
+        coverNodeId: "asset-1",
+      })
+    );
+
+    // 只刷新封面图、不带 coverNodeId 的自动更新不会抹掉手动标记
+    updateWorkspaceProjectHistory(project.id, { cover: "data:image/jpeg;base64,BBBB" });
+    expect(readWorkspaceProjectHistory()[0].coverNodeId).toBe("asset-1");
+  });
 });
