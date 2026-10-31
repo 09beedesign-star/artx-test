@@ -171,8 +171,49 @@ function readLocalProjects(): SyncedWorkspaceProject[] {
   }
 }
 
+/**
+ * 读出本机项目封面（**未剥离**的原值）。
+ *
+ * ⚠️⚠️ 封面是 base64 JPEG 缩略图（几十 KB），上行前会被 stripInlineImagesForSync
+ *    当成「内联大图」剥掉，云端文档里封面恒为 null。
+ *    【2026-10-31 线上翻车】回写本地时直接用合并结果 → 每次同步（停手 3 秒就跑一次）
+ *    都把本机封面清空，用户现象：「退出工作台再回来，封面又变回默认的文件夹」。
+ *    📌 封面只存在本机，回写时必须把本机原值补回去，不能被云端的 null 覆盖。
+ */
+function readLocalProjectCovers(): Map<string, string> {
+  const covers = new Map<string, string>();
+  const raw =
+    safeGetItem(window?.localStorage, ownedKey(PROJECT_HISTORY_KEY)) ||
+    safeGetItem(window?.sessionStorage, ownedKey(`${PROJECT_HISTORY_KEY}:fallback`));
+  if (!raw) return covers;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return covers;
+    for (const item of parsed) {
+      const record = item as { id?: unknown; cover?: unknown } | null;
+      if (record && typeof record.id === "string" && typeof record.cover === "string" && record.cover) {
+        covers.set(record.id, record.cover);
+      }
+    }
+  } catch {
+    /* 读不到就当没有封面 */
+  }
+  return covers;
+}
+
+/** 云端回来的项目没有封面时，用本机原有封面补回去（纯函数，便于测试）。 */
+export function restoreLocalProjectCovers(
+  projects: SyncedWorkspaceProject[],
+  localCovers: Map<string, string>
+): SyncedWorkspaceProject[] {
+  return projects.map(project =>
+    project.cover ? project : { ...project, cover: localCovers.get(project.id) ?? null }
+  );
+}
+
 function writeLocalProjects(projects: SyncedWorkspaceProject[]) {
-  safeSetItem(window.localStorage, ownedKey(PROJECT_HISTORY_KEY), JSON.stringify(projects));
+  const withCovers = restoreLocalProjectCovers(projects, readLocalProjectCovers());
+  safeSetItem(window.localStorage, ownedKey(PROJECT_HISTORY_KEY), JSON.stringify(withCovers));
 }
 
 function canvasKeysForProject(projectId: string) {
