@@ -21,6 +21,8 @@ export type SyncedWorkspaceProject = {
   title: string;
   cover: string | null;
   coverNodeId?: string | null;
+  /** 封面最后一次被改写的时间（ISO，毫秒级）。封面按它单独合并，见 mergeProjectCovers。 */
+  coverUpdatedAt?: string;
   updatedAt: string;
   nodeCount: number;
   createdAt: string;
@@ -244,6 +246,7 @@ function normalizeProject(value: unknown): SyncedWorkspaceProject | null {
     title: typeof value.title === "string" ? value.title : "",
     cover: typeof value.cover === "string" ? value.cover : null,
     coverNodeId: typeof value.coverNodeId === "string" && value.coverNodeId ? value.coverNodeId : undefined,
+    coverUpdatedAt: typeof value.coverUpdatedAt === "string" && value.coverUpdatedAt ? value.coverUpdatedAt : undefined,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
     nodeCount: typeof value.nodeCount === "number" ? value.nodeCount : 0,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
@@ -392,6 +395,42 @@ function mergeById<T>(
 }
 
 /**
+ * 封面作为独立字段合并（跨设备封面，2026-10-31）。
+ *
+ * ⚠️⚠️ 不能跟着项目整体 last-write-wins 走：
+ *    - base64 封面上行前会被剥掉，云端那份 cover 常为 null；
+ *    - 项目 updatedAt 只精确到分钟，同一分钟内「先同步无封面 → 再上传封面 URL」时
+ *      时间相等，mergeById 保留先到的那份，封面 URL 就被吞掉，别的设备永远看不到。
+ * ✅ 规则：在所有候选里，取 **cover 非空** 且 coverUpdatedAt 最新的那份封面，
+ *    贴到项目合并结果上。null 永远不会覆盖一张已有的封面。
+ */
+export function mergeProjectCovers(
+  merged: SyncedWorkspaceProject[],
+  candidates: SyncedWorkspaceProject[]
+): SyncedWorkspaceProject[] {
+  const latest = new Map<string, SyncedWorkspaceProject>();
+  for (const item of candidates) {
+    if (!item || !item.cover) continue;
+    const existing = latest.get(item.id);
+    if (!existing || parseSyncTimestamp(item.coverUpdatedAt) > parseSyncTimestamp(existing.coverUpdatedAt)) {
+      latest.set(item.id, item);
+    }
+  }
+  return merged.map(project => {
+    const winner = latest.get(project.id);
+    if (!winner) return project;
+    if (project.cover && parseSyncTimestamp(project.coverUpdatedAt) >= parseSyncTimestamp(winner.coverUpdatedAt)) {
+      return project;
+    }
+    return {
+      ...project,
+      cover: winner.cover,
+      coverUpdatedAt: winner.coverUpdatedAt,
+    };
+  });
+}
+
+/**
  * 合并两份同步载荷。
  *
  * 语义（逐项 last-write-wins，**不是**整体覆盖）：
@@ -419,11 +458,14 @@ export function mergeWorkspaceSync(
     return parseSyncTimestamp(updatedAt) <= deletedAt;
   };
 
-  const projects = mergeById(
-    base.projects,
-    incoming.projects,
-    item => item.id,
-    item => parseSyncTimestamp(item.updatedAt) || parseSyncTimestamp(item.createdAt)
+  const projects = mergeProjectCovers(
+    mergeById(
+      base.projects,
+      incoming.projects,
+      item => item.id,
+      item => parseSyncTimestamp(item.updatedAt) || parseSyncTimestamp(item.createdAt)
+    ),
+    [...(base.projects ?? []), ...(incoming.projects ?? [])]
   )
     .filter(item => !isDeleted(item.id, item.updatedAt))
     .sort(

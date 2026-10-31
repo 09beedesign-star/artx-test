@@ -118,6 +118,51 @@ function safeSetItem(storage: Storage | undefined, key: string, value: string) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 项目封面上云（跨设备可见）
+ * ------------------------------------------------------------------ */
+
+/** 本地项目列表被同步回写后广播，工作台据此刷新卡片（另一台设备的封面能即时出现）。 */
+export const WORKSPACE_PROJECTS_UPDATED_EVENT = "artx:workspace-projects-updated";
+
+/**
+ * 封面地址转成可直接给 <img> 用的地址。
+ * 服务端返回的是相对路径 /uploads/covers/...；前端与 API 不同源（如 github.io）时要补 API 域名。
+ */
+export function resolveProjectCoverUrl(cover: string | null | undefined) {
+  if (!cover) return cover ?? null;
+  if (cover.startsWith("/uploads/")) return `${getApiBaseUrl()}${cover}`;
+  return cover;
+}
+
+/**
+ * 把 base64 封面缩略图传到服务端，返回 /uploads/covers/... 地址；未登录或失败返回 null。
+ * ⚠️ 永不抛错：封面上云失败只影响「别的设备看不到」，本机封面照常显示。
+ */
+export async function uploadProjectCover(projectId: string, dataUrl: string): Promise<string | null> {
+  if (typeof window === "undefined" || !dataUrl.startsWith("data:")) return null;
+  const { token } = readAuthSession();
+  if (!token) return null;
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/workspace/project-cover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ projectId, dataUrl }),
+    });
+    if (!response.ok) {
+      console.warn("[workspace-sync] 封面上传失败", response.status);
+      return null;
+    }
+    const text = (await response.text()).trim();
+    if (!text.startsWith("{")) return null;
+    const parsed = JSON.parse(text) as { url?: unknown };
+    return typeof parsed.url === "string" && parsed.url.startsWith("/uploads/covers/") ? parsed.url : null;
+  } catch (error) {
+    console.warn("[workspace-sync] 封面上传失败", error);
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * 删除墓碑
  * ------------------------------------------------------------------ */
 
@@ -180,8 +225,10 @@ function readLocalProjects(): SyncedWorkspaceProject[] {
  *    都把本机封面清空，用户现象：「退出工作台再回来，封面又变回默认的文件夹」。
  *    📌 封面只存在本机，回写时必须把本机原值补回去，不能被云端的 null 覆盖。
  */
-function readLocalProjectCovers(): Map<string, string> {
-  const covers = new Map<string, string>();
+export type LocalProjectCover = { cover: string; coverUpdatedAt?: string };
+
+function readLocalProjectCovers(): Map<string, LocalProjectCover> {
+  const covers = new Map<string, LocalProjectCover>();
   const raw =
     safeGetItem(window?.localStorage, ownedKey(PROJECT_HISTORY_KEY)) ||
     safeGetItem(window?.sessionStorage, ownedKey(`${PROJECT_HISTORY_KEY}:fallback`));
@@ -190,9 +237,12 @@ function readLocalProjectCovers(): Map<string, string> {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return covers;
     for (const item of parsed) {
-      const record = item as { id?: unknown; cover?: unknown } | null;
+      const record = item as { id?: unknown; cover?: unknown; coverUpdatedAt?: unknown } | null;
       if (record && typeof record.id === "string" && typeof record.cover === "string" && record.cover) {
-        covers.set(record.id, record.cover);
+        covers.set(record.id, {
+          cover: record.cover,
+          coverUpdatedAt: typeof record.coverUpdatedAt === "string" ? record.coverUpdatedAt : undefined,
+        });
       }
     }
   } catch {
@@ -201,19 +251,42 @@ function readLocalProjectCovers(): Map<string, string> {
   return covers;
 }
 
-/** 云端回来的项目没有封面时，用本机原有封面补回去（纯函数，便于测试）。 */
+/**
+ * 回写本地前补回本机封面（纯函数，便于测试）。
+ * - 云端没有封面 → 用本机的；
+ * - 本机封面比云端的更新（coverUpdatedAt 更晚，例如刚换的封面还在上传中）→ 用本机的；
+ * - 其余情况用云端的（另一台设备换了封面，这台要跟着变）。
+ */
 export function restoreLocalProjectCovers(
   projects: SyncedWorkspaceProject[],
-  localCovers: Map<string, string>
+  localCovers: Map<string, LocalProjectCover | string>
 ): SyncedWorkspaceProject[] {
-  return projects.map(project =>
-    project.cover ? project : { ...project, cover: localCovers.get(project.id) ?? null }
-  );
+  return projects.map(project => {
+    const raw = localCovers.get(project.id);
+    if (!raw) return project.cover ? project : { ...project, cover: null };
+    const local: LocalProjectCover = typeof raw === "string" ? { cover: raw } : raw;
+    const localNewer =
+      Boolean(local.coverUpdatedAt) &&
+      parseSyncTimestamp(local.coverUpdatedAt) > parseSyncTimestamp(project.coverUpdatedAt);
+    if (!project.cover || localNewer) {
+      return {
+        ...project,
+        cover: local.cover,
+        coverUpdatedAt: local.coverUpdatedAt ?? project.coverUpdatedAt,
+      };
+    }
+    return project;
+  });
 }
 
 function writeLocalProjects(projects: SyncedWorkspaceProject[]) {
   const withCovers = restoreLocalProjectCovers(projects, readLocalProjectCovers());
   safeSetItem(window.localStorage, ownedKey(PROJECT_HISTORY_KEY), JSON.stringify(withCovers));
+  try {
+    window.dispatchEvent(new Event(WORKSPACE_PROJECTS_UPDATED_EVENT));
+  } catch {
+    /* 广播失败不影响数据 */
+  }
 }
 
 function canvasKeysForProject(projectId: string) {

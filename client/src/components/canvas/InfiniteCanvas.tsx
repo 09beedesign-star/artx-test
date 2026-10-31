@@ -682,6 +682,7 @@ import {
 import {
   createWorkspaceHistoryProject,
   readWorkspaceProjectHistory,
+  setWorkspaceProjectCover,
   touchWorkspaceProjectHistory,
   updateWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
@@ -28435,8 +28436,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     if (coverSource) {
       createCanvasCoverThumbnail(coverSource)
         .then(cover =>
-          updateWorkspaceProjectHistory(projectId, {
-            cover,
+          setWorkspaceProjectCover(projectId, cover, {
             nodeCount: restoredNodes.length,
             updatedAt,
           })
@@ -28455,8 +28455,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (hydratedCoverSource) {
           createCanvasCoverThumbnail(hydratedCoverSource)
             .then(cover =>
-              updateWorkspaceProjectHistory(projectId, {
-                cover,
+              setWorkspaceProjectCover(projectId, cover, {
                 nodeCount: hydratedNodes.length,
                 updatedAt,
               })
@@ -28704,8 +28703,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       createCanvasCoverThumbnail(coverSource)
         .then(cover => {
           if (!cancelled)
-            updateWorkspaceProjectHistory(projectId, {
-              cover,
+            setWorkspaceProjectCover(projectId, cover, {
               nodeCount: nodes.length,
               updatedAt,
             });
@@ -31890,8 +31888,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         }
         try {
           const cover = await createCanvasCoverThumbnail(src);
-          updateWorkspaceProjectHistory(projectId, {
-            cover,
+          setWorkspaceProjectCover(projectId, cover, {
             coverNodeId: node.id,
             updatedAt: formatProjectHistoryTimestamp(),
           });

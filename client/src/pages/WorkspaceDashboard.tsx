@@ -27,6 +27,7 @@ import {
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
 import { saveProjectMemory } from "@/lib/user-memory-client";
+import { resolveProjectCoverUrl, WORKSPACE_PROJECTS_UPDATED_EVENT } from "@/lib/workspace-sync";
 
 // ── Types ──────────────────────────────────────────────────────
 interface WsProject {
@@ -236,7 +237,7 @@ function ProjectCard({
       <div className="relative overflow-hidden" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
         {project.cover ? (
           <img
-            src={project.cover}
+            src={resolveProjectCoverUrl(project.cover) ?? undefined}
             alt={project.title}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
@@ -350,6 +351,10 @@ export default function WorkspaceDashboard() {
   useEffect(() => {
     const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);
     setProjects(historyProjects);
+    // 云端同步回写后刷新卡片：另一台设备设的封面不用手动刷新页面就能出现。
+    const refresh = () => setProjects(readWorkspaceProjectHistory().map(fromHistoryProject));
+    window.addEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
   }, []);
 
   const handleCreate = useCallback((payload: CreateProjectPayload) => {

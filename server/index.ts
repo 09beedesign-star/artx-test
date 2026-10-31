@@ -57,6 +57,7 @@ import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isSupportedImageModel
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
+import { ProjectCoverError, storeProjectCover } from "./project-cover-storage";
 import { handleModel3DDelete, handleModel3DGet, handleModel3DUpload } from "./model3d-routes";
 import { cleanupExpiredModels3D } from "./model3d-storage";
 import { searchReferenceImages } from "./reference-search";
@@ -2270,6 +2271,35 @@ async function startServer() {
       res.json({ document });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Workspace sync failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /*
+   * 工作台项目封面上传（跨设备可见）。
+   *
+   * 客户端把 base64 缩略图传上来，落盘到 <uploadsRoot>/covers/<userId>/<projectId>/，
+   * 返回 /uploads/covers/... 的 URL。该 URL 不是 data: 串，不会被
+   * stripInlineImagesForSync 剥掉，随项目同步到同账号的其它设备。
+   *
+   * ⚠️ 用户身份恒取自会话（与 /api/workspace/sync 同一条防线）。
+   */
+  app.post("/api/workspace/project-cover", async (req, res) => {
+    try {
+      const user = await requireSessionUser(req, res);
+      if (!user) return;
+      const result = await storeProjectCover({
+        userId: user.id,
+        projectId: req.body?.projectId,
+        dataUrl: req.body?.dataUrl,
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ProjectCoverError) {
+        res.status(error.status).json({ error: error.message });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Project cover upload failed";
       res.status(500).json({ error: message });
     }
   });

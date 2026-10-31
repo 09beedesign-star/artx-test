@@ -29,8 +29,15 @@ describe("image node context-menu 设为封面", () => {
     expect(branch).toBeTruthy();
     expect(branch).toContain("createCanvasCoverThumbnail(src)");
     expect(branch).toContain("coverNodeId: node.id");
-    expect(branch).toContain("updateWorkspaceProjectHistory(projectId");
+    expect(branch).toContain("setWorkspaceProjectCover(projectId, cover");
     expect(branch).toContain('toast("已设为项目封面"');
+  });
+
+  it("所有封面写入都走 setWorkspaceProjectCover（会上云，跨设备可见）", () => {
+    // 直接 updateWorkspaceProjectHistory({ cover }) 写进去的 base64 封面会在同步时被剥掉，
+    // 其它设备只能看到文件夹图标。
+    expect(source).not.toMatch(/updateWorkspaceProjectHistory\([^)]*\{\s*cover\b/);
+    expect((source.match(/setWorkspaceProjectCover\(projectId, cover/g) || []).length).toBe(4);
   });
 
   it("三处自动封面刷新都经过手动封面判定，不会冲掉手动选择", () => {

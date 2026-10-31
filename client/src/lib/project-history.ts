@@ -1,4 +1,4 @@
-import { recordWorkspaceProjectDeletion, scheduleWorkspaceSync } from "./workspace-sync";
+import { recordWorkspaceProjectDeletion, scheduleWorkspaceSync, uploadProjectCover } from "./workspace-sync";
 
 export interface WorkspaceHistoryProject {
   id: string;
@@ -6,6 +6,8 @@ export interface WorkspaceHistoryProject {
   cover: string | null;
   /** 用户右键「设为封面」手动指定的图片节点 id；为空时封面自动取画布第一张图。 */
   coverNodeId?: string | null;
+  /** 封面最后改写时间（ISO 毫秒）。跨设备同步时封面按它单独合并。 */
+  coverUpdatedAt?: string;
   updatedAt: string;
   nodeCount: number;
   createdAt: string;
@@ -164,6 +166,90 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     canvasHeight: patch.canvasHeight,
   };
   writeWorkspaceProjectHistory([project, ...projects]);
+}
+
+/* ------------------------------------------------------------------ *
+ * 封面写入 + 上云（跨设备可见，2026-10-31）
+ * ------------------------------------------------------------------ */
+
+const COVER_UPLOAD_CACHE_KEY = "artx:project-cover-uploads";
+
+type CoverUploadCache = Record<string, { fp: string; url: string }>;
+
+const pendingCoverUploads = new Map<string, string>();
+
+/** 封面内容指纹（FNV-1a），用来判断「这张缩略图是不是已经传过了」。 */
+export function fingerprintCover(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${value.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+}
+
+function readCoverUploadCache(): CoverUploadCache {
+  try {
+    const raw = window.localStorage.getItem(storageKeyForCurrentUser(COVER_UPLOAD_CACHE_KEY));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCoverUploadCache(cache: CoverUploadCache) {
+  try {
+    window.localStorage.setItem(storageKeyForCurrentUser(COVER_UPLOAD_CACHE_KEY), JSON.stringify(cache));
+  } catch {
+    /* 缓存写不进去只会导致重复上传（服务端按内容去重），不影响功能 */
+  }
+}
+
+/**
+ * 写入项目封面：本机立即生效，同时后台传到服务端，成功后把封面换成
+ * /uploads/covers/... 地址 —— 这个地址会随工作台同步到同账号的所有设备。
+ *
+ * ⚠️⚠️ 画布里所有改封面的地方都必须走这里，而不是直接 updateWorkspaceProjectHistory({cover})，
+ *    否则 base64 封面会在同步时被剥掉，别的设备永远只看到文件夹图标。
+ */
+export function setWorkspaceProjectCover(
+  id: string,
+  cover: string,
+  patch: Partial<WorkspaceHistoryProject> = {}
+) {
+  if (typeof window === "undefined" || !shouldPersistWorkspaceProject(id) || !cover) return;
+  const current = readWorkspaceProjectHistory().find(item => item.id === id);
+  const isInline = cover.startsWith("data:");
+  const fp = isInline ? fingerprintCover(cover) : "";
+
+  // 同一张缩略图已经传过、本机存的就是那个云端地址 → 封面没变，只更新其它字段。
+  const known = isInline ? readCoverUploadCache()[id] : undefined;
+  if (known && known.fp === fp && current?.cover === known.url) {
+    if (Object.keys(patch).length > 0) updateWorkspaceProjectHistory(id, patch);
+    return;
+  }
+
+  const changed = current?.cover !== cover;
+  const coverUpdatedAt =
+    changed || !current?.coverUpdatedAt ? new Date().toISOString() : current.coverUpdatedAt;
+  updateWorkspaceProjectHistory(id, { ...patch, cover, coverUpdatedAt });
+
+  if (!isInline) return;
+  // 画布每次节点变化都会触发一次（450ms 防抖），上传还没回来时不要重复发。
+  if (pendingCoverUploads.get(id) === fp) return;
+  pendingCoverUploads.set(id, fp);
+  void uploadProjectCover(id, cover).then(url => {
+    if (pendingCoverUploads.get(id) === fp) pendingCoverUploads.delete(id);
+    if (!url) return;
+    const cache = readCoverUploadCache();
+    cache[id] = { fp, url };
+    writeCoverUploadCache(cache);
+    // 上传期间用户可能又换了封面：只有本机封面仍是这一张时才替换成云端地址。
+    const latest = readWorkspaceProjectHistory().find(item => item.id === id);
+    if (latest?.cover !== cover) return;
+    updateWorkspaceProjectHistory(id, { cover: url, coverUpdatedAt });
+  });
 }
 
 export function touchWorkspaceProjectHistory(id: string) {
