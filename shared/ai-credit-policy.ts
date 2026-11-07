@@ -290,6 +290,19 @@ export const AI_IMAGE_MODEL_CREDIT_POLICIES: AiImageModelCreditPolicy[] = [
   { model: "vod-og25-sunburst-high", creditsPerImage: 300, estimatedCostPerImage: 0.316, qualityTier: "high" },
   { model: "vod-og25-flare-high", creditsPerImage: 300, estimatedCostPerImage: 0.316, qualityTier: "high" },
   /**
+   * OG image2.6（2026-10 接入）。
+   * ⚠️ 腾讯截至接入日**没有 image2.6 公开报价**，按同系 image2.5 1K 价暂代
+   * （low 0.036 / medium 0.078 / high 0.316），积分沿用 40 / 70 / 300（毛利 69.0% / 61.6% / 63.7%）。
+   * 拿到官方单价后按 55% 毛利红线复核（signup-initial-credits.test.ts 的毛利循环会自动覆盖）。
+   * SVG / GIF 交付物的加价见下方 IMAGE_DELIVERABLE_BILLING。
+   */
+  { model: "vod-og26-sunburst-low", creditsPerImage: 40, estimatedCostPerImage: 0.036 },
+  { model: "vod-og26-flare-low", creditsPerImage: 40, estimatedCostPerImage: 0.036 },
+  { model: "vod-og26-sunburst-medium", creditsPerImage: 70, estimatedCostPerImage: 0.078 },
+  { model: "vod-og26-flare-medium", creditsPerImage: 70, estimatedCostPerImage: 0.078 },
+  { model: "vod-og26-sunburst-high", creditsPerImage: 300, estimatedCostPerImage: 0.316, qualityTier: "high" },
+  { model: "vod-og26-flare-high", creditsPerImage: 300, estimatedCostPerImage: 0.316, qualityTier: "high" },
+  /**
    * 2026-09-12 中转站图片模型下线，已移除
    * og-image2-low/medium/high、jimeng-4.0、mj-v7、mj-v8.1 六条。
    *
@@ -330,6 +343,42 @@ export const AI_IMAGE_MODEL_CREDIT_POLICIES: AiImageModelCreditPolicy[] = [
   { model: "vod-si", creditsPerImage: 200, estimatedCostPerImage: 0.56 },
   { model: "vod-qwen", creditsPerImage: 180, estimatedCostPerImage: 0.46 },
 ];
+
+/**
+ * image2.6 交付物（SVG / GIF）计费。**shared/quoteAiUsage 与 server quoteAiUsageFromData 必须都调
+ * applyImageDeliverableBilling**，只改一份 = 界面报价和真实扣费不一致。
+ *
+ * - SVG：出图后腾讯再调一次 gpt-5 做矢量化（svg.model 必填）。按约 3k 输出 token 估成本
+ *   ≈ 0.25 元/次，固定加收 180 积分。low 220 / medium 250 / high 480，毛利 57.0% / 56.6% / 61.0%。
+ * - GIF：固定 9 帧（512~768px），像素总量约为一张 1K 图的 2.3 倍，保守按 **3 倍**成本估，
+ *   积分同比 ×3（low 120 / medium 210 / high 900），毛利与单图档位完全相同。
+ * ⚠️ 两项都是**暂估成本**（腾讯无公开价），拿到账单后复核。
+ * 交付物恒按 1k 档计（svg 1024² / gif 短边 ≤512，实际输出也落 1k 档）。
+ */
+export const IMAGE_DELIVERABLE_BILLING: Record<"svg" | "gif", {
+  creditsMultiplier: number;
+  creditsSurcharge: number;
+  costMultiplier: number;
+  costSurcharge: number;
+}> = {
+  svg: { creditsMultiplier: 1, creditsSurcharge: 180, costMultiplier: 1, costSurcharge: 0.25 },
+  gif: { creditsMultiplier: 3, creditsSurcharge: 0, costMultiplier: 3, costSurcharge: 0 },
+};
+
+/** 把单张积分 / 成本换算成交付物口径。deliverable 为空 → 原样返回。 */
+export function applyImageDeliverableBilling(
+  deliverable: string | undefined,
+  creditsPerImage: number,
+  costPerImage: number,
+) {
+  const rule = deliverable === "svg" || deliverable === "gif" ? IMAGE_DELIVERABLE_BILLING[deliverable] : null;
+  if (!rule) return { creditsPerImage, costPerImage, deliverable: undefined as "svg" | "gif" | undefined };
+  return {
+    creditsPerImage: creditsPerImage * rule.creditsMultiplier + rule.creditsSurcharge,
+    costPerImage: costPerImage * rule.costMultiplier + rule.costSurcharge,
+    deliverable: deliverable as "svg" | "gif",
+  };
+}
 
 export function getAiBillingPolicy(capability: AiBillingCapability) {
   return AI_CREDIT_POLICIES.find((item) => item.capability === capability) || AI_CREDIT_POLICIES[0];
@@ -495,18 +544,30 @@ export function quoteAiUsage(input: {
    * ⚠️ 服务端注入，客户端不要传这个字段。
    */
   userMemoryContext?: string;
+  /**
+   * image2.6 交付物。调用方须先用 shared/image-deliverable.ts 的 resolveImageDeliverable
+   * 裁决（非 og26 模型恒为 undefined）。传了就强制 1 张、1k 档。
+   */
+  deliverable?: "svg" | "gif";
 }) {
   const policy = getAiBillingPolicy(input.capability);
   const discount = getAiPlanDiscount(input.planId);
-  const outputCount = Math.max(1, Math.round(input.outputCount || 1));
-  const modelPolicy = input.capability === "text_to_image"
+  const rawModelPolicy = input.capability === "text_to_image"
     ? getAiImageModelCreditPolicy(input.model)
     : null;
+  const deliverable = rawModelPolicy ? input.deliverable : undefined;
+  const outputCount = deliverable ? 1 : Math.max(1, Math.round(input.outputCount || 1));
+  const modelPolicy = rawModelPolicy && deliverable
+    ? (() => {
+        const applied = applyImageDeliverableBilling(deliverable, rawModelPolicy.creditsPerImage, rawModelPolicy.estimatedCostPerImage);
+        return { ...rawModelPolicy, creditsPerImage: applied.creditsPerImage, estimatedCostPerImage: applied.costPerImage };
+      })()
+    : rawModelPolicy;
   /**
    * 分辨率只对出图生效。抠图/擦除/OCR 这些能力的上游报价与分辨率无关，
    * 给它们乘系数等于凭空加价。
    */
-  const resolutionPolicy = input.capability === "text_to_image"
+  const resolutionPolicy = input.capability === "text_to_image" && !deliverable
     ? getAiImageResolutionPolicy(input.resolutionTier)
     : AI_IMAGE_RESOLUTION_POLICIES[0];
   const rawCredits = modelPolicy
@@ -535,5 +596,6 @@ export function quoteAiUsage(input: {
     resolutionPolicy,
     chargedCredits,
     estimatedCost,
+    deliverable,
   };
 }

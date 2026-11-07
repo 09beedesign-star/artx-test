@@ -673,6 +673,12 @@ import {
 } from "@/lib/ai-credit-gate";
 import { computeAiProcessingOverlayMetrics } from "@/lib/ai-processing-overlay";
 import { removeGenerationPlaceholders } from "@/lib/canvas-generation-nodes";
+import {
+  ImageDeliverableActions,
+  IMAGE_DELIVERABLE_REQUEST_EVENT,
+  isAnimatedGifSrc,
+  type ImageDeliverableRequestDetail,
+} from "@/components/canvas/ImageDeliverableActions";
 import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
 import {
@@ -10469,6 +10475,20 @@ function AssetNodeComponent({
               </button>
             )}
         </div>
+        {/*
+          ── image2.6 交付物操作按钮（生成 GIF / 导出 SVG）────────────
+          只在当前节点的模型是 image2.6（vod-og26-*）时渲染。
+          按钮派发 CustomEvent，由外层 useEffect 监听器接收并走出图流程。
+          位置：左下角，与「撤销重绘」对齐。
+        */}
+        <div className="absolute nodrag nopan" style={{ left: 10, bottom: 48, zIndex: 116 }}>
+          <ImageDeliverableActions
+            nodeId={nodeId}
+            model={typeof data.generationModel === "string" ? data.generationModel : ""}
+            currentImageSrc={displaySrc}
+            isDark={isDark}
+          />
+        </div>
         {extractedTextPanelOpen && (
           <>
             {/* 节点内的零尺寸锚点：面板 portal 出去后，靠它的 DOM rect 反推屏幕位置 */}
@@ -13962,6 +13982,7 @@ type ImageGeneratorPayload = {
   count: number;
   style: string;
   referencesEnabled: boolean;
+  deliverable?: "svg" | "gif";
   generationId?: string;
   status?: "pending" | "completed" | "failed";
   error?: string;
@@ -14043,6 +14064,7 @@ type ImageRegenerateRequestDetail = {
   /** 重新生成时必须带上原始的提示词尺寸意图，否则 4K 图重生成会退回 1536。 */
   targetWidth?: number;
   targetHeight?: number;
+  deliverable?: "svg" | "gif";
 };
 
 type ImageGeneratorReferenceAsset = {
@@ -15039,6 +15061,12 @@ function getRegenerableImageNodeDetail(
       typeof data.generationTargetHeight === "number"
         ? data.generationTargetHeight
         : undefined,
+    deliverable:
+      typeof data.generationDeliverable === "string" &&
+      (data.generationDeliverable === "svg" ||
+        data.generationDeliverable === "gif")
+        ? (data.generationDeliverable as "svg" | "gif")
+        : undefined,
   };
 }
 
@@ -15046,6 +15074,7 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
   return {
     generationPrompt: detail.prompt,
     generationModel: detail.model,
+    generationDeliverable: detail.deliverable,
     generationRatio: detail.ratio,
     generationStyle: detail.style,
     generationTitleBase: detail.titleBase,
@@ -28318,6 +28347,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 // 否则「刷新页面后自动续跑的那一张」会比前台那张小一圈。
                 targetWidth: task.targetWidth,
                 targetHeight: task.targetHeight,
+                deliverable: task.deliverable,
               });
             }
           }

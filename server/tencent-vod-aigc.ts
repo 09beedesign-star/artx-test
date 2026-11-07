@@ -193,7 +193,48 @@ export type VodImageGenerationInput = {
   negativePrompt?: string;
   storageMode?: "Temporary" | "Permanent";
   outputFormat?: "png" | "jpeg";
+  /**
+   * 特殊交付物（仅 image2.6 / og26-* 支持）：svg = 矢量化导出，gif = 9 帧动图。
+   * 不走 OutputConfig.OutputFormat（那里只认 png/jpeg），而是走 ExtInfo.AdditionalParameters。
+   */
+  deliverable?: VodImageDeliverable;
 };
+
+export type VodImageDeliverable = "svg" | "gif";
+
+/** 只有 image2.6（站点 id `og26-*`）支持 svg / gif 交付物。 */
+export function isVodDeliverableCapableModel(model?: string): boolean {
+  return /^(vod-)?og26-/i.test(String(model || "").trim());
+}
+
+/**
+ * GIF 尺寸：腾讯侧像素预算有上限，1024x1024 实测 ErrCode 70000，≤768 边长可过。
+ * 已实测通过的三档：512x512 / 768x512 / 512x768（2026-10 生产机探针）。
+ * 只用这三档，不自己算任意尺寸 —— 未实测的尺寸可能同样撞预算。
+ */
+export function resolveVodGifSize(aspectRatio?: string): string {
+  const normalized = String(aspectRatio || "").replace("x", ":").trim();
+  const [w, h] = normalized.split(":").map((part) => Number(part));
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return "512x512";
+  const ratio = w / h;
+  if (ratio > 1.1) return "768x512";
+  if (ratio < 0.9) return "512x768";
+  return "512x512";
+}
+
+/**
+ * 构造 image2.6 交付物的 ExtInfo（双层 JSON 字符串，实测格式）：
+ *   ExtInfo = JSON.stringify({ AdditionalParameters: JSON.stringify({...}) })
+ * - svg：必须带 svg.model（缺了腾讯报参数错），gpt-5 实测输出真 <path> 矢量。
+ * - gif：固定 9 帧 × 200ms 循环，帧参数会被忽略，只有 size 生效。
+ * ⚠️ 未知 output_format 腾讯会静默接受并照常出 png —— 所以只认这两个值。
+ */
+export function buildVodDeliverableExtInfo(deliverable: VodImageDeliverable, aspectRatio?: string): string {
+  const params = deliverable === "svg"
+    ? { output_format: "svg", svg: { model: "gpt-5" } }
+    : { output_format: "gif", size: resolveVodGifSize(aspectRatio) };
+  return JSON.stringify({ AdditionalParameters: JSON.stringify(params) });
+}
 
 export type VodImageGenerationResult = {
   images: Array<{ src: string; width: number; height: number }>;
@@ -375,6 +416,17 @@ const MODEL_VERSION_MAP: Record<string, string> = {
   "og25-flare-low": "image2.5_flare_low",
   "og25-flare-medium": "image2.5_flare_medium",
   "og25-flare-high": "image2.5_flare_high",
+  /**
+   * OG image2.6（2026-10 接入）—— 版本串规则与 2.5 相同，必须 `image2.6_{sunburst|flare}_{low|medium|high}`。
+   * 独有能力：经 ExtInfo.AdditionalParameters 输出 SVG 矢量 / GIF 动图（见 buildVodDeliverableExtInfo）。
+   * 实测：SVG 1024×1024 约 7KB、真 <path>；GIF 768×512 / 512×768 / 512×512，9 帧 200ms 循环。
+   */
+  "og26-sunburst-low": "image2.6_sunburst_low",
+  "og26-sunburst-medium": "image2.6_sunburst_medium",
+  "og26-sunburst-high": "image2.6_sunburst_high",
+  "og26-flare-low": "image2.6_flare_low",
+  "og26-flare-medium": "image2.6_flare_medium",
+  "og26-flare-high": "image2.6_flare_high",
   mj: "v8.2",
   "mj-v7": "v7",
   "mj-niji": "niji_7",
@@ -612,6 +664,20 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
 
   if (input.negativePrompt) {
     payload.NegativePrompt = input.negativePrompt;
+  }
+
+  if (input.deliverable) {
+    // 非 image2.6 传了交付物 → 显式报错，而不是静默出一张 png 冒充 svg/gif。
+    if (!isVodDeliverableCapableModel(input.model)) {
+      throw new Error(`当前模型不支持 ${input.deliverable.toUpperCase()} 输出，请切换到 image2.6`);
+    }
+    payload.ExtInfo = buildVodDeliverableExtInfo(input.deliverable, payload.OutputConfig?.AspectRatio);
+    // GIF/SVG 尺寸由 AdditionalParameters 决定，强制 1K 避免高分辨率挤爆像素预算。
+    if (payload.OutputConfig) {
+      payload.OutputConfig.Resolution = "1K";
+      payload.OutputConfig.OutputImageCount = 1;
+      delete payload.OutputConfig.OutputFormat;
+    }
   }
 
   const result = await callVodApi<CreateImageTaskResponse>("CreateAigcImageTask", payload as unknown as Record<string, unknown>);

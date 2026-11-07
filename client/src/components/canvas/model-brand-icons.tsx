@@ -60,7 +60,7 @@ export function getModelBrandIconKind(modelId: string, icon?: string): ModelBran
   // `og25` 是 2026-09-11 接入的 OG image2.5（腾讯 VOD 直连，全站默认出图模型）。
   // 它的 id 形如 vod-og25-sunburst-medium，既不含 "image2" 也不含 "gpt"，
   // 不显式加这个分支，裸 id 会落到 "none" —— 默认模型在 UI 上没有图标。
-  if (/openai|chatgpt|image2|og-image2|og25|gpt/.test(value)) return "openai";
+  if (/openai|chatgpt|image2|og-image2|og25|og26|gpt/.test(value)) return "openai";
   return icon ? "image" : "none";
 }
 

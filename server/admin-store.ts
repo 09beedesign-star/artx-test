@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { accessSync, constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, getMemoryContextSurcharge, isHighQualityImageModel, isImageModelAllowedForFreePlan, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
+import { AI_BILLING_BLOCKED_MESSAGES, AI_CREDIT_GRACE_DAILY_CAP, AI_CREDIT_GRACE_LIMIT, AI_CREDIT_POLICIES, AI_IMAGE_MODEL_CREDIT_POLICIES, AI_IMAGE_RESOLUTION_POLICIES, AI_PLAN_DISCOUNTS, applyImageDeliverableBilling, getAiImageModelCreditPolicy, getAiImageResolutionPolicy, getMemoryContextSurcharge, isHighQualityImageModel, isImageModelAllowedForFreePlan, resolveImageResolutionTier, type AiBillingCapability, type AiBillingPolicy, type AiPlanDiscountPolicy } from "../shared/ai-credit-policy";
 import {
   BILLING_CYCLES,
   MEMBERSHIP_PLANS,
@@ -397,6 +397,8 @@ type AiUsageRecordInput = {
   resolutionTier?: string;
   /** 用户开启记忆时的上下文，有内容时计费加收附加费。 */
   userMemoryContext?: string;
+  /** image2.6 交付物（svg/gif），由路由层按 resolveImageDeliverable 裁决后传入。 */
+  deliverable?: "svg" | "gif";
   estimatedCost?: number;
   chargedCredits?: number;
 };
@@ -1862,6 +1864,8 @@ export async function assertUserCanAffordAiUsage(input: {
   targetHeight?: number;
   /** 用户记忆上下文，有值时报价会加收附加费。 */
   userMemoryContext?: string;
+  /** image2.6 交付物（svg/gif）。 */
+  deliverable?: "svg" | "gif";
 }) {
   const data = await loadAdminData();
   const user = data.users.find((item) => item.id === input.userId);
@@ -1874,6 +1878,7 @@ export async function assertUserCanAffordAiUsage(input: {
     planId: getPlanIdFromUserPlan(user?.plan),
     model: input.model,
     userMemoryContext: input.userMemoryContext,
+    deliverable: input.deliverable,
     /**
      * 出图单价受分辨率影响（2K ×2.14 / 4K ×2.71）。
      * 事前阶段拿不到成品的真实像素，只能用用户选的目标尺寸估 ——
@@ -2095,6 +2100,8 @@ function quoteAiUsageFromData(data: AdminData, input: {
   resolutionTier?: string;
   /** 用户的长期记忆上下文，有内容时加收固定附加费。 */
   userMemoryContext?: string;
+  /** image2.6 交付物（svg/gif）。与 shared/quoteAiUsage 同口径：applyImageDeliverableBilling。 */
+  deliverable?: "svg" | "gif";
 }) {
   const policies = data.aiBillingPolicies?.length ? data.aiBillingPolicies : AI_CREDIT_POLICIES;
   const discounts = data.aiPlanDiscounts?.length ? data.aiPlanDiscounts : AI_PLAN_DISCOUNTS;
@@ -2104,10 +2111,18 @@ function quoteAiUsageFromData(data: AdminData, input: {
   const discount = discounts.find((item) => item.planId === input.planId)
     || AI_PLAN_DISCOUNTS.find((item) => item.planId === input.planId)
     || AI_PLAN_DISCOUNTS[1];
-  const outputCount = Math.max(1, Math.round(input.outputCount || 1));
-  const modelPolicy = input.capability === "text_to_image"
+  const rawModelPolicy = input.capability === "text_to_image"
     ? getAiImageModelCreditPolicy(input.model)
     : null;
+  // ⚠️ 交付物加价必须在这份生产副本里也做，否则「界面报 250、实扣 70」。
+  const deliverable = rawModelPolicy ? input.deliverable : undefined;
+  const outputCount = deliverable ? 1 : Math.max(1, Math.round(input.outputCount || 1));
+  const modelPolicy = rawModelPolicy && deliverable
+    ? (() => {
+        const applied = applyImageDeliverableBilling(deliverable, rawModelPolicy.creditsPerImage, rawModelPolicy.estimatedCostPerImage);
+        return { ...rawModelPolicy, creditsPerImage: applied.creditsPerImage, estimatedCostPerImage: applied.costPerImage };
+      })()
+    : rawModelPolicy;
   /**
    * ⚠️⚠️ 这个函数是 shared/quoteAiUsage 的「读库版」副本，**生产链路走的是这条**。
    * 分辨率系数必须在这里也实现一遍，只改 shared 那份等于没改 ——
@@ -2115,7 +2130,7 @@ function quoteAiUsageFromData(data: AdminData, input: {
    * （测试用 quoteAiUsage、生产用 quoteAiUsageFromData，库为空时两者恒等，
    *   于是差异在测试里永远暴露不出来）。
    */
-  const resolutionPolicy = input.capability === "text_to_image"
+  const resolutionPolicy = input.capability === "text_to_image" && !deliverable
     ? getAiImageResolutionPolicy(input.resolutionTier)
     : AI_IMAGE_RESOLUTION_POLICIES[0];
   const rawCredits = modelPolicy
@@ -2127,6 +2142,7 @@ function quoteAiUsageFromData(data: AdminData, input: {
   const scaledCredits = rawCredits * discountMultiplier * resolutionPolicy.creditsMultiplier;
 
   return {
+    deliverable,
     policy,
     discount,
     resolutionPolicy,
@@ -6167,6 +6183,8 @@ export async function quoteAdminAiUsage(input: {
   planId?: string;
   model?: string;
   userMemoryContext?: string;
+  resolutionTier?: string;
+  deliverable?: "svg" | "gif";
 }) {
   const data = await loadAdminData();
   return quoteAiUsageFromData(data, input);
@@ -6282,6 +6300,7 @@ export async function recordAiUsage(input: AiUsageRecordInput) {
       model: input.model,
       resolutionTier: input.resolutionTier,
       userMemoryContext: input.userMemoryContext,
+      deliverable: input.deliverable,
     })
     : null;
   const chargedCredits = input.status === "success"

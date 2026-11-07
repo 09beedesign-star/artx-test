@@ -66,6 +66,13 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "响应快，适合多轮微调", icon: "gemini" },
   // nano banana 2.1 = 腾讯 VOD GG 3.6（2026-10-11 接入）。必须与 server/image-generation.ts 三张表一致。
   { id: "vod-gg36", label: "banana 2.1", color: "oklch(0.74 0.16 285)", description: "多图融合，角色一致性强", icon: "gemini" },
+  // image2.6（OG，2026-10 接入）：独有 SVG 矢量导出 / GIF 动图。sunburst 与 flare 价格完全相同。
+  { id: "vod-og26-sunburst-medium", label: "image2.6 medium", color: "oklch(0.72 0.18 200)", description: "新一代主力，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-medium", label: "image2.6 medium flare", color: "oklch(0.74 0.16 285)", description: "色彩浓郁，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-sunburst-low", label: "image2.6 low", color: "oklch(0.70 0.16 150)", description: "快速出稿，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-low", label: "image2.6 low flare", color: "oklch(0.70 0.16 150)", description: "快速试色，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-sunburst-high", label: "image2.6 high", color: "oklch(0.82 0.18 95)", description: "高清成稿，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-high", label: "image2.6 high flare", color: "oklch(0.82 0.18 95)", description: "高清质感，可导SVG/GIF", icon: "openai" },
   { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "画面稳定，长文案不崩", icon: "openai" },
   { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "艺术表现强，构图出彩", icon: "midjourney" },
   { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },

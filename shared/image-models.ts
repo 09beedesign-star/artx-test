@@ -91,6 +91,12 @@ export const IMAGE_MODEL_PRIORITY_IDS = [
   // nano banana 2.1（GG 3.6，2026-10-11 接入）。排在 gem 族之后，
   // 不改变 auto 链前段（og25 → gem）的既有兜底顺序。
   "vod-gg36",
+  // image2.6（OG，2026-10 接入）：独有 SVG 矢量导出 / GIF 动图。排在 gg36 之后，
+  // 不改变 auto 链前段（og25 → gem → gg36）的既有兜底顺序。
+  "vod-og26-sunburst-medium",
+  "vod-og26-flare-medium",
+  "vod-og26-sunburst-low",
+  "vod-og26-flare-low",
   "vod-jimeng",
   "vod-og",
   "vod-mj",
@@ -99,7 +105,14 @@ export const IMAGE_MODEL_PRIORITY_IDS = [
   "vod-qwen",
   "vod-og25-sunburst-high",
   "vod-og25-flare-high",
+  "vod-og26-sunburst-high",
+  "vod-og26-flare-high",
 ] as const;
+
+/** image2.6（og26-*）是唯一支持 SVG / GIF 交付物的模型族。前后端共用此判据。 */
+export function isImage26ModelId(model?: string): boolean {
+  return /^vod-og26-/.test(normalizeImageModelId(model));
+}
 
 /**
  * 已下线的中转站图片模型 → 等价 VOD 模型的迁移映射。
@@ -199,6 +212,13 @@ const DISPLAY_LABEL_ALIASES: Record<string, VodModelId> = {
   "image2.5-low-flare": "vod-og25-flare-low",
   "image2.5-high": "vod-og25-sunburst-high",
   "image2.5-high-flare": "vod-og25-flare-high",
+  "image2.6-medium": "vod-og26-sunburst-medium",
+  "image2.6-medium-flare": "vod-og26-flare-medium",
+  "image2.6-low": "vod-og26-sunburst-low",
+  "image2.6-low-flare": "vod-og26-flare-low",
+  "image2.6-high": "vod-og26-sunburst-high",
+  "image2.6-high-flare": "vod-og26-flare-high",
+  "image2.6": "vod-og26-sunburst-medium",
   "mj-v8.2": "vod-mj",
   "kling-3.0": "vod-kling",
   "si-5.0-pro": "vod-si",

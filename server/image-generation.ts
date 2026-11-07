@@ -12,6 +12,7 @@ import {
 } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL, isClaudeTextModelId } from "../shared/text-models";
 import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
+import { resolveImageDeliverable } from "../shared/image-deliverable";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
 import { clampImageExpansionPrompt, VOD_EXPANSION_PROMPT_MAX_LENGTH } from "../shared/image-expansion";
 import { buildTextEditGlobalPrompt, buildTextEditLanguageHint } from "../shared/text-edit-global-prompt";
@@ -113,6 +114,11 @@ type ImageGenerateInput = {
    * 会让每张图都按 4K 出、按 4K 计费，界面报价却仍是 1K。
    */
   userMemory?: string;
+  /**
+   * image2.6 专属交付物：svg = 矢量导出，gif = 9 帧动图。
+   * 前端按钮显式传；也可由提示词关键词（「导出svg」「生成gif」）推断，见 shared/image-deliverable.ts。
+   */
+  deliverable?: "svg" | "gif";
 };
 
 type RemoveBackgroundInput = {
@@ -774,6 +780,13 @@ const imageModelDescriptions: Record<string, string> = {
   "vod-gem-lite": "响应快，适合多轮微调",
   // GG 3.6：最多 14 张参考图（含 4 张角色图），卖点是多图融合与角色一致。
   "vod-gg36": "多图融合，角色一致性强",
+  // image2.6：独有 SVG 矢量导出 / GIF 动图（tencent-vod-aigc.ts buildVodDeliverableExtInfo）。
+  "vod-og26-sunburst-medium": "新一代主力，可导SVG/GIF",
+  "vod-og26-flare-medium": "色彩浓郁，可导SVG/GIF",
+  "vod-og26-sunburst-low": "快速出稿，可导SVG/GIF",
+  "vod-og26-flare-low": "快速试色，可导SVG/GIF",
+  "vod-og26-sunburst-high": "高清成稿，可导SVG/GIF",
+  "vod-og26-flare-high": "高清质感，可导SVG/GIF",
   "vod-og": "画面稳定，长文案不崩",
   "vod-mj": "艺术表现强，构图出彩",
   "vod-kling": "国风人像与电商主图",
@@ -804,6 +817,12 @@ const imageModelLabels: Record<string, string> = {
   "vod-gem": "banana 3.1",
   "vod-gem-lite": "banana 3.1 lite",
   "vod-gg36": "banana 2.1",
+  "vod-og26-sunburst-medium": "image2.6 medium",
+  "vod-og26-flare-medium": "image2.6 medium flare",
+  "vod-og26-sunburst-low": "image2.6 low",
+  "vod-og26-flare-low": "image2.6 low flare",
+  "vod-og26-sunburst-high": "image2.6 high",
+  "vod-og26-flare-high": "image2.6 high flare",
   "vod-og": "image2",
   "vod-mj": "mj v8.2",
   "vod-kling": "kling 3.0",
@@ -823,6 +842,12 @@ const imageModelIcons: Record<string, string> = {
   "vod-gem": "gemini",
   "vod-gem-lite": "gemini",
   "vod-gg36": "gemini",
+  "vod-og26-sunburst-medium": "openai",
+  "vod-og26-flare-medium": "openai",
+  "vod-og26-sunburst-low": "openai",
+  "vod-og26-flare-low": "openai",
+  "vod-og26-sunburst-high": "openai",
+  "vod-og26-flare-high": "openai",
   "vod-og": "openai",
   "vod-mj": "midjourney",
   "vod-kling": "kling",
@@ -5079,6 +5104,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
   const tryVodGeneration = async (vodModelId: string) => {
     const maskImage = referenceImages.find(image => image.title === "annotation mask");
     const nonMaskImages = referenceImages.filter(image => image.title !== "annotation mask");
+    const deliverable = resolveImageDeliverable({ model: vodModelId, deliverable: input.deliverable, prompt: input.prompt });
     console.log("[generate] VOD branch entered, model:", vodModelId, "| maskPresent:", !!maskImage, "| refImages:", nonMaskImages.length);
     const vodInput: VodImageGenerationInput = {
       prompt: buildPrompt(input),
@@ -5104,7 +5130,14 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
       // 导致「加帽子」等具体指令被稀释；由调用方通过 enhancePrompt=false 显式关闭。
       enhancePrompt: input.enhancePrompt ?? true,
       negativePrompt: input.negativePrompt,
+      // image2.6 专属：svg / gif。非 og26 模型恒为 undefined（auto 链里的其他模型照常出 png）。
+      deliverable,
     };
+    if (deliverable) {
+      // 交付物尺寸由 ExtInfo 决定（svg 1024² / gif ≤768），固定 1 张、1K。
+      vodInput.resolution = "1K";
+      vodInput.count = 1;
+    }
 
     const result = await generateImageWithVod(vodInput);
     const rawVodImages = result.images.map(img => ({
@@ -5124,7 +5157,8 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
      * 只有解析出显式像素时才动手：没有尺寸意图的请求保持原样，
      * 不引入任何多余的 sharp 重编码。
      */
-    const images = hasPromptSizeTarget && rawVodImages.length > 0
+    // ⚠️ svg / gif 绝不能进 sharp 归一化：sharp 会把 svg 栅格化、把 gif 压成单帧 png。
+    const images = !deliverable && hasPromptSizeTarget && rawVodImages.length > 0
       ? await __testNormalizeGeneratedImagesToTargetAspect(
           rawVodImages,
           targetSize.width,
@@ -5135,7 +5169,7 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
     // ⚠️ 必须把腾讯返回的 TaskId 透出去。这里曾经直接 `return { images }`，
     // 把 result.taskId 丢掉，导致所有 VOD 任务在后台追踪里的上游任务号
     // 恒为占位符 "provider-task-missing"，出问题时无法向腾讯提工单核查。
-    return withProviderTaskIds({ images: images.slice(0, count) }, result.taskId ? [result.taskId] : []);
+    return withProviderTaskIds({ images: images.slice(0, deliverable ? 1 : count) }, result.taskId ? [result.taskId] : []);
   };
 
   // 用户显式选中某个 vod-* 模型时，失败就直接报错，不静默改用别的模型 ——

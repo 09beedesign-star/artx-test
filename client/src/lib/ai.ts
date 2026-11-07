@@ -71,6 +71,13 @@ export type ImageGenerationTaskInput = Record<string, unknown> & {
   capability?: string;
   intent?: string;
   operation?: string;
+  /**
+   * image2.6 交付物类型（svg / gif）。
+   *
+   * ⚠️ 必须透传到服务端 /api/images/tasks，由 server/image-generation.ts 的
+   * resolveImageDeliverable 消费。漏掉 = 用户点「导出 SVG」按钮却出普通 PNG。
+   */
+  deliverable?: "svg" | "gif";
 };
 
 const AUTH_STORAGE_KEY = "artx-auth-session";
@@ -625,6 +632,7 @@ export async function generateImages({
   generationId,
   targetWidth,
   targetHeight,
+  deliverable,
   signal,
 }: {
   prompt: string;
@@ -645,6 +653,10 @@ export async function generateImages({
    */
   targetWidth?: number;
   targetHeight?: number;
+  /**
+   * image2.6 交付物类型。两条出口都要带（同 targetWidth 教训）。
+   */
+  deliverable?: "svg" | "gif";
   /**
    * 用户主动中止的信号。
    *
@@ -680,6 +692,7 @@ export async function generateImages({
         skillId,
         targetWidth,
         targetHeight,
+        deliverable,
       });
       return await waitForImageGenerationTask(generationId, signal);
     } catch (error) {
@@ -703,6 +716,7 @@ export async function generateImages({
     skillId,
     targetWidth,
     targetHeight,
+    deliverable,
   }, "图像生成失败");
 
   return toGeneratedImagesResponse(result);
@@ -812,6 +826,7 @@ export async function startBackgroundImageGeneration({
   skillId,
   targetWidth,
   targetHeight,
+  deliverable,
 }: {
   taskId: string;
   prompt: string;
@@ -825,6 +840,8 @@ export async function startBackgroundImageGeneration({
   /** 提示词尺寸意图解析出的目标像素。见 shared/prompt-size-intent.ts。 */
   targetWidth?: number;
   targetHeight?: number;
+  /** image2.6 交付物类型（svg / gif）。 */
+  deliverable?: "svg" | "gif";
 }) {
   requireAiAuth();
   const promptWithContext = [
@@ -846,6 +863,7 @@ export async function startBackgroundImageGeneration({
     skillId,
     targetWidth,
     targetHeight,
+    deliverable,
   });
 }
 
