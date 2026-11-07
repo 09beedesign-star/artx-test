@@ -32210,6 +32210,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         // 同上：再次生成沿用原始尺寸意图，否则重生成会掉档。
         targetWidth: detail.targetWidth,
         targetHeight: detail.targetHeight,
+        // image2.6 交付物类型（svg / gif），undefined = 普通图片。
+        deliverable: detail.deliverable,
       };
       dispatchImageGenerationTask({ ...payload, status: "pending" }, projectId);
       if (detail.editMode && detail.imageSrc) {
@@ -32257,6 +32259,48 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         handleAssetRegenerateRequest
       );
   }, [ensureBackgroundImageGeneration, projectId, setNodes]);
+
+  /**
+   * 监听 image2.6 交付物请求（生成 GIF / 导出 SVG）。
+   * 按钮点击 → ImageDeliverableActions 派发 IMAGE_DELIVERABLE_REQUEST_EVENT →
+   * 这里找到对应节点的 regenerateDetail → 覆写 deliverable → dispatch asset-regenerate-request。
+   *
+   * 复用已有的 asset-regenerate-request 路径，避免重复实现出图逻辑。
+   */
+  useEffect(() => {
+    const handleDeliverableRequest = (event: Event) => {
+      const { nodeId, model, deliverable, currentImageSrc } = (
+        event as CustomEvent<import("./ImageDeliverableActions").ImageDeliverableRequestDetail>
+      ).detail;
+
+      // 从节点数据读取完整的重新生成 detail
+      const node = nodesRef.current.find(n => n.id === nodeId);
+      if (!node) return;
+      const nodeData = node.data as Record<string, unknown>;
+      const displaySize = getImageDisplaySizeForRatio(
+        typeof nodeData.generationRatio === "string" ? nodeData.generationRatio : "1:1"
+      );
+      const detail = getRegenerableImageNodeDetail(nodeId, nodeData, displaySize);
+      if (!detail) return;
+
+      // 覆写 deliverable，其余字段不变
+      const patchedDetail: ImageRegenerateRequestDetail = {
+        ...detail,
+        model,
+        deliverable,
+        // 把当前图片作为参考图（可选），保持和「再次生成」一致的入参
+        imageSrc: currentImageSrc ?? detail.imageSrc,
+      };
+
+      window.dispatchEvent(
+        new CustomEvent("asset-regenerate-request", { detail: patchedDetail })
+      );
+    };
+
+    window.addEventListener(IMAGE_DELIVERABLE_REQUEST_EVENT, handleDeliverableRequest);
+    return () => window.removeEventListener(IMAGE_DELIVERABLE_REQUEST_EVENT, handleDeliverableRequest);
+  }, []);
+
 
   useEffect(() => {
     const handleImageGenerate = (event: Event) => {
