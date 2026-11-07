@@ -44,6 +44,7 @@ const expectedIds = [
   "xiaohei-object-scenes",
   "ip-mascot-logo",
   "isometric-line-art",
+  "brand-vi-suite",
 ];
 
 const expectedCategories = [

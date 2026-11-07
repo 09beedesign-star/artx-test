@@ -230,5 +230,13 @@
     "minimumPrompt": "画一张等距线稿插画：一台服务器机柜通过三条连线连接到中心枢纽，表达「数据汇聚」。",
     "expectedVisualResult": "A white-background isometric hairline drawing of a server cabinet linked by three lines to a central hub, all in one uniform thin stroke with rounded corners.",
     "passCriteria": "All edges follow the isometric grid, line weight is uniform, there are no fills, gradients or shading, and the composition stays clean with generous margin."
+  },
+  {
+    "skillId": "brand-vi-suite",
+    "capability": "text_to_image",
+    "requiresReferenceImage": false,
+    "minimumPrompt": "附上一张咖啡品牌 LOGO，品牌名 SHANYE COFFEE，主色 #A8542E：生成「B1 办公事务」分类拼板（桌牌、工作证挂带、印章、PPT 模板）。",
+    "expectedVisualResult": "A 2x2 grid sheet of four realistic office mockups (desk name plate, ID badge with lanyard, stamp imprint, laptop showing a PPT cover) all carrying the exact uploaded logo in terracotta #A8542E.",
+    "passCriteria": "The uploaded logo is reproduced unchanged on all four items, SHANYE COFFEE is spelled correctly, colours stay within the brand palette, and gutters are clean and even like a VI manual page."
   }
 ]

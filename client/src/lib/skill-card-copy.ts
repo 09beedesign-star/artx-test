@@ -8,6 +8,7 @@
  */
 export const skillCardSummaries: Record<string, string> = {
   "brand-system-kit": "把品牌描述转成完整品牌板：色板、字体气质、图形语言和应用样张。",
+  "brand-vi-suite": "一个 LOGO 延展 50 项 VI 单品：办公、导示、广告、会议、车体、礼品。",
   "logo-identity-lab": "围绕品牌关键词探索多方向 Logo：符号、字标、徽章与推荐方案。",
   "landing-page-visual": "生成可落地的网页首屏、产品页或多区块落地页视觉稿。",
   "commerce-poster-social": "按产品、活动和渠道生成高冲击海报、主图与社媒投放素材。",
