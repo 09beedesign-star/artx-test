@@ -88,6 +88,128 @@ function useAdminHostRootRedirect() {
   }, []);
 }
 
+/**
+ * ShellRoutes — 带 AppShell 的路由集合
+ *
+ * AppShell 在这里只渲染 **一次**，路由切换时侧边栏完全不重建。
+ * 内容区通过 key 变化触发 CSS fade-in，实现轻量页面过渡。
+ * 无侧边栏的路由（首页/画布/管理后台）保持独立，不进这里。
+ */
+function ShellRoutes() {
+  const [location] = useLocation();
+  // 只取第一段路径作为 key，避免 /ecommerce-canvas/post ↔ /product 也触发淡入
+  const contentKey = (() => {
+    const seg = location.split(/[?#]/)[0];
+    const parts = seg.split("/").filter(Boolean);
+    return parts[0] || "home";
+  })();
+
+  return (
+    <AppShell>
+      {/*
+        key 随一级路径变化 → 内容区重新挂载并触发 CSS fade-in。
+        侧边栏在 AppShell 内部，不受 key 影响，完全稳定。
+      */}
+      <div key={contentKey} className="artx-page-fade h-full">
+        <Suspense fallback={<GeneralPageLoading />}>
+          <Switch>
+            {/* 工作台（项目列表） */}
+            <Route path="/workspace">
+              <RequireLogin>
+                <WorkspaceDashboard />
+              </RequireLogin>
+            </Route>
+
+            {/* 创作社区 */}
+            <Route path="/community">
+              <RequireLogin>
+                <CommunityPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 设置 */}
+            <Route path="/settings">
+              <RequireLogin>
+                <SettingsPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 个人主页 */}
+            <Route path="/profile">
+              <RequireLogin>
+                <ProfilePage />
+              </RequireLogin>
+            </Route>
+
+            {/* 创作模板（灵感推荐） */}
+            <Route path="/inspiration">
+              <InspirationPage />
+            </Route>
+
+            {/* 技能商店 */}
+            <Route path="/skills">
+              <SkillsPage />
+            </Route>
+
+            <Route path="/cross-border-commerce">
+              <CrossBorderCommercePage />
+            </Route>
+
+            {/*
+              电商画布：带货图文 + 智能电商产品图整合入口。
+              /*? 三种形态都能匹配（裸路径/尾斜杠/子路径），不会误吞 /ecommerce-canvasx。
+              ⚠️ 2026-10-24 安全修复：必须要求登录（积分扣费漏洞）。
+            */}
+            <Route path="/ecommerce-canvas/*?">
+              <RequireLogin>
+                <EcommerceCanvasPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 长期记忆 */}
+            <Route path="/memory">
+              <RequireLogin>
+                <LongTermMemoryPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 素材库 */}
+            <Route path="/assets">
+              <RequireLogin>
+                <AssetsPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 帮助中心 */}
+            <Route path="/help">
+              <RequireLogin>
+                <HelpPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 充值与订阅 */}
+            <Route path="/billing">
+              <RequireLogin>
+                <BillingPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 积分规则说明：不套 RequireLogin，付费前就该能看 */}
+            <Route path="/credits-guide">
+              <CreditsGuidePage />
+            </Route>
+
+            {/* 兜底：未知路径跳首页 */}
+            <Route>
+              <NotFound />
+            </Route>
+          </Switch>
+        </Suspense>
+      </div>
+    </AppShell>
+  );
+}
+
 function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
   useAdminHostRootRedirect();
@@ -108,12 +230,6 @@ function AppRoutes() {
 
   /*
    * 智能产品历史记录全局监听。
-   *
-   * InfiniteCanvas 生成完成时 dispatch("image-generator-submit", { ...payload, status:"completed", images })；
-   * 智能产品的 style 是 "智能产品图结果"（InfiniteCanvas:29791），每次生成一个记录，按账号隔离。
-   *
-   * 弹窗生成后 1 秒关闭 → 无法自己监听，只能在上层捕获。
-   * 后台轮询恢复会对同一 generationId 再发一次 completed → 追加时按 id 去重。
    */
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
@@ -129,134 +245,26 @@ function AppRoutes() {
   return (
     <Suspense fallback={<RouteChunkFallback />}>
     <Switch>
-      {/* 首页 */}
+      {/* 首页 — 无侧边栏 */}
       <Route path="/">
         <HomePage />
       </Route>
 
-      {/* 工作台（项目列表） */}
-      <Route path="/workspace">
-        <RequireLogin>
-          <AppShell>
-            <WorkspaceDashboard />
-          </AppShell>
-        </RequireLogin>
+      {/* 项目画布 — 无侧边栏，画布自带返回按钮 */}
+      <Route path="/project/:id">
+        {(params) => (
+          <RequireLogin>
+            <Workspace projectId={params.id} />
+          </RequireLogin>
+        )}
       </Route>
 
-      {/* 创作社区 */}
-      <Route path="/community">
-        <RequireLogin>
-          <AppShell>
-            <CommunityPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 设置 */}
-      <Route path="/settings">
-        <RequireLogin>
-          <AppShell>
-            <SettingsPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 个人主页 */}
-      <Route path="/profile">
-        <RequireLogin>
-          <AppShell>
-            <ProfilePage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* ── 补充缺失路由（原侧边栏点击无效的导航项）── */}
-
-      {/* 灵感推荐 */}
-      <Route path="/inspiration">
-        <AppShell>
-          <InspirationPage />
-        </AppShell>
-      </Route>
-
-      {/* 技能商店 */}
-      <Route path="/skills">
-        <AppShell>
-          <SkillsPage />
-        </AppShell>
-      </Route>
-
-      <Route path="/cross-border-commerce">
-        <AppShell>
-          <CrossBorderCommercePage />
-        </AppShell>
-      </Route>
-
-      {/*
-        电商画布：带货图文 + 智能电商产品图整合入口。
-        必须用 /*?（可选通配）：
-        - 定值 path 不匹配静态托管 301 出来的尾斜杠 /ecommerce-canvas/；
-        - 而 /* 编译成 ^/ecommerce-canvas/(.*)，**不匹配不带斜杠的 /ecommerce-canvas** ——
-          侧栏入口正是这个地址，站内点击直接掉进 NotFound（2026-10-17 线上 404 事故）。
-        /*? 三种形态都能匹配，且不会误吞 /ecommerce-canvasx。
-        
-        ⚠️ 2026-10-24 安全修复：电商画布会消耗 AI 积分（带货图文 180/张，产品图 480/次），
-        必须要求登录才能进入。未登录用户点击任何生成按钮都会触发扣费，属于严重漏洞。
-      */}
-      <Route path="/ecommerce-canvas/*?">
-        <RequireLogin>
-          <AppShell>
-            <EcommerceCanvasPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 长期记忆：跟随账号的通用记忆（项目记忆 / Skill / 通用规则 / 常规记忆 四维度） */}
-      <Route path="/memory">
-        <RequireLogin>
-          <AppShell>
-            <LongTermMemoryPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 素材库 */}
-      <Route path="/assets">
-        <RequireLogin>
-          <AppShell>
-            <AssetsPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 帮助中心 */}
-      <Route path="/help">
-        <RequireLogin>
-          <AppShell>
-            <HelpPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      <Route path="/billing">
-        <RequireLogin>
-          <AppShell>
-            <BillingPage />
-          </AppShell>
-        </RequireLogin>
-      </Route>
-
-      {/* 积分规则说明：刻意不套 RequireLogin —— 用户在付费之前就该能看清规则 */}
-      <Route path="/credits-guide">
-        <AppShell>
-          <CreditsGuidePage />
-        </AppShell>
-      </Route>
-
+      {/* Loading 页 — 无侧边栏 */}
       <Route path="/loading">
         <LoadingLoopPage />
       </Route>
 
+      {/* 管理后台 — 无侧边栏 */}
       <Route path="/admin-prototype">
         {!isAdminHost() && !hasAdminTestAccess() ? (
           <AdminHostRequired />
@@ -269,17 +277,17 @@ function AppRoutes() {
         )}
       </Route>
 
-      {/* 项目画布（无 AppShell 侧边栏，画布自带返回按钮） */}
-      <Route path="/project/:id">
-        {(params) => (
-          <RequireLogin>
-            <Workspace projectId={params.id} />
-          </RequireLogin>
-        )}
-      </Route>
-
+      {/* 404 */}
       <Route path="/404" component={NotFound} />
-      <Route component={NotFound} />
+
+      {/*
+        所有带侧边栏的路由统一交给 ShellRoutes 处理。
+        AppShell 在 ShellRoutes 内只渲染一次，路由切换时侧边栏完全不重建。
+        必须放在所有无侧边栏路由之后，避免提前拦截。
+      */}
+      <Route>
+        <ShellRoutes />
+      </Route>
     </Switch>
     </Suspense>
   );
@@ -507,32 +515,18 @@ function App() {
             <LoginRegisterDialog />
             <CreditGrantNotification />
             <WouterRouter base={routerBase}>
-              <RouteLoadingGate>
-                {/*
-                  新手引导。必须在 WouterRouter 内部（依赖 useLocation），
-                  且在 RouteLoadingGate 内部 —— 引导靠 segment.startDelayMs
-                  避开路由 loading 那 720ms 的全屏遮罩。
-                */}
-                {/*
-                  计费浮层挂在这里 = 全站唯一入口。
-                  必须在 WouterRouter 内部（openBilling 要读 location 判断
-                  「是不是已经在 /billing」），且包住 AppRoutes，
-                  这样首页、积分说明页这些没有 TopBar 的页面也能调同一个弹窗。
-                */}
-                <BillingDialogProvider>
-                  <OnboardingProvider>
-                    <AppRoutes />
-                  </OnboardingProvider>
-                  {/*
-                    放在 Provider 内部，是因为点「去充值」要走同一个 openBilling 出口，
-                    不能自己 navigate("/billing") —— 那样画布会被卸载，用户充完值得
-                    重新找回工作现场，而这正是 BillingDialog 当年要解决的问题。
-                    不塞进 BillingDialog 内部，是因为两者性质不同：
-                    那个是用户主动打开的计价面板，这个是被动触发的拦截。
-                  */}
-                  <InsufficientCreditsDialog />
-                </BillingDialogProvider>
-              </RouteLoadingGate>
+              {/*
+                RouteLoadingGate 已移除 —— 侧边栏路由间切换改为内容区 CSS fade-in。
+                RouteLoadingGate 只对画布路由有实际意义（分包体积大），
+                但画布是无侧边栏的独立路由，已在 AppRoutes 单独处理，
+                保留它反而会在侧边栏路由切换时制造 720ms 全屏遮罩。
+              */}
+              <BillingDialogProvider>
+                <OnboardingProvider>
+                  <AppRoutes />
+                </OnboardingProvider>
+                <InsufficientCreditsDialog />
+              </BillingDialogProvider>
             </WouterRouter>
           </TooltipProvider>
         </AuthProvider>
