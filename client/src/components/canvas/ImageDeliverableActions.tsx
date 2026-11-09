@@ -49,9 +49,9 @@ function DeliverableButton({
 }) {
   const label = getImageDeliverableLabel(deliverable);
   const icon = deliverable === "gif" ? <Film size={10} strokeWidth={1.6} /> : <Layers size={10} strokeWidth={1.6} />;
-  const bg = isDark ? "oklch(0.22 0.02 270)" : "oklch(0.93 0.005 270)";
-  const text = isDark ? "oklch(0.75 0.01 270)" : "oklch(0.42 0.012 270)";
-  const hoverBg = isDark ? "oklch(0.30 0.03 280)" : "oklch(0.88 0.01 270)";
+  const bg = isDark ? "#1a1a1a" : "#161616";
+  const text = isDark ? "#bbbbbb" : "#161616";
+  const hoverBg = isDark ? "#3a3a3a" : "#e6e3df";
 
   return (
     <button
@@ -119,7 +119,7 @@ export function ImageDeliverableActions({
     dispatchImageDeliverableRequest({ nodeId, model, deliverable, currentImageSrc });
   };
 
-  const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const border = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   return (
     <div

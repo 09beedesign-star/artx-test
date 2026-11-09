@@ -45,7 +45,7 @@ type Tone = "green" | "purple" | "cyan";
 function toneColor(tone: Tone, isDark: boolean) {
   // 品牌绿色：白天模式加深以提升对比度
   if (tone === "green") return isDark ? "#C5ED47" : "#5C7A1A";
-  return isDark ? "oklch(0.72 0.18 292)" : "oklch(0.52 0.20 292)";
+  return isDark ? "#f5f6f8" : "#161616";
 }
 
 /**
@@ -85,7 +85,7 @@ function BarRow({
       </div>
       <div
         className="h-2 w-full overflow-hidden rounded-[var(--radius-pill)]"
-        style={{ background: theme.isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 6%)" }}
+        style={{ background: theme.isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)" }}
       >
         <div
           className="h-full rounded-[var(--radius-pill)]"
@@ -144,7 +144,7 @@ export default function CreditRulesBoard({
 }) {
   const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen } = theme;
   const accent = toneColor("green", isDark);
-  const accentSoft = isDark ? "oklch(0.78 0.18 110 / 0.12)" : "oklch(0.88 0.14 110 / 0.22)";
+  const accentSoft = isDark ? "#bbbbbb" : "#e6e3df";
 
   const welcome = useMemo(() => getWelcomePackage(), []);
   const unitRows = useMemo(() => buildUnitCreditRows(), []);
@@ -155,7 +155,7 @@ export default function CreditRulesBoard({
   const channels = useMemo(() => buildFreeCreditChannels(), []);
   const freeTotal = useMemo(() => buildFreeCreditTotal(), []);
 
-  const fieldBg = isDark ? "oklch(1 0 0 / 0.045)" : "oklch(0 0 0 / 0.03)";
+  const fieldBg = isDark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.03)";
   const cardStyle = { background: fieldBg, borderColor: border };
   const maxQuality = Math.max(...qualityLadder.map(item => item.credits));
   const maxResolution = Math.max(...resolutionLadder.map(item => item.credits));
@@ -212,9 +212,9 @@ export default function CreditRulesBoard({
         className="rounded-[var(--radius-lg-design)] border p-4"
         style={{
           background: isDark
-            ? "linear-gradient(120deg, oklch(0.78 0.18 110 / 0.14), oklch(0.62 0.20 292 / 0.10))"
-            : "linear-gradient(120deg, oklch(0.88 0.14 110 / 0.24), oklch(0.86 0.10 292 / 0.14))",
-          borderColor: isDark ? "oklch(0.78 0.18 110 / 0.28)" : "oklch(0.80 0.14 110 / 0.5)",
+            ? "linear-gradient(120deg, #bbbbbb, rgba(22,22,22,0.10))"
+            : "linear-gradient(120deg, #e6e3df, #161616)",
+          borderColor: isDark ? "#bbbbbb" : "#cccccc",
         }}
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -419,8 +419,8 @@ export default function CreditRulesBoard({
                       row.boostPercent > 0
                         ? accent
                         : isDark
-                          ? "oklch(1 0 0 / 14%)"
-                          : "oklch(0 0 0 / 12%)",
+                          ? "rgba(255,255,255,0.14)"
+                          : "rgba(0,0,0,0.12)",
                     opacity: row.boostPercent > 0 ? 1 : 0.7,
                   }}
                 />
@@ -463,7 +463,7 @@ export default function CreditRulesBoard({
                 </div>
                 <div
                   className="mt-2 h-1.5 w-full overflow-hidden rounded-[var(--radius-pill)]"
-                  style={{ background: isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 6%)" }}
+                  style={{ background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)" }}
                 >
                   <div
                     className="h-full rounded-[var(--radius-pill)]"

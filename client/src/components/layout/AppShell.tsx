@@ -109,16 +109,16 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const isDark = resolvedTheme === "dark";
   const shouldHideSidebar = hideSidebar;
 
-  // ── Theme tokens ──────────────────────────────────────────────
-  const mainBg       = isDark ? "#090909" : "#f2f2f7";
-  const sidebarBg    = isDark ? "#171717" : "var(--design-surface-soft)";
-  const sidebarBorder= isDark ? "transparent" : "var(--hairline)";
-  const textPrimary  = isDark ? "#f1f1f3" : "rgba(20,20,36,0.82)";
-  const textSecondary= isDark ? "#99999e" : "rgba(20,20,36,0.38)";
-  const hoverBg      = isDark ? "#292929" : "rgba(0,0,0,0.04)";
-  const activeBg     = isDark ? "#303030" : "rgba(0,0,0,0.06)";
+  // ── Theme tokens (图叙 AI 规格) ──────────────────────────────────────────────
+  const mainBg       = isDark ? "#111111" : "#ffffff";
+  const sidebarBg    = isDark ? "#0d0d0d" : "#fafafa";
+  const sidebarBorder= isDark ? "transparent" : "#e6e3df";
+  const textPrimary  = isDark ? "#f1f1f3" : "#262627";
+  const textSecondary= isDark ? "#99999e" : "#777472";
+  const hoverBg      = isDark ? "#2a2a2a" : "#f5f6f8";
+  const activeBg     = isDark ? "#333333" : "#ecedf0";
   const brandGreenIcon = isDark ? "#C5ED47" : "#5C7A1A"; // 品牌绿色图标（白天模式加深）
-  const activeColor  = isDark ? "#f4f4f5" : "rgba(20,20,36,0.90)";
+  const activeColor  = isDark ? "#f4f4f5" : "#262627";
   const wechatGroupQrUrl = import.meta.env.VITE_WECHAT_GROUP_QR_URL || "/api/community/wechat-group-qr/image";
   const [communityQrSrc, setCommunityQrSrc] = useState(wechatGroupQrUrl);
   const isActive = (path: string) =>
@@ -442,9 +442,9 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             disabled={helpSubmitting}
             className="h-9 min-w-[96px] inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
             style={{
-              background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+              background: "#161616",
               color: "white",
-              boxShadow: "0 8px 22px oklch(0.58 0.22 290 / 0.24)",
+              boxShadow: "0 6px 24px rgba(48,37,25,0.12)",
             }}
           >
             <Send size={13} />

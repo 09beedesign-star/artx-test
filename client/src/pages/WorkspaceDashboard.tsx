@@ -89,7 +89,7 @@ function CardMenu({
 
   const bg = isDark ? "#222222" : "rgba(248,248,252,0.97)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
+  const textColor = isDark ? "#161616" : "#161616";
   const hoverBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
 
   return (
@@ -100,7 +100,7 @@ function CardMenu({
           background: open
             ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
             : "transparent",
-          color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 255)",
+          color: isDark ? "#99999e" : "#777472",
         }}
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
@@ -143,8 +143,8 @@ function CardMenu({
           <div style={{ height: 1, background: border, margin: "2px 0" }} />
           <button
             className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
-            style={{ color: "oklch(0.65 0.22 25)" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "oklch(0.65 0.22 25 / 0.10)")}
+            style={{ color: "#999999" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#999999")}
             onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             onClick={() => { onDelete(); setOpen(false); }}
           >
@@ -161,17 +161,17 @@ function CardMenu({
 function DeleteConfirmDialog({
   count, onConfirm, onCancel, isDark,
 }: { count: number; onConfirm: () => void; onCancel: () => void; isDark: boolean }) {
-  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
+  const bg = isDark ? "#222222" : "#161616";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "oklch(0.85 0.008 270)" : "oklch(0.18 0.008 270)";
-  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 270)";
+  const text = isDark ? "#161616" : "#161616";
+  const sub = isDark ? "#99999e" : "#777472";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onCancel}>
       <div data-artx-dialog-surface className="rounded-[var(--radius-lg-design)] p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "oklch(0.65 0.22 25 / 0.15)" }}>
-            <Trash2 size={17} color="oklch(0.65 0.22 25)" />
+          <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "#999999" }}>
+            <Trash2 size={17} color="#999999" />
           </div>
           <p className="type-body-sm" style={{ color: text, fontWeight: 540 }}>删除 {count} 个项目？</p>
         </div>
@@ -184,7 +184,7 @@ function DeleteConfirmDialog({
             取消
           </button>
           <button onClick={onConfirm} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption transition-opacity hover:opacity-90"
-            style={{ background: "oklch(0.65 0.22 25)", color: "white" }}>
+            style={{ background: "#999999", color: "white" }}>
             确认删除
           </button>
         </div>
@@ -214,11 +214,11 @@ function ProjectCard({
     if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
   }, [renaming, project.title]);
 
-  const cardBg = isDark ? "#222222" : "oklch(1 0 0)";
-  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "oklch(0.88 0.006 255)";
+  const cardBg = isDark ? "#222222" : "#ffffff";
+  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "#e6e3df";
   const cardShadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
-  const text = isDark ? "#f0f0f1" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
+  const text = isDark ? "#f0f0f1" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   return (
     <div
@@ -242,7 +242,7 @@ function ProjectCard({
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "oklch(0.92 0.005 270)" }}>
+          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "#161616" }}>
             <FolderOpen size={32} style={{ color: sub }} />
           </div>
         )}
@@ -270,7 +270,7 @@ function ProjectCard({
             }}
             onBlur={() => onRenameSubmit(editVal.trim() || project.title)}
             className="w-full bg-transparent type-caption outline-none border-b"
-            style={{ color: text, borderColor: "oklch(0.62 0.22 290)" }}
+            style={{ color: text, borderColor: "#161616" }}
           />
         ) : (
           <p className="type-caption truncate" style={{ color: text, fontSize: 13, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{project.title}</p>
@@ -296,10 +296,10 @@ function ProjectCard({
 
 // ── Create Project Card ────────────────────────────────────────
 function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
-  const bg = isDark ? "#222222" : "oklch(0.97 0.004 270)";
+  const bg = isDark ? "#222222" : "#161616";
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
   const shadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
-  const text = isDark ? "#99999e" : "oklch(0.65 0.010 270)";
+  const text = isDark ? "#99999e" : "#777472";
   return (
     <button
       onClick={onCreate}
@@ -312,8 +312,8 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
         boxShadow: shadow,
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = isDark ? "#77777d" : "oklch(0.62 0.22 290 / 0.5)";
-        (e.currentTarget as HTMLElement).style.background = isDark ? "#1d1d1f" : "oklch(0.95 0.006 270)";
+        (e.currentTarget as HTMLElement).style.borderColor = isDark ? "#77777d" : "rgba(22,22,22,0.5)";
+        (e.currentTarget as HTMLElement).style.background = isDark ? "#1d1d1f" : "#161616";
       }}
       onMouseLeave={e => {
         (e.currentTarget as HTMLElement).style.borderColor = border;
@@ -322,7 +322,7 @@ function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: ()
     >
       <div className="flex items-center justify-center" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
         <div className="flex items-center justify-center transition-transform group-hover:scale-110"
-          style={{ color: isDark ? "#d8d8dc" : "oklch(0.62 0.22 290)" }}>
+          style={{ color: isDark ? "#d8d8dc" : "#161616" }}>
           <Plus size={24} strokeWidth={1.5} />
         </div>
       </div>
@@ -345,8 +345,8 @@ export default function WorkspaceDashboard() {
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
   const bg = isDark ? "#222222" : "#ffffff";
-  const text = isDark ? "#f4f4f5" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "#99999e" : "oklch(0.65 0.010 255)";
+  const text = isDark ? "#f4f4f5" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   useEffect(() => {
     const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);

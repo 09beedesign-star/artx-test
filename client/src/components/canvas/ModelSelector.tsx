@@ -334,10 +334,10 @@ export function ModelSelector({
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);
   const selectedBg = surface?.hoverBackground
-    ?? (isDark ? "oklch(0.13 0.015 270)" : "oklch(0.22 0.015 270)");
+    ?? (isDark ? "#161616" : "#161616");
   const border = surface ? surface.border : getMinimapSurfaceBorder(isDark);
-  const selectedBorder = surface?.openBorder ?? "oklch(0.62 0.22 290 / 45%)";
-  const text = surface ? surface.text : (isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)");
+  const selectedBorder = surface?.openBorder ?? "#161616";
+  const text = surface ? surface.text : (isDark ? "#bbbbbb" : "#161616");
   const selectedText = surface?.hoverText ?? "white";
   /**
    * 触发按钮上图标的颜色。
@@ -347,8 +347,8 @@ export function ModelSelector({
    * 品牌图标是 CSS mask，需要一个真实色值填进 backgroundColor。
    */
   const triggerIconColor = open || buttonHover ? selectedText : text;
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const popBg = isDark ? "#161616" : "#161616";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
   const rowHeight = 40;
   /**
    * 展开栏高度上限（2026-09-21 用户点名 220）。

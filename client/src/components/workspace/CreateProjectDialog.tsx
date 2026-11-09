@@ -79,11 +79,11 @@ export default function CreateProjectDialog({
     setCover(null);
   }, [open]);
 
-  const bg = isDark ? "#222222" : "oklch(0.995 0.002 80)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
-  const inputBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)";
-  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
+  const bg = isDark ? "#222222" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "#e6e3df";
+  const inputBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const text = isDark ? "#f1f1f3" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   const fieldClass = "w-full h-10 px-3 rounded-[var(--radius-md-design)] type-caption outline-none transition-colors";
   const labelStyle = { color: sub };
@@ -126,7 +126,7 @@ export default function CreateProjectDialog({
       <DialogContent
         showCloseButton={false}
         className="w-[min(560px,calc(100vw-32px))] max-w-none rounded-[var(--radius-lg-design)] border p-0 overflow-hidden"
-        style={{ background: bg, borderColor: border, boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)" }}
+        style={{ background: bg, borderColor: border, boxShadow: "0 24px 80px rgba(0,0,0,0.35)" }}
       >
         <div className="p-6">
           <div className="flex items-start justify-between gap-4">
@@ -141,7 +141,7 @@ export default function CreateProjectDialog({
             <button
               onClick={() => onOpenChange(false)}
               className="w-8 h-8 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-70"
-              style={{ color: sub, background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)" }}
+              style={{ color: sub, background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" }}
             >
               <X size={15} />
             </button>
@@ -185,13 +185,13 @@ export default function CreateProjectDialog({
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 className="relative w-full aspect-[3/4] rounded-[var(--radius-lg-design)] overflow-hidden flex flex-col items-center justify-center gap-2 transition-all hover:opacity-90"
-                style={{ background: inputBg, border: `1.5px dashed ${cover ? "oklch(0.62 0.22 290 / 0.55)" : border}`, color: sub }}
+                style={{ background: inputBg, border: `1.5px dashed ${cover ? "rgba(22,22,22,0.55)" : border}`, color: sub }}
               >
                 {cover ? (
                   <img src={cover} alt="项目封面预览" className="absolute inset-0 w-full h-full object-cover" />
                 ) : (
                   <>
-                    <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "oklch(0.62 0.22 290 / 0.14)", color: "oklch(0.62 0.22 290)" }}>
+                    <div className="w-10 h-10 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "rgba(22,22,22,0.14)", color: "#161616" }}>
                       <Plus size={19} />
                     </div>
                     <span className="type-caption">上传封面</span>
@@ -207,14 +207,14 @@ export default function CreateProjectDialog({
             <button
               onClick={() => onOpenChange(false)}
               className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
-              style={{ background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)", border: `1px solid ${border}`, color: text }}
+              style={{ background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", border: `1px solid ${border}`, color: text }}
             >
               取消
             </button>
             <button
               onClick={handleCreate}
               className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white", boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)" }}
+              style={{ background: "#161616", color: "white", boxShadow: "0 6px 24px rgba(48,37,25,0.12)" }}
             >
               创建
             </button>

@@ -53,19 +53,19 @@ export function SkillSelector({
   }, []);
 
   // 使用传入的颜色或默认值
-  const bg = bgMain || (isDark ? "oklch(0.10 0.015 270)" : "oklch(0.98 0.004 270)");
+  const bg = bgMain || (isDark ? "#161616" : "#161616");
   const hoverButtonBg = "transparent"; // 与 ModelSelector 一致：透明背景
   const compactDefaultBg = isDark ? "#525252" : bg;
   const compactSelectedBg = isDark ? "#2b2b2b" : hoverButtonBg;
-  const border = borderColor || (isDark ? "oklch(0.22 0.015 270)" : "oklch(0.90 0.008 270)");
-  const text = textMuted || (isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)");
+  const border = borderColor || (isDark ? "#161616" : "#161616");
+  const text = textMuted || (isDark ? "#bbbbbb" : "#161616");
   const hoverButtonText = textPrimary || (isDark ? "#ffffff" : "#000000"); // 与 ModelSelector 一致：使用 textPrimary
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const popBg = isDark ? "#161616" : "#161616";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
   const activeBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.18)"
-    : "oklch(0.58 0.22 290 / 0.12)";
-  const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+    ? "rgba(22,22,22,0.18)"
+    : "rgba(22,22,22,0.08)";
+  const activeText = isDark ? "#f5f6f8" : "#161616";
 
   const skillIconColor = useCallback((id: string) => {
     const palette = [

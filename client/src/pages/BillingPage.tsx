@@ -124,7 +124,7 @@ export default function BillingPage() {
                 <div
                   className="mb-3 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-3 py-1 type-caption"
                   style={{
-                    background: "oklch(0.68 0.20 292 / 0.14)",
+                    background: "rgba(22,22,22,0.14)",
                     color: purple,
                   }}
                 >
@@ -153,7 +153,7 @@ export default function BillingPage() {
                   onClick={scrollToCreditRules}
                   className="mt-3 flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] px-3.5 type-caption transition-opacity hover:opacity-80"
                   style={{
-                    background: "oklch(0.78 0.18 110 / 0.14)",
+                    background: "#bbbbbb",
                     color: wechatGreenText,
                     fontWeight: 640,
                   }}
@@ -227,10 +227,10 @@ export default function BillingPage() {
                     className="mb-1 flex w-full items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-3 text-left transition-colors"
                     style={{
                       background: active
-                        ? "oklch(0.68 0.20 292 / 0.16)"
+                        ? "rgba(22,22,22,0.16)"
                         : "transparent",
                       color: active ? text : sub,
-                      border: `1px solid ${active ? "oklch(0.68 0.20 292 / 0.34)" : "transparent"}`,
+                      border: `1px solid ${active ? "rgba(22,22,22,0.34)" : "transparent"}`,
                     }}
                   >
                     <span className="min-w-0">

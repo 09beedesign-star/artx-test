@@ -78,7 +78,7 @@ export default function RechargePanel({
             <div
               className="mb-4 flex h-10 w-10 items-center justify-center rounded-[var(--radius-md-design)]"
               style={{
-                background: "oklch(0.78 0.18 110 / 0.14)",
+                background: "#bbbbbb",
                 color: wechatGreen,
               }}
             >
@@ -117,7 +117,7 @@ export default function RechargePanel({
                 className="h-10 w-full rounded-[var(--radius-lg-design)] border px-3 type-caption outline-none transition-colors"
                 style={{
                   borderColor: border,
-                  background: isDark ? "#222222" : "oklch(1 0 0 / 0.72)",
+                  background: isDark ? "#222222" : "rgba(255,255,255,0.72)",
                   color: text,
                 }}
               />
@@ -174,7 +174,7 @@ export default function RechargePanel({
                     <X
                       size={13}
                       style={{
-                        color: "oklch(0.58 0.03 270)",
+                        color: "#888888",
                         flex: "0 0 auto",
                         marginTop: 2,
                       }}

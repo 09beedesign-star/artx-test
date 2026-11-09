@@ -1813,8 +1813,8 @@ export function SmartCommerceProductDialog({
                               className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                               style={{
                                 color: isDark
-                                  ? "oklch(0.72 0.008 270)"
-                                  : "oklch(0.42 0.008 270)",
+                                  ? "#161616"
+                                  : "#161616",
                                 border: "none",
                                 padding: 0,
                                 lineHeight: 1,

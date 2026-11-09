@@ -34,12 +34,12 @@ export default function RotateEditor({
   const [flipX, setFlipX] = useState(false);
   const [flipY, setFlipY] = useState(false);
 
-  const surface = isDark ? "oklch(0.11 0.015 270)" : "var(--design-surface-soft)";
-  const textPri = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const textSec = isDark ? "oklch(0.50 0.01 270)" : "oklch(0.50 0.012 255)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 0.04)";
-  const accent = "oklch(0.58 0.22 290)";
-  const accent2 = "oklch(0.72 0.18 200)";
+  const surface = isDark ? "#0d0d0d" : "var(--design-surface-soft)";
+  const textPri = isDark ? "#f1f1f3" : "#262627";
+  const textSec = isDark ? "#666666" : "#777472";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+  const accent = "#161616";
+  const accent2 = "#333333";
 
   useEffect(() => {
     if (!isOpen) return;
@@ -116,7 +116,7 @@ export default function RotateEditor({
         position: "fixed",
         inset: 0,
         zIndex: 99999,
-        background: isDark ? "oklch(0 0 0 / 0.72)" : "oklch(0 0 0 / 0.48)",
+        background: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.48)",
         backdropFilter: "blur(12px)",
         display: "flex",
         flexDirection: "column",
@@ -130,14 +130,14 @@ export default function RotateEditor({
         @keyframes artxRotateFadeIn { from { opacity: 0; } to { opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
         .moveable-rotation-control {
-          border: 2px solid oklch(0.72 0.18 200) !important;
-          background: oklch(0.58 0.22 290) !important;
+          border: 2px solid #aaaaaa !important;
+          background: #161616 !important;
         }
         .moveable-rotation-line {
-          background: oklch(0.58 0.22 290 / 0.60) !important;
+          background: rgba(22,22,22,0.60) !important;
         }
         .moveable-control {
-          border-color: oklch(0.72 0.18 200) !important;
+          border-color: #aaaaaa !important;
         }
       `}</style>
 
@@ -149,7 +149,7 @@ export default function RotateEditor({
           padding: "0 16px",
           height: 52,
           background: surface,
-          borderBottom: `1px solid ${isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 8%)"}`,
+          borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"}`,
           flexShrink: 0,
         }}
       >
@@ -230,7 +230,7 @@ export default function RotateEditor({
             transformOrigin: "center",
             transition: "transform 80ms ease-out",
             borderRadius: 8,
-            boxShadow: `0 0 0 1px ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
+            boxShadow: `0 0 0 1px ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
             userSelect: "none",
           }}
         />
@@ -263,7 +263,7 @@ export default function RotateEditor({
           gap: 12,
           padding: "12px 16px",
           background: surface,
-          borderTop: `1px solid ${isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 8%)"}`,
+          borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"}`,
           flexShrink: 0,
         }}
       >
@@ -284,7 +284,7 @@ function buttonGroupStyle(isDark: boolean): CSSProperties {
   return {
     display: "flex",
     gap: 0,
-    background: isDark ? "oklch(1 0 0 / 4%)" : "oklch(0 0 0 / 0.03)",
+    background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
     borderRadius: 8,
     padding: 2,
   };
@@ -310,8 +310,8 @@ function secondaryBtnStyle(isDark: boolean, color: string, hoverBg: string): CSS
   return {
     padding: "8px 20px",
     borderRadius: 8,
-    border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 8%)"}`,
-    background: isDark ? "oklch(1 0 0 / 5%)" : hoverBg,
+    border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+    background: isDark ? "rgba(255,255,255,0.05)" : hoverBg,
     color,
     fontSize: 13,
     cursor: "pointer",

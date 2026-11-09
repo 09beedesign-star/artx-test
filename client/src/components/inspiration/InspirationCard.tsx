@@ -91,9 +91,9 @@ export function InspirationCard({
         />
         <div
           className="absolute inset-0 flex items-center justify-center px-6 text-center"
-          style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))", zIndex: 0 }}
+          style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)", zIndex: 0 }}
         >
-          <span className="type-caption leading-5" style={{ color: "oklch(0.88 0.02 270)", letterSpacing: 0, textTransform: "none" }}>
+          <span className="type-caption leading-5" style={{ color: "#e6e3df", letterSpacing: 0, textTransform: "none" }}>
             本地图片待同步
           </span>
         </div>
@@ -126,7 +126,7 @@ export function InspirationCard({
         <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
           <span
             className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
-            style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}
+            style={{ background: activeBg, color: "#f5f6f8", letterSpacing: 0, textTransform: "none" }}
           >
             {item.field}
           </span>
@@ -142,8 +142,8 @@ export function InspirationCard({
         <p
           className="mt-3 rounded-[var(--radius-md-design)] p-3 type-caption leading-5"
           style={{
-            background: isDark ? "oklch(0 0 0 / 0.18)" : "oklch(0 0 0 / 0.035)",
-            color: isDark ? "oklch(0.72 0.01 270)" : "oklch(0.57 0.010 270)",
+            background: isDark ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.035)",
+            color: isDark ? "#aaaaaa" : "#777472",
             display: "-webkit-box",
             letterSpacing: 0,
             overflow: "hidden",
@@ -157,7 +157,7 @@ export function InspirationCard({
         <div className="mt-auto flex items-center justify-between gap-3 pt-4">
           <span
             className="type-caption"
-            style={{ color: isDark ? "oklch(0.78 0.14 290)" : "oklch(0.52 0.17 290)", letterSpacing: 0, textTransform: "none" }}
+            style={{ color: isDark ? "#161616" : "#161616", letterSpacing: 0, textTransform: "none" }}
           >
             点击查看完整提示词
           </span>
@@ -169,7 +169,7 @@ export function InspirationCard({
             }}
             className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption transition-all hover:scale-105 active:scale-95"
             style={{
-              background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.05)",
+              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
               border: `1px solid ${border}`,
               color: text,
               letterSpacing: 0,

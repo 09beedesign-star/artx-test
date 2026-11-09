@@ -106,7 +106,7 @@ export default function BillingDialog({
         style={{
           background: theme.bg,
           borderColor: border,
-          boxShadow: "0 32px 100px oklch(0 0 0 / 0.46)",
+          boxShadow: "0 32px 100px rgba(0,0,0,0.46)",
         }}
       >
         <div
@@ -117,7 +117,7 @@ export default function BillingDialog({
             <div
               className="mb-2 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-3 py-1 type-caption"
               style={{
-                background: "oklch(0.68 0.20 292 / 0.14)",
+                background: "rgba(22,22,22,0.14)",
                 color: purple,
               }}
             >
@@ -150,8 +150,8 @@ export default function BillingDialog({
             style={{
               color: sub,
               background: theme.isDark
-                ? "oklch(1 0 0 / 6%)"
-                : "oklch(0 0 0 / 5%)",
+                ? "rgba(255,255,255,0.06)"
+                : "rgba(0,0,0,0.05)",
             }}
           >
             <X size={15} />
@@ -219,10 +219,10 @@ export default function BillingDialog({
                   className="h-9 rounded-[var(--radius-md-design)] px-4 type-caption transition-all"
                   style={{
                     background: active
-                      ? "oklch(0.68 0.20 292 / 0.16)"
+                      ? "rgba(22,22,22,0.16)"
                       : "transparent",
                     color: active ? text : sub,
-                    border: `1px solid ${active ? "oklch(0.68 0.20 292 / 0.34)" : "transparent"}`,
+                    border: `1px solid ${active ? "rgba(22,22,22,0.34)" : "transparent"}`,
                     fontWeight: active ? 680 : 500,
                   }}
                 >

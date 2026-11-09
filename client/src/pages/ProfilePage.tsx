@@ -132,12 +132,12 @@ export default function ProfilePage() {
   const [hoveredReactionId, setHoveredReactionId] = useState<string | null>(null);
 
   // 卡片配色与灵感推荐专题页保持同源，确保「所有信息保持一致」。
-  const inspirationCardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
-  const inspirationText = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
-  const inspirationSub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
-  const inspirationBorder = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 8%)";
-  const inspirationActiveBg = isDark ? "oklch(0.62 0.22 290 / 0.20)" : "oklch(0.62 0.18 290 / 0.10)";
-  const inspirationShadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
+  const inspirationCardBg = isDark ? "#161616" : "#ffffff";
+  const inspirationText = isDark ? "#161616" : "#161616";
+  const inspirationSub = isDark ? "#161616" : "#666666";
+  const inspirationBorder = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)";
+  const inspirationActiveBg = isDark ? "rgba(22,22,22,0.20)" : "rgba(22,22,22,0.10)";
+  const inspirationShadow = isDark ? "0 18px 46px rgba(0,0,0,0.24)" : "0 14px 34px rgba(0,0,0,0.08)";
 
   /**
    * 一键导入画布。与专题页**完全相同**的链路
@@ -297,9 +297,9 @@ export default function ProfilePage() {
                     onClick={() => fileInputRef.current?.click()}
                     className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full"
                     style={{
-                      background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+                      background: "linear-gradient(135deg, #161616, #888888)",
                       border: `4px solid ${isDark ? "#222222" : "white"}`,
-                      boxShadow: "0 18px 36px oklch(0.58 0.22 290 / 0.28)",
+                      boxShadow: "0 18px 36px rgba(22,22,22,0.28)",
                     }}
                     aria-label="上传个人头像"
                   >
@@ -541,7 +541,7 @@ export default function ProfilePage() {
                 onClick={() => editAvatarInputRef.current?.click()}
                 className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full"
                 style={{
-                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
+                  background: "linear-gradient(135deg, #161616, #888888)",
                   border: `1px solid ${border}`,
                 }}
               >
@@ -600,9 +600,9 @@ export default function ProfilePage() {
                 onClick={saveProfile}
                 className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
                 style={{
-                  background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                  background: "linear-gradient(135deg, #161616, #333333)",
                   color: "white",
-                  boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+                  boxShadow: "0 8px 24px rgba(22,22,22,0.22)",
                 }}
               >
                 保存
@@ -689,11 +689,11 @@ export default function ProfilePage() {
               className="mt-3 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90 disabled:opacity-45"
               style={{
                 background: passwordReady
-                  ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))"
+                  ? "linear-gradient(135deg, #161616, #333333)"
                   : inputBg,
                 border: `1px solid ${passwordReady ? "transparent" : border}`,
                 color: passwordReady ? "white" : textSecondary,
-                boxShadow: passwordReady ? "0 8px 24px oklch(0.58 0.22 290 / 0.22)" : "none",
+                boxShadow: passwordReady ? "0 8px 24px rgba(22,22,22,0.22)" : "none",
               }}
             >
               {passwordBusy ? "修改中..." : "修改密码"}

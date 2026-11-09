@@ -45,16 +45,16 @@ const skillButtonPurple = "#9058fc";
 const skillButtonPurpleBorder = "rgba(144, 88, 252, 0.56)";
 const skillButtonPurpleShadow = "0 10px 26px rgba(144, 88, 252, 0.25)";
 const categoryAccentPalette = [
-  "oklch(0.72 0.18 210)",
-  "oklch(0.70 0.20 288)",
-  "oklch(0.70 0.17 150)",
-  "oklch(0.74 0.18 55)",
-  "oklch(0.68 0.19 25)",
-  "oklch(0.70 0.20 330)",
-  "oklch(0.73 0.16 185)",
-  "oklch(0.75 0.17 82)",
-  "oklch(0.72 0.18 250)",
-  "oklch(0.72 0.16 120)",
+  "#aaaaaa",
+  "#f5f6f8",
+  "#aaaaaa",
+  "#bbbbbb",
+  "#999999",
+  "#aaaaaa",
+  "#aaaaaa",
+  "#bbbbbb",
+  "#aaaaaa",
+  "#aaaaaa",
 ];
 
 function getCategoryAccent(category: SkillStoreCategory, index: number) {

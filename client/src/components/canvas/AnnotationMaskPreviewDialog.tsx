@@ -141,11 +141,11 @@ export function AnnotationMaskPreviewDialog({
     onConfirm(maskCanvas.toDataURL("image/png"));
   };
 
-  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
-  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
-  const accent = "oklch(0.58 0.22 290)";
+  const bg = isDark ? "#161616" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "#e6e3df";
+  const text = isDark ? "#f1f1f3" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
+  const accent = "#161616";
 
   return (
     <div
@@ -163,7 +163,7 @@ export function AnnotationMaskPreviewDialog({
         style={{
           background: bg,
           border: `1px solid ${border}`,
-          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
         }}
         onMouseDown={e => e.stopPropagation()}
       >
@@ -187,7 +187,7 @@ export function AnnotationMaskPreviewDialog({
             border: `1px solid ${border}`,
             maxHeight: IMAGE_MAX_HEIGHT,
             overflow: "auto",
-            background: isDark ? "oklch(0 0 0 / 0.25)" : "oklch(0 0 0 / 0.04)",
+            background: isDark ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.04)",
           }}
         >
           {/*
@@ -237,7 +237,7 @@ export function AnnotationMaskPreviewDialog({
           <div
             className="flex items-center rounded-lg p-0.5"
             style={{
-              background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.05)",
+              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)",
               border: `1px solid ${border}`,
             }}
           >
@@ -311,7 +311,7 @@ export function AnnotationMaskPreviewDialog({
           ，白色之外的内容 AI 不会改动。
         </p>
         {error && (
-          <p className="type-caption mt-1" style={{ color: "oklch(0.6 0.2 25)" }}>
+          <p className="type-caption mt-1" style={{ color: "#888888" }}>
             {error}
           </p>
         )}
@@ -322,7 +322,7 @@ export function AnnotationMaskPreviewDialog({
             onClick={onCancel}
             className="type-caption h-9 min-w-[88px] rounded-[var(--radius-md-design)] transition-opacity hover:opacity-85"
             style={{
-              background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
               border: `1px solid ${border}`,
               color: text,
             }}
@@ -336,9 +336,9 @@ export function AnnotationMaskPreviewDialog({
             className="type-caption h-9 min-w-[112px] rounded-[var(--radius-md-design)] transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{
               background:
-                "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                "linear-gradient(135deg, #161616, #333333)",
               color: "white",
-              boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+              boxShadow: "0 8px 24px rgba(22,22,22,0.22)",
             }}
           >
             生成

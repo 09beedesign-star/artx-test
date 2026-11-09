@@ -455,7 +455,7 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
   }, [modelsKey, clearExpiredModels]);
 
   const ui = {
-    border: selected ? "oklch(0.65 0.22 290)" : isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
+    border: selected ? "#161616" : isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
     chrome: isDark ? "#121216" : "#f4f4f6",
     text: isDark ? "#c4c4ca" : "#1c1c28",
     sub: isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
@@ -861,7 +861,7 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
         isVisible={selected}
         minWidth={MODEL3D_CONTAINER_MIN_WIDTH}
         minHeight={MODEL3D_CONTAINER_MIN_HEIGHT}
-        color="oklch(0.65 0.22 290)"
+        color="#161616"
         handleStyle={{ width: 10, height: 10, borderRadius: 3 }}
       />
       <div
@@ -1079,7 +1079,7 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
                   }
                   style={{
                     ...toolBtnStyle,
-                    background: item.key === transformMode ? "oklch(0.65 0.22 290)" : "transparent",
+                    background: item.key === transformMode ? "#161616" : "transparent",
                     color: item.key === "delete" ? "#ff8a8a" : "#fff",
                   }}
                 >

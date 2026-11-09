@@ -108,7 +108,7 @@ export default function InsufficientCreditsDialog() {
         style={{
           background: theme.bg,
           borderColor: border,
-          boxShadow: "0 32px 100px oklch(0 0 0 / 0.46)",
+          boxShadow: "0 32px 100px rgba(0,0,0,0.46)",
         }}
       >
         <div
@@ -118,7 +118,7 @@ export default function InsufficientCreditsDialog() {
           <div className="flex items-center gap-2.5">
             <span
               className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-pill)]"
-              style={{ background: "oklch(0.68 0.20 292 / 0.14)", color: purple }}
+              style={{ background: "rgba(22,22,22,0.14)", color: purple }}
             >
               <Icon className="h-4 w-4" />
             </span>

@@ -121,13 +121,13 @@ export default function InspirationPage() {
   };
 
   const bg = isDark ? "#222222" : "var(--design-surface-soft)";
-  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.73 0.010 270)" : "oklch(0.49 0.01 270)";
-  const cardBg = isDark ? "oklch(0.13 0.012 270)" : "oklch(1 0 0)";
-  const panelBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(1 0 0 / 0.72)";
-  const border = isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 8%)";
-  const activeBg = isDark ? "oklch(0.62 0.22 290 / 0.20)" : "oklch(0.62 0.18 290 / 0.10)";
-  const shadow = isDark ? "0 18px 46px oklch(0 0 0 / 0.24)" : "0 14px 34px oklch(0 0 0 / 0.08)";
+  const text = isDark ? "#161616" : "#161616";
+  const sub = isDark ? "#161616" : "#666666";
+  const cardBg = isDark ? "#161616" : "#ffffff";
+  const panelBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.72)";
+  const border = isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)";
+  const activeBg = isDark ? "rgba(22,22,22,0.20)" : "rgba(22,22,22,0.10)";
+  const shadow = isDark ? "0 18px 46px rgba(0,0,0,0.24)" : "0 14px 34px rgba(0,0,0,0.08)";
 
   const allPromptItems = useMemo(() => externalItems, [externalItems]);
   const categoryCounts = useMemo(() => {
@@ -301,8 +301,8 @@ export default function InspirationPage() {
           <section className="mb-6">
             <div>
               <div className="mb-3 flex items-center gap-2">
-                <Sparkles size={15} style={{ color: "oklch(0.72 0.22 290)" }} />
-                <span className="type-caption" style={{ color: "oklch(0.72 0.22 290)" }}>AI 图片生成提示词图库</span>
+                <Sparkles size={15} style={{ color: "#333333" }} />
+                <span className="type-caption" style={{ color: "#333333" }}>AI 图片生成提示词图库</span>
               </div>
               <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>超多优质 AI 图片灵感提示词持续更新中，一键复制，你也能生成高质量的 AI 图片。</h1>
               <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
@@ -331,8 +331,8 @@ export default function InspirationPage() {
                       className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-2.5 type-caption transition-all active:scale-95"
                       style={{
                         background: active ? activeBg : "transparent",
-                        border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.42)" : "transparent"}`,
-                        color: active ? "oklch(0.84 0.14 290)" : sub,
+                        border: `1px solid ${active ? "rgba(22,22,22,0.42)" : "transparent"}`,
+                        color: active ? "#161616" : sub,
                         fontWeight: active ? 760 : 650,
                       }}
                     >
@@ -346,7 +346,7 @@ export default function InspirationPage() {
               <div
                 aria-hidden="true"
                 className="h-px w-full"
-                style={{ background: isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)" }}
+                style={{ background: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)" }}
               />
 
               <div className="flex flex-col gap-2">
@@ -365,9 +365,9 @@ export default function InspirationPage() {
                         onClick={() => updateSubcategory(subcategory)}
                         className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all active:scale-95"
                         style={{
-                          background: active ? "oklch(0.72 0.18 200 / 0.16)" : "transparent",
-                          border: `1px solid ${active ? "oklch(0.72 0.18 200 / 0.38)" : border}`,
-                          color: active ? "oklch(0.80 0.13 200)" : sub,
+                          background: active ? "#aaaaaa" : "transparent",
+                          border: `1px solid ${active ? "#aaaaaa" : border}`,
+                          color: active ? "#cccccc" : sub,
                         }}
                       >
                         {subcategory}
@@ -443,8 +443,8 @@ export default function InspirationPage() {
                 className="rounded-[var(--radius-pill)] px-5 py-2.5 type-caption transition-all hover:scale-[1.02] active:scale-95"
                 style={{
                   background: activeBg,
-                  border: "1px solid oklch(0.62 0.22 290 / 0.42)",
-                  color: "oklch(0.84 0.14 290)",
+                  border: "1px solid rgba(22,22,22,0.42)",
+                  color: "#161616",
                   letterSpacing: 0,
                   textTransform: "none",
                 }}
@@ -474,7 +474,7 @@ export default function InspirationPage() {
                 className="flex shrink-0 items-center rounded-[var(--radius-pill)] px-3 py-2"
                 style={{
                   gap: 14,
-                  background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)",
+                  background: isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)",
                   border: `1px solid ${border}`,
                   backdropFilter: "blur(12px)",
                 }}
@@ -527,7 +527,7 @@ export default function InspirationPage() {
               <button
                 onClick={() => copyPrompt(selectedItem.prompt)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
                 aria-label="复制提示词"
                 title="复制提示词"
               >
@@ -536,7 +536,7 @@ export default function InspirationPage() {
               <button
                 onClick={() => setSelectedItem(null)}
                 className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "oklch(1 0 0 / 0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
+                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
                 aria-label="关闭弹层"
               >
                 <X size={16} />
@@ -546,7 +546,7 @@ export default function InspirationPage() {
             <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${border}` }}>
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "#f5f6f8", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
                   </span>
                 </div>
@@ -571,8 +571,8 @@ export default function InspirationPage() {
                       event.currentTarget.style.display = "none";
                     }}
                   />
-                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))" }}>
-                    <span className="type-body-sm" style={{ color: "oklch(0.88 0.02 270)", fontWeight: 650 }}>
+                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)" }}>
+                    <span className="type-body-sm" style={{ color: "#e6e3df", fontWeight: 650 }}>
                       本地图片待同步
                     </span>
                   </div>
@@ -588,7 +588,7 @@ export default function InspirationPage() {
                 }}
               >
                 <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
-                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "#222222" : "oklch(0 0 0 / 0.035)", border: `1px solid ${border}` }}>
+                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "#222222" : "rgba(0,0,0,0.035)", border: `1px solid ${border}` }}>
                   <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.prompt}
                   </p>

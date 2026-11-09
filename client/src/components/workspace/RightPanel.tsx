@@ -17,12 +17,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 type PanelTab = "layers" | "settings" | "reference";
 
 const STYLE_PRESETS = [
-  { id: "cinematic", label: "电影感", color: "oklch(0.58 0.22 290)" },
-  { id: "editorial", label: "编辑风", color: "oklch(0.72 0.18 200)" },
-  { id: "minimal", label: "极简", color: "oklch(0.70 0.01 270)" },
-  { id: "bold", label: "大胆", color: "oklch(0.75 0.18 60)" },
-  { id: "dark", label: "暗黑", color: "oklch(0.62 0.010 270)" },
-  { id: "pastel", label: "柔和", color: "oklch(0.80 0.12 330)" },
+  { id: "cinematic", label: "电影感", color: "#161616" },
+  { id: "editorial", label: "编辑风", color: "#333333" },
+  { id: "minimal", label: "极简", color: "#99999e" },
+  { id: "bold", label: "大胆", color: "#fbbf24" },
+  { id: "dark", label: "暗黑", color: "#777472" },
+  { id: "pastel", label: "柔和", color: "#d4a3d4" },
 ];
 
 const SIZE_PRESETS = [
@@ -42,11 +42,11 @@ export default function RightPanel() {
   const isDark = resolvedTheme === "dark";
 
   // ── theme tokens ──
-  const panelBg     = isDark ? "oklch(0.12 0.016 270)"      : "#F5F5F5";
-  const panelBorder = isDark ? "oklch(1 0 0 / 6%)"          : "oklch(0 0 0 / 8%)";
-  const tabActiveBg = isDark ? "oklch(1 0 0 / 8%)"          : "oklch(0 0 0 / 7%)";
-  const tabActiveColor = isDark ? "oklch(0.92 0.008 270)"   : "oklch(0.18 0.01 270)";
-  const tabInactiveColor = isDark ? "oklch(0.64 0.010 270)"  : "oklch(0.66 0.010 270)";
+  const panelBg     = isDark ? "#0d0d0d"      : "#f5f5f5";
+  const panelBorder = isDark ? "rgba(255,255,255,0.06)"     : "rgba(0,0,0,0.08)";
+  const tabActiveBg = isDark ? "rgba(255,255,255,0.08)"     : "rgba(0,0,0,0.07)";
+  const tabActiveColor = isDark ? "#f1f1f3"     : "#161616";
+  const tabInactiveColor = isDark ? "#99999e"     : "#777472";
 
   return (
     <aside
@@ -110,7 +110,7 @@ export default function RightPanel() {
           onClick={() => toast("开始生成", { description: "请先在对话框中输入描述" })}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all duration-150 active:scale-95"
           style={{
-            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+            background: "#161616",
             color: "white",
             fontSize: 13,
           }}
@@ -130,14 +130,14 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
   const [visible, setVisible] = useState<Set<string>>(new Set(layers.flatMap(l => [l.id, ...(l.children?.map(c => c.id) || [])])));
   const [locked, setLocked] = useState<Set<string>>(new Set(["l1a"]));
 
-  const labelColor   = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
-  const nameColor    = isDark ? "oklch(0.78 0.008 270)" : "oklch(0.22 0.008 270)";
-  const iconColor    = isDark ? "oklch(0.69 0.010 270)"  : "oklch(0.62 0.010 270)";
-  const chevronColor = isDark ? "oklch(0.62 0.010 270)"  : "oklch(0.65 0.010 270)";
+  const labelColor   = isDark ? "#99999e" : "#777472";
+  const nameColor    = isDark ? "#cccccc" : "#262627";
+  const iconColor    = isDark ? "#99999e"  : "#777472";
+  const chevronColor = isDark ? "#777472"  : "#777472";
   const hoverBg      = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const btnHoverBg   = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
-  const childNameColor = isDark ? "oklch(0.65 0.008 270)" : "oklch(0.38 0.008 270)";
-  const childIconColor = isDark ? "oklch(0.64 0.010 270)"  : "oklch(0.65 0.010 270)";
+  const childNameColor = isDark ? "#99999e" : "#555555";
+  const childIconColor = isDark ? "#777472"  : "#99999e";
 
   const toggleExpand  = (id: string) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleVisible = (id: string) => setVisible(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -195,7 +195,7 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
                 >
                   {isVisible
                     ? <Eye size={11} style={{ color: iconColor }} />
-                    : <EyeOff size={11} style={{ color: isDark ? "oklch(0.57 0.010 270)" : "oklch(0.65 0.01 270)" }} />}
+                    : <EyeOff size={11} style={{ color: isDark ? "#777472" : "#99999e" }} />}
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); toggleLock(layer.id); }}
                   className="p-0.5 rounded transition-colors"
@@ -203,7 +203,7 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 >
                   {isLocked
-                    ? <Lock size={11} style={{ color: "oklch(0.72 0.18 60)" }} />
+                    ? <Lock size={11} style={{ color: "#fbbf24" }} />
                     : <Unlock size={11} style={{ color: iconColor }} />}
                 </button>
               </div>
@@ -231,14 +231,14 @@ function LayersPanel({ layers, isDark }: { layers: Layer[]; isDark: boolean }) {
                         >
                           {childVisible
                             ? <Eye size={10} style={{ color: childIconColor }} />
-                            : <EyeOff size={10} style={{ color: isDark ? "oklch(0.35 0.01 270)" : "oklch(0.65 0.01 270)" }} />}
+                            : <EyeOff size={10} style={{ color: isDark ? "#555555" : "#99999e" }} />}
                         </button>
                         <button onClick={() => toggleLock(child.id)} className="p-0.5 rounded transition-colors"
                           onMouseEnter={e => (e.currentTarget.style.background = btnHoverBg)}
                           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                         >
                           {childLocked
-                            ? <Lock size={10} style={{ color: "oklch(0.72 0.18 60)" }} />
+                            ? <Lock size={10} style={{ color: "#fbbf24" }} />
                             : <Unlock size={10} style={{ color: childIconColor }} />}
                         </button>
                       </div>
@@ -269,14 +269,14 @@ function SettingsPanel({
   quality: number; setQuality: (v: number) => void;
   count: number; setCount: (v: number) => void;
 }) {
-  const itemBg      = isDark ? "oklch(1 0 0 / 4%)"  : "oklch(0 0 0 / 4%)";
-  const itemBorder  = isDark ? "oklch(1 0 0 / 8%)"  : "oklch(0 0 0 / 10%)";
-  const textMuted   = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.62 0.010 270)";
-  const textDim     = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
+  const itemBg      = isDark ? "rgba(255,255,255,0.04)"  : "rgba(0,0,0,0.04)";
+  const itemBorder  = isDark ? "rgba(255,255,255,0.08)"  : "rgba(0,0,0,0.10)";
+  const textMuted   = isDark ? "#99999e" : "#777472";
+  const textDim     = isDark ? "#99999e" : "#777472";
   const hoverBg     = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const countInactive = isDark
-    ? { background: "oklch(1 0 0 / 5%)", border: `1px solid oklch(1 0 0 / 10%)`, color: "oklch(0.69 0.010 270)" }
-    : { background: "oklch(0 0 0 / 4%)", border: `1px solid oklch(0 0 0 / 10%)`, color: "oklch(0.40 0.01 270)" };
+    ? { background: "rgba(255,255,255,0.05)", border: `1px solid rgba(255,255,255,0.10)`, color: "#99999e" }
+    : { background: "rgba(0,0,0,0.04)", border: `1px solid rgba(0,0,0,0.10)`, color: "#555555" };
 
   return (
     <div className="p-3 space-y-5">
@@ -287,12 +287,12 @@ function SettingsPanel({
             <button key={s.value} onClick={() => setSelectedSize(s.value)}
               className="flex flex-col items-start px-2.5 py-2 rounded-lg transition-all duration-150"
               style={selectedSize === s.value ? {
-                background: "oklch(0.58 0.22 290 / 0.15)",
-                border: "1px solid oklch(0.58 0.22 290 / 0.4)",
+                background: "rgba(22,22,22,0.15)",
+                border: "1px solid rgba(22,22,22,0.4)",
               } : { background: itemBg, border: `1px solid ${itemBorder}` }}
             >
               <span className="text-[11px] font-medium"
-                style={{ color: selectedSize === s.value ? "oklch(0.78 0.18 290)" : textMuted }}>
+                style={{ color: selectedSize === s.value ? "#161616" : textMuted }}>
                 {s.label}
               </span>
               <span className="text-[10px] font-mono" style={{ color: textDim }}>{s.value}</span>
@@ -314,7 +314,7 @@ function SettingsPanel({
             >
               <div className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
               <span className="text-[11px]"
-                style={{ color: selectedStyle === s.id ? (isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.01 270)") : textDim }}>
+                style={{ color: selectedStyle === s.id ? (isDark ? "#f1f1f3" : "#262627") : textDim }}>
                 {s.label}
               </span>
             </button>
@@ -333,7 +333,7 @@ function SettingsPanel({
             onChange={(e) => setQuality(Number(e.target.value))}
             className="w-full h-1 rounded-full appearance-none cursor-pointer"
             style={{
-              background: `linear-gradient(to right, oklch(0.58 0.22 290) ${quality}%, ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 12%)"} ${quality}%)`,
+              background: `linear-gradient(to right, #161616 ${quality}%, ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.12)"} ${quality}%)`,
             }}
           />
         </div>
@@ -346,7 +346,7 @@ function SettingsPanel({
             <button key={n} onClick={() => setCount(n)}
               className="w-9 h-9 rounded-lg text-[13px] font-semibold transition-all duration-150"
               style={count === n ? {
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                background: "#161616",
                 color: "white",
               } : countInactive}
             >
@@ -365,7 +365,7 @@ function SettingsPanel({
           onMouseLeave={e => (e.currentTarget.style.background = itemBg)}
         >
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
+            <div className="w-2 h-2 rounded-full" style={{ background: "#333333" }} />
             <span className="text-[12px]" style={{ color: textMuted }}>Lovart Pro v2</span>
           </div>
           <ChevronDown size={12} style={{ color: textDim }} />
@@ -378,15 +378,15 @@ function SettingsPanel({
 // ── Reference Panel ───────────────────────────────────────────
 
 function ReferencePanel({ isDark }: { isDark: boolean }) {
-  const labelColor  = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
-  const textMuted   = isDark ? "oklch(0.64 0.010 270)" : "oklch(0.62 0.010 270)";
-  const textDim     = isDark ? "oklch(0.57 0.010 270)" : "oklch(0.69 0.010 270)";
-  const uploadBg    = isDark ? "oklch(1 0 0 / 2%)"    : "oklch(0 0 0 / 2%)";
-  const uploadBdr   = isDark ? "oklch(1 0 0 / 12%)"   : "oklch(0 0 0 / 14%)";
-  const imgBorder   = isDark ? "oklch(1 0 0 / 8%)"    : "oklch(0 0 0 / 8%)";
+  const labelColor  = isDark ? "#99999e" : "#777472";
+  const textMuted   = isDark ? "#777472" : "#777472";
+  const textDim     = isDark ? "#777472" : "#99999e";
+  const uploadBg    = isDark ? "rgba(255,255,255,0.02)"  : "rgba(0,0,0,0.02)";
+  const uploadBdr   = isDark ? "rgba(255,255,255,0.12)"  : "rgba(0,0,0,0.14)";
+  const imgBorder   = isDark ? "rgba(255,255,255,0.08)"  : "rgba(0,0,0,0.08)";
   const addBtnHover = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
-  const paletteBdr  = isDark ? "oklch(1 0 0 / 15%)"   : "oklch(0 0 0 / 12%)";
-  const addColorBdr = isDark ? "oklch(1 0 0 / 20%)"   : "oklch(0 0 0 / 18%)";
+  const paletteBdr  = isDark ? "rgba(255,255,255,0.15)"  : "rgba(0,0,0,0.12)";
+  const addColorBdr = isDark ? "rgba(255,255,255,0.20)"  : "rgba(0,0,0,0.18)";
 
   return (
     <div className="p-3 space-y-4">
@@ -394,7 +394,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
         <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: labelColor }}>参考素材</span>
         <button onClick={() => toast("上传参考图", { description: "功能即将上线" })}
           className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg transition-colors"
-          style={{ color: "oklch(0.58 0.22 290)" }}
+          style={{ color: "#161616" }}
           onMouseEnter={e => (e.currentTarget.style.background = addBtnHover)}
           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
         >
@@ -423,7 +423,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
       <button onClick={() => toast("上传素材", { description: "功能即将上线" })}
         className="w-full flex flex-col items-center justify-center gap-2 py-6 rounded-xl transition-all duration-150"
         style={{ background: uploadBg, border: `1.5px dashed ${uploadBdr}` }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = "oklch(0.58 0.22 290 / 0.4)")}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(22,22,22,0.4)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = uploadBdr)}
       >
         <ImageIcon size={20} style={{ color: labelColor }} />
@@ -433,7 +433,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
 
       <Section title="品牌色板" isDark={isDark}>
         <div className="flex gap-2 flex-wrap">
-          {["oklch(0.58 0.22 290)", "oklch(0.72 0.18 200)", "oklch(0.15 0.02 270)", "oklch(0.93 0.008 270)", "oklch(0.75 0.18 60)"].map((color, i) => (
+          {["#161616", "#333333", "#1a1a1a", "#f1f1f3", "#fbbf24"].map((color, i) => (
             <button key={i}
               onClick={() => toast("应用颜色", { description: "功能即将上线" })}
               className="w-7 h-7 rounded-full transition-transform hover:scale-110"
@@ -458,7 +458,7 @@ function ReferencePanel({ isDark }: { isDark: boolean }) {
 // ── Section wrapper ───────────────────────────────────────────
 
 function Section({ title, children, isDark }: { title: string; children: React.ReactNode; isDark: boolean }) {
-  const labelColor = isDark ? "oklch(0.59 0.010 270)" : "oklch(0.62 0.010 270)";
+  const labelColor = isDark ? "#99999e" : "#777472";
   return (
     <div className="space-y-2">
       <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: labelColor }}>

@@ -39,7 +39,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "跨境电商商品主图",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.68 0.20 185)",
+    tone: "#999999",
   },
   {
     id: "tiktok-shop-product-portrait",
@@ -47,7 +47,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "跨境电商竖版商品图",
     width: 1080,
     height: 1350,
-    tone: "oklch(0.64 0.19 190)",
+    tone: "#999999",
   },
   {
     id: "facebook-shopping-product-square",
@@ -55,7 +55,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "跨境电商商品图",
     width: 1200,
     height: 1200,
-    tone: "oklch(0.60 0.18 250)",
+    tone: "#888888",
   },
   {
     id: "facebook-shopping-collection",
@@ -63,7 +63,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "跨境电商合集封面",
     width: 1200,
     height: 628,
-    tone: "oklch(0.58 0.17 255)",
+    tone: "#888888",
   },
   {
     id: "red-note-vertical",
@@ -71,7 +71,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "笔记封面竖版",
     width: 1080,
     height: 1440,
-    tone: "oklch(0.62 0.24 25)",
+    tone: "#888888",
   },
   {
     id: "red-note-landscape",
@@ -79,7 +79,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "笔记封面横版",
     width: 1080,
     height: 810,
-    tone: "oklch(0.64 0.22 32)",
+    tone: "#999999",
   },
   {
     id: "red-note-square",
@@ -87,7 +87,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "笔记封面方版",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.66 0.20 20)",
+    tone: "#999999",
   },
   {
     id: "douyin-cover-vertical",
@@ -95,7 +95,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频封面竖版",
     width: 1080,
     height: 1440,
-    tone: "oklch(0.63 0.20 280)",
+    tone: "#161616",
   },
   {
     id: "douyin-cover-full",
@@ -103,7 +103,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "全屏封面",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.59 0.20 286)",
+    tone: "#161616",
   },
   {
     id: "douyin-cover-landscape",
@@ -111,7 +111,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频封面横版",
     width: 1080,
     height: 608,
-    tone: "oklch(0.56 0.18 292)",
+    tone: "#161616",
   },
   {
     id: "wechat-channel-vertical",
@@ -119,7 +119,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "竖版视频封面",
     width: 1080,
     height: 1260,
-    tone: "oklch(0.68 0.16 155)",
+    tone: "#999999",
   },
   {
     id: "wechat-channel-landscape",
@@ -127,7 +127,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "横版视频封面",
     width: 1080,
     height: 608,
-    tone: "oklch(0.64 0.15 165)",
+    tone: "#999999",
   },
   {
     id: "kuaishou-cover-vertical",
@@ -135,7 +135,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频封面竖版",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.70 0.20 48)",
+    tone: "#aaaaaa",
   },
   {
     id: "bilibili-cover-landscape",
@@ -143,7 +143,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频封面横版",
     width: 1920,
     height: 1080,
-    tone: "oklch(0.70 0.15 225)",
+    tone: "#aaaaaa",
   },
   {
     id: "bilibili-cover-vertical",
@@ -151,7 +151,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频封面竖版",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.66 0.16 235)",
+    tone: "#999999",
   },
   {
     id: "weibo-feed",
@@ -159,7 +159,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "正文图片",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.70 0.19 70)",
+    tone: "#aaaaaa",
   },
   {
     id: "weibo-profile-cover",
@@ -167,7 +167,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主页封面图",
     width: 980,
     height: 300,
-    tone: "oklch(0.68 0.17 80)",
+    tone: "#999999",
   },
   {
     id: "wechat-official-hero",
@@ -175,7 +175,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "头条封面",
     width: 900,
     height: 383,
-    tone: "oklch(0.66 0.14 150)",
+    tone: "#999999",
   },
   {
     id: "wechat-official-sub",
@@ -183,7 +183,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "次条封面",
     width: 200,
     height: 200,
-    tone: "oklch(0.70 0.12 160)",
+    tone: "#aaaaaa",
   },
   {
     id: "facebook-square",
@@ -191,7 +191,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "帖子图片正方形",
     width: 1200,
     height: 1200,
-    tone: "oklch(0.60 0.18 250)",
+    tone: "#888888",
   },
   {
     id: "facebook-landscape",
@@ -199,7 +199,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "帖子图片横版",
     width: 1200,
     height: 630,
-    tone: "oklch(0.58 0.17 255)",
+    tone: "#888888",
   },
   {
     id: "facebook-story",
@@ -207,7 +207,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "Story",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.56 0.18 248)",
+    tone: "#777472",
   },
   {
     id: "x-feed-landscape",
@@ -215,7 +215,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "信息流图片横版",
     width: 1600,
     height: 900,
-    tone: "oklch(0.46 0.03 255)",
+    tone: "#666666",
   },
   {
     id: "x-link-card",
@@ -223,7 +223,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "分享链接卡片",
     width: 1200,
     height: 628,
-    tone: "oklch(0.52 0.04 250)",
+    tone: "#666666",
   },
   {
     id: "x-header",
@@ -231,7 +231,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "头图横幅",
     width: 1500,
     height: 500,
-    tone: "oklch(0.58 0.04 245)",
+    tone: "#777472",
   },
   {
     id: "instagram-square",
@@ -239,7 +239,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "正方形帖子",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.66 0.22 330)",
+    tone: "#999999",
   },
   {
     id: "instagram-portrait",
@@ -247,7 +247,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "竖版帖子推荐",
     width: 1080,
     height: 1350,
-    tone: "oklch(0.64 0.23 320)",
+    tone: "#999999",
   },
   {
     id: "instagram-landscape",
@@ -255,7 +255,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "横版帖子",
     width: 1080,
     height: 566,
-    tone: "oklch(0.68 0.20 340)",
+    tone: "#999999",
   },
   {
     id: "instagram-story-reels",
@@ -263,7 +263,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "Story / Reels",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.61 0.24 300)",
+    tone: "#161616",
   },
   {
     id: "tiktok-vertical",
@@ -271,7 +271,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频竖版",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.70 0.20 185)",
+    tone: "#aaaaaa",
   },
   {
     id: "tiktok-square",
@@ -279,7 +279,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "正方形图片",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.66 0.18 190)",
+    tone: "#999999",
   },
   {
     id: "tiktok-landscape",
@@ -287,7 +287,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "横版视频",
     width: 1920,
     height: 1080,
-    tone: "oklch(0.62 0.17 200)",
+    tone: "#888888",
   },
   {
     id: "linkedin-landscape",
@@ -295,7 +295,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "分享帖子横版",
     width: 1200,
     height: 627,
-    tone: "oklch(0.55 0.16 245)",
+    tone: "#777472",
   },
   {
     id: "linkedin-square",
@@ -303,7 +303,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "分享帖子正方形",
     width: 1080,
     height: 1080,
-    tone: "oklch(0.58 0.15 240)",
+    tone: "#888888",
   },
   {
     id: "linkedin-portrait",
@@ -311,7 +311,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "分享帖子竖版",
     width: 1080,
     height: 1350,
-    tone: "oklch(0.60 0.14 235)",
+    tone: "#888888",
   },
   {
     id: "youtube-thumbnail",
@@ -319,7 +319,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "视频缩略图",
     width: 1280,
     height: 720,
-    tone: "oklch(0.58 0.22 29)",
+    tone: "#888888",
   },
   {
     id: "youtube-banner",
@@ -327,7 +327,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "频道横幅",
     width: 2560,
     height: 1440,
-    tone: "oklch(0.62 0.20 35)",
+    tone: "#888888",
   },
   {
     id: "pinterest-standard",
@@ -335,7 +335,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "标准 Pin 图",
     width: 1000,
     height: 1500,
-    tone: "oklch(0.62 0.23 22)",
+    tone: "#888888",
   },
   {
     id: "pinterest-square",
@@ -343,7 +343,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "正方形 Pin 图",
     width: 1000,
     height: 1000,
-    tone: "oklch(0.66 0.20 24)",
+    tone: "#999999",
   },
   {
     id: "pinterest-video-pin",
@@ -351,7 +351,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "纵向 Pin 图",
     width: 1080,
     height: 1920,
-    tone: "oklch(0.59 0.21 20)",
+    tone: "#888888",
   },
   {
     id: "amazon-main-min",
@@ -359,7 +359,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图最低要求",
     width: 1000,
     height: 1000,
-    tone: "oklch(0.73 0.16 78)",
+    tone: "#aaaaaa",
   },
   {
     id: "amazon-main-recommended",
@@ -367,7 +367,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图推荐品质",
     width: 2000,
     height: 2000,
-    tone: "oklch(0.76 0.14 82)",
+    tone: "#bbbbbb",
   },
   {
     id: "amazon-main-premium",
@@ -375,7 +375,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图高品质",
     width: 2560,
     height: 2560,
-    tone: "oklch(0.79 0.12 86)",
+    tone: "#cccccc",
   },
   {
     id: "shopee-main-800",
@@ -383,7 +383,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "商品主图",
     width: 800,
     height: 800,
-    tone: "oklch(0.68 0.21 43)",
+    tone: "#999999",
   },
   {
     id: "shopee-main-1024",
@@ -391,7 +391,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "商品主图高清",
     width: 1024,
     height: 1024,
-    tone: "oklch(0.72 0.19 46)",
+    tone: "#aaaaaa",
   },
   {
     id: "taobao-main",
@@ -399,7 +399,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图",
     width: 800,
     height: 800,
-    tone: "oklch(0.70 0.18 55)",
+    tone: "#aaaaaa",
   },
   {
     id: "taobao-detail",
@@ -407,7 +407,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "详情页图片",
     width: 790,
     height: 1546,
-    tone: "oklch(0.66 0.17 62)",
+    tone: "#999999",
   },
   {
     id: "jd-main",
@@ -415,7 +415,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图",
     width: 800,
     height: 800,
-    tone: "oklch(0.62 0.22 35)",
+    tone: "#888888",
   },
   {
     id: "jd-detail",
@@ -423,7 +423,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "详情页图片",
     width: 750,
     height: 1546,
-    tone: "oklch(0.65 0.20 38)",
+    tone: "#999999",
   },
   {
     id: "pinduoduo-main-wide",
@@ -431,7 +431,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图横版",
     width: 750,
     height: 352,
-    tone: "oklch(0.68 0.22 31)",
+    tone: "#999999",
   },
   {
     id: "pinduoduo-main-square",
@@ -439,7 +439,7 @@ export const SOCIAL_MEDIA_SIZE_PRESETS: SocialMediaSizePreset[] = [
     title: "主图方版",
     width: 800,
     height: 800,
-    tone: "oklch(0.72 0.20 28)",
+    tone: "#aaaaaa",
   },
 ];
 

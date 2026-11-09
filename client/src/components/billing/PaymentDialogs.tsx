@@ -43,7 +43,7 @@ export default function PaymentDialogs({
             style={{
               background: panelStrong,
               borderColor: border,
-              boxShadow: "0 24px 80px oklch(0 0 0 / 0.38)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.38)",
             }}
           >
             <div className="mb-4 flex items-start justify-between gap-4">
@@ -78,8 +78,8 @@ export default function PaymentDialogs({
                 style={{
                   color: sub,
                   background: isDark
-                    ? "oklch(1 0 0 / 6%)"
-                    : "oklch(0 0 0 / 5%)",
+                    ? "rgba(255,255,255,0.06)"
+                    : "rgba(0,0,0,0.05)",
                 }}
               >
                 ×
@@ -89,8 +89,8 @@ export default function PaymentDialogs({
             <div
               className="mb-4 rounded-[var(--radius-lg-design)] border p-3"
               style={{
-                borderColor: "oklch(0.68 0.20 292 / 0.32)",
-                background: "oklch(0.68 0.20 292 / 0.12)",
+                borderColor: "rgba(22,22,22,0.32)",
+                background: "rgba(22,22,22,0.12)",
               }}
             >
               <div className="flex items-start justify-between gap-3">
@@ -222,7 +222,7 @@ export default function PaymentDialogs({
             style={{
               background: panelStrong,
               borderColor: border,
-              boxShadow: "0 24px 80px oklch(0 0 0 / 0.42)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
             }}
           >
             <div className="h-2 w-full" style={{ background: wechatGreen }} />
@@ -254,8 +254,8 @@ export default function PaymentDialogs({
                   style={{
                     color: sub,
                     background: isDark
-                      ? "oklch(1 0 0 / 6%)"
-                      : "oklch(0 0 0 / 5%)",
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.05)",
                   }}
                 >
                   ×
@@ -265,8 +265,8 @@ export default function PaymentDialogs({
               <div
                 className="rounded-[var(--radius-lg-design)] border p-4 text-center"
                 style={{
-                  borderColor: "oklch(0.78 0.18 110 / 0.34)",
-                  background: "oklch(0.78 0.18 110 / 0.10)",
+                  borderColor: "#bbbbbb",
+                  background: "#bbbbbb",
                 }}
               >
                 <div style={{ color: wechatGreen, fontSize: 26, fontWeight: 760 }}>

@@ -37,12 +37,12 @@ export default function CreditsGuidePage() {
   */
   const billingTheme = getBillingTheme(isDark);
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
-  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.20 0.012 270)";
-  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 270)";
-  const panel = isDark ? "oklch(0.12 0.016 270 / 0.86)" : "oklch(1 0 0 / 0.86)";
-  const field = isDark ? "oklch(1 0 0 / 0.055)" : "oklch(0 0 0 / 0.035)";
-  const border = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+  const bg = isDark ? "#161616" : "var(--design-surface-soft)";
+  const text = isDark ? "#161616" : "#161616";
+  const sub = isDark ? "#99999e" : "#777472";
+  const panel = isDark ? "#161616" : "rgba(255,255,255,0.86)";
+  const field = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
+  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const accent = "#C5ED47";
 
   // 用主推档位举例，避免写死「Pro」——将来换主推档这里自动跟着变。
@@ -139,7 +139,7 @@ export default function CreditsGuidePage() {
                       </div>
                       <span
                         className="rounded-[var(--radius-pill)] px-2.5 py-0.5 type-caption"
-                        style={{ background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.06)", color: sub }}
+                        style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: sub }}
                       >
                         {badge}
                       </span>
@@ -188,7 +188,7 @@ export default function CreditsGuidePage() {
                   <li key={index} className="flex gap-2.5">
                     <span
                       className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-pill)] type-caption"
-                      style={{ background: isDark ? "oklch(1 0 0 / 0.08)" : "oklch(0 0 0 / 0.06)", color: sub }}
+                      style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)", color: sub }}
                     >
                       {index + 1}
                     </span>

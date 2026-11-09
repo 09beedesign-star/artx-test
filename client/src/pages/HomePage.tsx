@@ -265,23 +265,23 @@ export default function HomePage() {
   const homeInspirationImageRef = useRef<HTMLImageElement | null>(null);
   const homeInspirationPromptRef = useRef<HTMLDivElement | null>(null);
   
-  // ── 全局主题颜色（根据主题动态计算）──
-  const textPrimary = isDark ? "#ffffff" : "#2c2c2b";
-  const textSecondary = isDark ? "rgba(255,255,255,0.73)" : "#6a6a6b";
-  const textMuted = isDark ? "#7d7d7d" : "#8e8b86";
-  const textTertiary = isDark ? "rgba(255,255,255,0.45)" : "#a8a8a8";
-  const textAccent = isDark ? "rgba(255,255,255,0.88)" : "#2c2c2b";
-  const bgMain = isDark ? "#222222" : "#ffffff";
-  const borderColor = isDark ? "rgba(255,255,255,0.10)" : "#f0efed";
+  // ── 全局主题颜色（图叙 AI 规格）──
+  const textPrimary = isDark ? "#f1f1f3" : "#262627";
+  const textSecondary = isDark ? "#a0a0a6" : "#777472";
+  const textMuted = isDark ? "#777472" : "#9e9b99";
+  const textTertiary = isDark ? "rgba(255,255,255,0.40)" : "#b0aeac";
+  const textAccent = isDark ? "#f1f1f3" : "#262627";
+  const bgMain = isDark ? "#111111" : "#ffffff";
+  const borderColor = isDark ? "rgba(255,255,255,0.10)" : "#e6e3df";
   
   // 灵感详情弹窗颜色
   const homeInspirationBorder = borderColor;
-  const homeInspirationPanelBg = isDark ? "#222222" : "#ffffff";
-  const homeInspirationCardBg = isDark ? "#222222" : "#ffffff";
-  const homeInspirationText = isDark ? "oklch(0.88 0.008 270)" : "#2c2c2b";
-  const homeInspirationButtonBg = isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)";
-  const homeInspirationButtonIdleColor = isDark ? "oklch(0.73 0.010 270)" : "#6a6a6b";
-  const homeInspirationButtonIconColor = isDark ? "oklch(0.88 0.008 270)" : "#2c2c2b";
+  const homeInspirationPanelBg = isDark ? "#1a1a1a" : "#ffffff";
+  const homeInspirationCardBg = isDark ? "#1a1a1a" : "#ffffff";
+  const homeInspirationText = isDark ? "#f1f1f3" : "#262627";
+  const homeInspirationButtonBg = isDark ? "rgba(26,26,26,0.90)" : "rgba(255,255,255,0.90)";
+  const homeInspirationButtonIdleColor = isDark ? "#a0a0a6" : "#777472";
+  const homeInspirationButtonIconColor = isDark ? "#f1f1f3" : "#262627";
 
   const setCurrentLandingTab = (tab: LandingTab) => {
     activeTabRef.current = tab;
@@ -713,7 +713,8 @@ export default function HomePage() {
           <button
             type="button"
             onClick={handleStartExperience}
-            className="h-10 shrink-0 whitespace-nowrap rounded-md bg-[#936CFF] px-4 text-sm font-medium text-white shadow-[0_10px_28px_rgba(147,108,255,0.30)] transition-colors hover:bg-[#8257ff]"
+            className="h-10 shrink-0 whitespace-nowrap rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-[#333333] dark:bg-white dark:text-black dark:hover:bg-[#e8e8e8]"
+            style={{ boxShadow: isDark ? "0 4px 16px rgba(255,255,255,0.15)" : "rgba(48,37,25,0.08) 0px 6px 20px 0px" }}
           >
             {isAuthenticated ? "进入工作台" : "开始体验"}
           </button>
@@ -962,11 +963,11 @@ export default function HomePage() {
             <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${homeInspirationBorder}` }}>
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: "oklch(0.62 0.22 290 / 0.20)", color: "oklch(0.80 0.17 290)", letterSpacing: 0, textTransform: "none" }}>
+                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: isDark ? "rgba(255,255,255,0.12)" : "#f5f6f8", color: isDark ? "#f1f1f3" : "#777472", letterSpacing: 0, textTransform: "none" }}>
                     {selectedHomeInspiration.field}
                   </span>
                 </div>
-                <h2 className="type-body-sm leading-6" style={{ color: "oklch(0.88 0.008 270)", fontWeight: 760 }}>{selectedHomeInspiration.title}</h2>
+                <h2 className="type-body-sm leading-6" style={{ color: homeInspirationText, fontWeight: 760 }}>{selectedHomeInspiration.title}</h2>
               </div>
             </div>
 
@@ -987,8 +988,8 @@ export default function HomePage() {
                       event.currentTarget.style.display = "none";
                     }}
                   />
-                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, oklch(0.20 0.05 290), oklch(0.18 0.04 205))" }}>
-                    <span className="type-body-sm" style={{ color: "oklch(0.88 0.02 270)", fontWeight: 650 }}>
+                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: isDark ? "#1a1a1a" : "#f5f6f8" }}>
+                    <span className="type-body-sm" style={{ color: textSecondary, fontWeight: 650 }}>
                       本地图片待同步
                     </span>
                   </div>
@@ -1056,12 +1057,14 @@ function LandingTopNav({
           key={item.key}
           type="button"
           onClick={item.onClick}
-          className={`h-9 shrink-0 appearance-none rounded-md px-3 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
+          className={`h-9 shrink-0 appearance-none rounded-full px-4 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
             activeTab === item.key
-              ? "bg-[#936CFF] text-white shadow-[0_8px_20px_rgba(147,108,255,0.28)]"
+              ? isDark
+                ? "bg-white text-black"
+                : "bg-[#161616] text-white"
               : isDark 
-                ? "bg-transparent text-white/73 hover:bg-white/8 hover:text-white"
-                : "bg-transparent text-black/73 hover:bg-black/8 hover:text-black"
+                ? "bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
+                : "bg-transparent text-[#777472] hover:bg-[#f5f6f8] hover:text-[#262627]"
           }`}
         >
           {item.label}

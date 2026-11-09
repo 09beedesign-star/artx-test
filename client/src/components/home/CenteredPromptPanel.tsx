@@ -388,22 +388,22 @@ export function CenteredPromptPanel({
         {activeSkill && (
           <div className="mb-3 flex flex-wrap gap-2">
             <div
-              className="group relative flex items-center gap-2 rounded-md border px-3 py-1.5"
+              className="group relative flex items-center gap-2 rounded-full border px-3 py-1.5"
               style={{
                 borderColor: isDark
-                  ? "oklch(0.62 0.22 290 / 45%)"
-                  : "oklch(0.62 0.22 290 / 35%)",
+                  ? "rgba(255,255,255,0.15)"
+                  : "#e6e3df",
                 backgroundColor: isDark
-                  ? "oklch(0.58 0.22 290 / 0.18)"
-                  : "oklch(0.58 0.22 290 / 0.12)",
+                  ? "rgba(255,255,255,0.08)"
+                  : "#f5f6f8",
               }}
             >
               <span
                 className="text-xs font-medium"
                 style={{
                   color: isDark
-                    ? "oklch(0.82 0.16 290)"
-                    : "oklch(0.46 0.18 290)",
+                    ? "#f1f1f3"
+                    : "#262627",
                 }}
               >
                 {activeSkill.name}
@@ -415,8 +415,8 @@ export function CenteredPromptPanel({
                 aria-label="移除 Skill"
                 style={{
                   color: isDark
-                    ? "oklch(0.82 0.16 290)"
-                    : "oklch(0.46 0.18 290)",
+                    ? "#a0a0a6"
+                    : "#777472",
                 }}
               >
                 <X size={12} />

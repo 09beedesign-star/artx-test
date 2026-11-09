@@ -162,10 +162,10 @@ export default function SubscriptionPanel({
                   ? "linear-gradient(180deg, rgba(144,88,252,0.18), #222222)"
                   : panelStrong,
                 borderColor: isFocused
-                  ? "oklch(0.68 0.20 292 / 0.55)"
+                  ? "rgba(22,22,22,0.55)"
                   : border,
                 boxShadow: isFocused
-                  ? "0 20px 56px oklch(0.58 0.22 290 / 0.18)"
+                  ? "0 20px 56px rgba(22,22,22,0.18)"
                   : "none",
                 cursor: "pointer",
                 transition:
@@ -197,7 +197,7 @@ export default function SubscriptionPanel({
                 <span
                   className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
                   style={{
-                    background: "oklch(0.68 0.20 292 / 0.28)",
+                    background: "rgba(22,22,22,0.28)",
                     color: purple,
                     visibility: planBadge ? "visible" : "hidden",
                   }}
@@ -210,7 +210,7 @@ export default function SubscriptionPanel({
                 className="rounded-[var(--radius-lg-design)] border p-3"
                 style={{
                   borderColor: border,
-                  background: isDark ? "#222222" : "oklch(0 0 0 / 3%)",
+                  background: isDark ? "#222222" : "rgba(0,0,0,0.03)",
                 }}
               >
                 <div className="type-caption" style={{ color: faint }}>
@@ -292,7 +292,7 @@ export default function SubscriptionPanel({
                       <X
                         size={13}
                         style={{
-                          color: "oklch(0.58 0.03 270)",
+                          color: "#888888",
                           flex: "0 0 auto",
                           marginTop: 2,
                         }}
@@ -316,10 +316,10 @@ export default function SubscriptionPanel({
                 style={{
                   background:
                     isCurrentSubscribedPlan || isDowngradePlan
-                      ? "oklch(1 0 0 / 7%)"
+                      ? "rgba(255,255,255,0.07)"
                       : isSelected
                         ? getButtonColor()
-                        : "oklch(0.68 0.20 292 / 0.18)",
+                        : "rgba(22,22,22,0.18)",
                   color:
                     isCurrentSubscribedPlan || isDowngradePlan
                       ? faint
@@ -331,7 +331,7 @@ export default function SubscriptionPanel({
                       ? border
                       : isSelected
                         ? getButtonColor()
-                        : "oklch(0.68 0.20 292 / 0.32)"
+                        : "rgba(22,22,22,0.32)"
                   }`,
                   cursor:
                     isCurrentSubscribedPlan || isDowngradePlan

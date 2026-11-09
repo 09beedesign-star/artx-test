@@ -8,11 +8,11 @@ export default function NotFound() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const bg = isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)";
-  const panelBg = isDark ? "oklch(0.13 0.012 270 / 0.92)" : "oklch(1 0 0 / 0.86)";
+  const bg = isDark ? "#161616" : "var(--design-surface-soft)";
+  const panelBg = isDark ? "#161616" : "rgba(255,255,255,0.86)";
   const border = isDark ? "rgba(255,255,255,0.08)" : "var(--hairline)";
-  const text = isDark ? "oklch(0.88 0.008 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.65 0.010 255)";
+  const text = isDark ? "#161616" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   return (
     <div
@@ -36,13 +36,13 @@ export default function NotFound() {
           <div
             className="relative w-16 h-16 rounded-[var(--radius-pill)] flex items-center justify-center"
             style={{
-              background: isDark ? "oklch(0.62 0.22 290 / 0.16)" : "var(--block-lilac)",
-              color: isDark ? "oklch(0.72 0.22 290)" : "var(--block-navy)",
+              background: isDark ? "rgba(22,22,22,0.16)" : "var(--block-lilac)",
+              color: isDark ? "#333333" : "var(--block-navy)",
             }}
           >
             <div
               className="absolute inset-0 rounded-[var(--radius-pill)] animate-pulse"
-              style={{ background: "oklch(0.72 0.22 290 / 0.12)" }}
+              style={{ background: "rgba(22,22,22,0.12)" }}
             />
             <AlertCircle className="relative h-8 w-8" />
           </div>
@@ -66,9 +66,9 @@ export default function NotFound() {
             onClick={() => setLocation("/")}
             className="type-caption h-11 px-5 rounded-[var(--radius-pill)] border-0 transition-all duration-200 hover:opacity-90"
             style={{
-              background: "linear-gradient(135deg, oklch(0.55 0.22 290), oklch(0.50 0.20 260))",
+              background: "linear-gradient(135deg, #161616, #161616)",
               color: "white",
-              boxShadow: "0 10px 28px oklch(0.55 0.22 290 / 0.30)",
+              boxShadow: "0 10px 28px rgba(22,22,22,0.30)",
             }}
           >
             <Home className="w-4 h-4 mr-2" />

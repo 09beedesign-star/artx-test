@@ -226,9 +226,9 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
     }
   };
 
-  const subtleText = isDark ? "oklch(0.68 0.01 270)" : "oklch(0.45 0.01 270)";
-  const cardBg = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0.97 0.005 270)";
-  const cardBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.9 0.005 270)";
+  const subtleText = isDark ? "#999999" : "#666666";
+  const cardBg = isDark ? "rgba(255,255,255,0.05)" : "#161616";
+  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "#161616";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -257,7 +257,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
       <DialogContent className="grid h-[800px] max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Gift size={18} style={{ color: "oklch(0.68 0.19 150)" }} />
+            <Gift size={18} style={{ color: "#999999" }} />
             邀请好友，双方得积分
           </DialogTitle>
           <DialogDescription>
@@ -282,7 +282,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
           )}
 
           {!loading && error && (
-            <div className="py-8 text-center text-sm" style={{ color: "oklch(0.65 0.2 25)" }}>
+            <div className="py-8 text-center text-sm" style={{ color: "#999999" }}>
               {error}
             </div>
           )}
@@ -294,14 +294,14 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="text-[11px] font-medium" style={{ color: subtleText }}>你可获得</div>
-                    <div className="text-[22px] font-bold" style={{ color: "oklch(0.68 0.19 150)" }}>
+                    <div className="text-[22px] font-bold" style={{ color: "#999999" }}>
                       {summary.inviterCredits.toLocaleString("zh-CN")}
                       <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
                     </div>
                   </div>
                   <div>
                     <div className="text-[11px] font-medium" style={{ color: subtleText }}>好友可获得</div>
-                    <div className="text-[22px] font-bold" style={{ color: "oklch(0.72 0.18 200)" }}>
+                    <div className="text-[22px] font-bold" style={{ color: "#333333" }}>
                       {summary.inviteeCredits.toLocaleString("zh-CN")}
                       <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
                     </div>
@@ -324,20 +324,20 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 <div
                   className="rounded-xl px-4 py-3"
                   style={{
-                    background: isDark ? "oklch(0.65 0.15 60 / 12%)" : "oklch(0.95 0.06 75)",
-                    border: `1px solid ${isDark ? "oklch(0.7 0.15 65 / 30%)" : "oklch(0.82 0.11 70)"}`,
+                    background: isDark ? "rgba(102,102,102,0.12)" : "#f5f6f8",
+                    border: `1px solid ${isDark ? "rgba(102,102,102,0.30)" : "#cccccc"}`,
                   }}
                 >
                   <div
                     className="flex items-center gap-1.5 text-[12px] font-semibold"
-                    style={{ color: isDark ? "oklch(0.82 0.14 70)" : "oklch(0.5 0.13 60)" }}
+                    style={{ color: isDark ? "#cccccc" : "#666666" }}
                   >
                     <PauseCircle size={14} />
                     邀请码已暂停，新好友无法再绑定到你名下
                   </div>
                   <p
                     className="mt-1.5 text-[11px] leading-relaxed"
-                    style={{ color: isDark ? "oklch(0.75 0.08 70)" : "oklch(0.45 0.09 60)" }}
+                    style={{ color: isDark ? "#aaaaaa" : "#666666" }}
                   >
                     已邀请的好友、已到账的积分、历史统计全部不受影响。
                     随时可以恢复，邀请码不会改变，之前发出去的链接恢复后照常有效。
@@ -379,7 +379,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   data-tour-id={TOUR_ANCHORS.inviteCopyMessage}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
                   style={{
-                    background: summary.acceptDisabled ? cardBg : "oklch(0.58 0.22 290)",
+                    background: summary.acceptDisabled ? cardBg : "#161616",
                     color: summary.acceptDisabled ? subtleText : "white",
                     border: summary.acceptDisabled ? `1px solid ${cardBorder}` : "none",
                     cursor: summary.acceptDisabled ? "not-allowed" : "pointer",
@@ -471,7 +471,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   onClick={() => void handleToggleAccept()}
                   className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
                   style={{
-                    background: summary.acceptDisabled ? "oklch(0.68 0.19 150)" : "transparent",
+                    background: summary.acceptDisabled ? "#999999" : "transparent",
                     color: summary.acceptDisabled ? "white" : subtleText,
                     border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
                     opacity: toggling ? 0.6 : 1,

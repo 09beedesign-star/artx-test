@@ -113,12 +113,12 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Custom brand tokens */
-  --color-brand-purple: oklch(0.55 0.22 290);
-  --color-brand-cyan: oklch(0.72 0.18 200);
-  --color-surface-1: oklch(0.14 0.018 270);
-  --color-surface-2: oklch(0.17 0.02 270);
-  --color-surface-3: oklch(0.20 0.022 270);
+  /* Custom brand tokens — 图叙黑白 */
+  --color-brand-purple: #161616;
+  --color-brand-cyan: #333333;
+  --color-surface-1: #0d0d0d;
+  --color-surface-2: #111111;
+  --color-surface-3: #1a1a1a;
 
   /* Figma DESIGN.md tokens */
   --color-design-primary: var(--design-primary);
@@ -140,13 +140,13 @@
 }
 
 :root {
-  --radius: 6px;
-  --radius-xs: 6px;
-  --radius-sm-design: 6px;
-  --radius-md-design: 6px;
-  --radius-lg-design: 6px;
-  --radius-xl-design: 6px;
-  --radius-pill: 6px;
+  --radius: 16px;
+  --radius-xs: 8px;
+  --radius-sm-design: 10px;
+  --radius-md-design: 16px;
+  --radius-lg-design: 24px;
+  --radius-xl-design: 32px;
+  --radius-pill: 999px;
 
   --space-hair: 1px;
   --space-xxs: 4px;
@@ -181,35 +181,35 @@
   /* Global modal surface */
   --dialog-surface: #171717;
 
-  /* ── Dark mode (default) — Deep blue-purple ── */
-  --background: #222222;
-  --foreground: oklch(0.93 0.008 270);
-  --card: oklch(0.14 0.018 270);
-  --card-foreground: oklch(0.93 0.008 270);
-  --popover: oklch(0.14 0.018 270);
-  --popover-foreground: oklch(0.93 0.008 270);
-  --primary: oklch(0.58 0.22 290);
-  --primary-foreground: oklch(0.98 0.005 270);
-  --secondary: oklch(0.18 0.02 270);
-  --secondary-foreground: oklch(0.83 0.008 270);
-  --muted: oklch(0.17 0.018 270);
-  --muted-foreground: oklch(0.71 0.010 270);
-  --accent: oklch(0.20 0.022 270);
-  --accent-foreground: oklch(0.93 0.008 270);
-  --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.58 0.22 290);
+  /* ── Dark mode (default) — 图叙黑白极简 ── */
+  --background: #111111;
+  --foreground: #f1f1f3;
+  --card: #1a1a1a;
+  --card-foreground: #f1f1f3;
+  --popover: #1a1a1a;
+  --popover-foreground: #f1f1f3;
+  --primary: #ffffff;
+  --primary-foreground: #111111;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #cccccc;
+  --muted: #1f1f1f;
+  --muted-foreground: #99999e;
+  --accent: #2a2a2a;
+  --accent-foreground: #f1f1f3;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255,255,255,0.10);
+  --input: rgba(255,255,255,0.08);
+  --ring: rgba(255,255,255,0.3);
 
-  --sidebar: oklch(0.12 0.016 270);
-  --sidebar-foreground: oklch(0.93 0.008 270);
-  --sidebar-primary: oklch(0.58 0.22 290);
-  --sidebar-primary-foreground: oklch(0.98 0.005 270);
-  --sidebar-accent: oklch(0.18 0.02 270);
-  --sidebar-accent-foreground: oklch(0.93 0.008 270);
-  --sidebar-border: oklch(1 0 0 / 6%);
-  --sidebar-ring: oklch(0.58 0.22 290);
+  --sidebar: #0d0d0d;
+  --sidebar-foreground: #f1f1f3;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #111111;
+  --sidebar-accent: #2a2a2a;
+  --sidebar-accent-foreground: #f1f1f3;
+  --sidebar-border: rgba(255,255,255,0.08);
+  --sidebar-ring: rgba(255,255,255,0.3);
 
   /* Custom easing */
   --ease-out-snappy: cubic-bezier(0.23, 1, 0.32, 1);
@@ -245,53 +245,54 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 html.light, .light {
-  /* ── 背景层级（Apple 系统背景色） ── */
-  --background: oklch(1.0 0 0);                    /* systemBackground - 纯白，主视图背景 */
-  --card: oklch(0.95 0.002 240);                   /* secondarySystemBackground - 浅灰卡片 */
-  --popover: oklch(1.0 0 0);                       /* 弹出层使用纯白 */
-  --dialog-surface: oklch(0.98 0.001 240);         /* 对话框表面 */
+  /* ── 背景层级（图叙 AI 浅色主题） ── */
+  --background: #ffffff;                           /* 纯白主背景 */
+  --card: #ffffff;                                 /* 白色卡片 */
+  --popover: #ffffff;                              /* 弹出层纯白 */
+  --dialog-surface: #ffffff;                       /* 对话框表面 */
   
-  /* ── 文本层级（Apple 标签颜色） ── */
-  --foreground: oklch(0.15 0.004 240);             /* label - 近黑色主文本，高对比度 */
-  --card-foreground: oklch(0.15 0.004 240);
-  --popover-foreground: oklch(0.15 0.004 240);
-  --muted-foreground: oklch(0.45 0.006 240);       /* secondaryLabel - 中灰次要文本 */
-  --secondary-foreground: oklch(0.60 0.005 240);   /* tertiaryLabel - 浅灰三级文本 */
+  /* ── 文本层级（图叙 AI 规格） ── */
+  --foreground: #262627;                           /* rgb(38,38,39) - 主文本 */
+  --card-foreground: #262627;
+  --popover-foreground: #262627;
+  --muted-foreground: #777472;                     /* rgb(119,116,114) - 次要文本 */
+  --secondary-foreground: #9e9b99;                 /* 三级文本 */
   
-  /* ── 品牌色（保持 ArtX 紫色） ── */
-  --primary: oklch(0.52 0.22 290);                 /* ArtX 品牌紫 */
-  --primary-foreground: oklch(1.0 0 0);            /* 纯白文字 */
-  --ring: oklch(0.52 0.22 290);
+  /* ── 品牌色（图叙 AI 黑色系） ── */
+  --primary: #161616;                              /* rgb(22,22,22) - 主按钮背景 */
+  --primary-foreground: #ffffff;                   /* 白色文字 */
+  --primary-hover: #333333;                        /* rgb(51,51,51) - hover 态 */
+  --ring: rgba(22,22,22,0.2);
   
   /* ── 次要色和强调色 ── */
-  --secondary: oklch(0.92 0.003 240);              /* 浅灰次要色 */
-  --muted: oklch(0.96 0.002 240);                  /* 极浅灰静音背景 */
-  --accent: oklch(0.88 0.008 260);                 /* 蓝灰强调色 */
-  --accent-foreground: oklch(0.15 0.004 240);
+  --secondary: #f5f6f8;                            /* rgb(245,246,248) - 次要按钮背景 */
+  --muted: #fafafa;                                /* 极浅灰静音背景 */
+  --accent: #f5f6f8;                               /* 强调色 */
+  --accent-foreground: #262627;
   
   /* ── 边框和输入 ── */
-  --border: oklch(0.88 0.003 240);                 /* separator - 细腻浅灰边框 */
-  --input: oklch(0.93 0.002 240);                  /* 输入框背景 */
+  --border: #e6e3df;                               /* rgb(230,227,223) - 边框 */
+  --input: #f5f6f8;                                /* 输入框背景 */
   
   /* ── 警示色 ── */
-  --destructive: oklch(0.55 0.22 25);              /* 红色警示 */
-  --destructive-foreground: oklch(1.0 0 0);
+  --destructive: #ef4444;                          /* 红色警示 */
+  --destructive-foreground: #ffffff;
   
-  /* ── 侧边栏（稍深的背景层） ── */
-  --sidebar: oklch(0.96 0.002 240);                /* 侧边栏背景 */
-  --sidebar-foreground: oklch(0.15 0.004 240);
-  --sidebar-primary: oklch(0.52 0.22 290);
-  --sidebar-primary-foreground: oklch(1.0 0 0);
-  --sidebar-accent: oklch(0.92 0.003 240);
-  --sidebar-accent-foreground: oklch(0.15 0.004 240);
-  --sidebar-border: oklch(0.88 0.003 240);
-  --sidebar-ring: oklch(0.52 0.22 290);
+  /* ── 侧边栏 ── */
+  --sidebar: #fafafa;                              /* 侧边栏背景 */
+  --sidebar-foreground: #262627;
+  --sidebar-primary: #161616;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f5f6f8;
+  --sidebar-accent-foreground: #262627;
+  --sidebar-border: #e6e3df;
+  --sidebar-ring: rgba(22,22,22,0.2);
   
-  /* ── Apple 风格阴影（柔和、细腻） ── */
-  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.04);
-  --shadow-md: 0 2px 8px -2px oklch(0 0 0 / 0.06), 0 4px 16px -4px oklch(0 0 0 / 0.04);
-  --shadow-lg: 0 4px 16px -4px oklch(0 0 0 / 0.08), 0 8px 32px -8px oklch(0 0 0 / 0.06);
-  --shadow-xl: 0 8px 24px -8px oklch(0 0 0 / 0.10), 0 16px 48px -12px oklch(0 0 0 / 0.08);
+  /* ── 图叙 AI 风格阴影（warm sand 调性） ── */
+  --shadow-sm: 0 1px 3px 0 rgba(48,37,25,0.04);
+  --shadow-md: rgba(48,37,25,0.03) 0px 6px 24px 0px, rgba(48,37,25,0.04) 0px 2px 8px 0px;
+  --shadow-lg: rgba(48,37,25,0.05) 0px 12px 40px 0px, rgba(48,37,25,0.04) 0px 4px 12px 0px;
+  --shadow-xl: rgba(48,37,25,0.08) 0px 20px 60px 0px, rgba(48,37,25,0.05) 0px 6px 20px 0px;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -344,19 +345,19 @@ html.light img[src*="artxstudio-logo"],
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 15%);
+    background: rgba(255,255,255,0.15);
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: oklch(1 0 0 / 25%);
+    background: rgba(255,255,255,0.25);
   }
 
   /* Light mode scrollbar */
   .light ::-webkit-scrollbar-thumb {
-    background: oklch(0 0 0 / 12%);
+    background: rgba(0,0,0,0.12);
   }
   .light ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0 0 0 / 20%);
+    background: rgba(0,0,0,0.20);
   }
 
   .model-selector-scroll::-webkit-scrollbar-track {
@@ -368,7 +369,7 @@ html.light img[src*="artxstudio-logo"],
   }
 
   .model-selector-scroll::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 18%);
+    background: rgba(255,255,255,0.18);
   }
 
   .smart-copy-editor-scroll::-webkit-scrollbar {
@@ -377,7 +378,7 @@ html.light img[src*="artxstudio-logo"],
   }
 
   .light .model-selector-scroll::-webkit-scrollbar-thumb {
-    background: oklch(0 0 0 / 16%);
+    background: rgba(0,0,0,0.16);
   }
 }
 
@@ -503,16 +504,19 @@ html.light img[src*="artxstudio-logo"],
     letter-spacing: 0.60px;
   }
 
-  /* Brand gradient utilities */
+  /* Brand gradient utilities — 图叙黑白极简 */
   .gradient-brand {
-    background: linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200));
+    background: #161616;
   }
 
   .gradient-brand-text {
-    background: linear-gradient(135deg, oklch(0.72 0.22 290), oklch(0.78 0.18 200));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #161616;
+    -webkit-background-clip: initial;
+    -webkit-text-fill-color: initial;
+    background-clip: initial;
+  }
+  html.dark .gradient-brand-text {
+    color: #ffffff;
   }
 
   .gradient-border {
@@ -524,7 +528,7 @@ html.light img[src*="artxstudio-logo"],
     inset: 0;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(135deg, oklch(0.58 0.22 290 / 0.6), oklch(0.72 0.18 200 / 0.6));
+    background: rgba(48,37,25,0.12);
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
@@ -540,8 +544,8 @@ html.light img[src*="artxstudio-logo"],
   }
   .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 32px oklch(0.58 0.22 290 / 0.15),
-                0 2px 8px oklch(0 0 0 / 0.4);
+    box-shadow: 0 6px 24px rgba(48,37,25,0.08),
+                0 2px 8px rgba(0,0,0,0.06);
   }
 
   /* Button active press */
@@ -558,18 +562,27 @@ html.light img[src*="artxstudio-logo"],
   .skeleton {
     background: linear-gradient(
       90deg,
-      oklch(1 0 0 / 4%) 25%,
-      oklch(1 0 0 / 8%) 50%,
-      oklch(1 0 0 / 4%) 75%
+      rgba(0,0,0,0.04) 25%,
+      rgba(0,0,0,0.08) 50%,
+      rgba(0,0,0,0.04) 75%
     );
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
   }
+  html.dark .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(255,255,255,0.04) 25%,
+      rgba(255,255,255,0.08) 50%,
+      rgba(255,255,255,0.04) 75%
+    );
+    background-size: 200% 100%;
+  }
 
   /* Pulse glow for generating state */
   @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 0 0 oklch(0.58 0.22 290 / 0.4); }
-    50% { box-shadow: 0 0 0 6px oklch(0.58 0.22 290 / 0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(48,37,25,0.12); }
+    50% { box-shadow: 0 0 0 6px rgba(48,37,25,0); }
   }
   .pulse-glow {
     animation: pulse-glow 2s ease-in-out infinite;
@@ -788,7 +801,7 @@ html.light img[src*="artxstudio-logo"],
   .font-mono-dim {
     font-family: var(--font-mono);
     font-size: 11px;
-    color: oklch(0.72 0.18 200);
+    color: #777472;
     letter-spacing: 0.02em;
   }
 

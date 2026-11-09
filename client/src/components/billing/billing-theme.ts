@@ -11,16 +11,16 @@ export function getBillingTheme(isDark: boolean) {
   return {
     isDark,
     bg: isDark ? "#222222" : "var(--design-surface-soft)",
-    panel: isDark ? "#222222" : "oklch(1 0 0 / 0.82)",
-    panelStrong: isDark ? "#222222" : "oklch(1 0 0 / 0.94)",
-    border: isDark ? "oklch(1 0 0 / 9%)" : "oklch(0 0 0 / 10%)",
-    text: isDark ? "oklch(0.88 0.01 270)" : "oklch(0.22 0.018 255)",
-    sub: isDark ? "oklch(0.71 0.010 270)" : "oklch(0.64 0.010 255)",
-    faint: isDark ? "oklch(0.61 0.010 270)" : "oklch(0.71 0.010 255)",
+    panel: isDark ? "#222222" : "rgba(255,255,255,0.82)",
+    panelStrong: isDark ? "#222222" : "rgba(255,255,255,0.94)",
+    border: isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.10)",
+    text: isDark ? "#e6e3df" : "#262627",
+    sub: isDark ? "#99999e" : "#888888",
+    faint: isDark ? "#161616" : "#aaaaaa",
     wechatGreen: "#C5ED47",  // 微信支付绿色（背景、按钮）
     wechatGreenText: isDark ? "#C5ED47" : "#5C7A1A",  // 绿色文字（白天模式加深）
     alipayBlue: "#1677FF",   // 支付宝蓝色
-    purple: "oklch(0.68 0.20 292)",
+    purple: "#161616",
   };
 }
 

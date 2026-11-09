@@ -56,7 +56,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
   const subtext = isDark ? "rgba(255,255,255,0.57)" : "rgba(20,20,36,0.38)";
   const inputBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const inputBorder = error
-    ? "oklch(0.60 0.22 25)"
+    ? "#888888"
     : isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
 
   return (
@@ -78,8 +78,8 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
         position: "absolute",
         inset: 0,
         background: isDark
-          ? "radial-gradient(ellipse 60% 40% at 50% 45%, oklch(0.28 0.08 290 / 0.18) 0%, transparent 70%)"
-          : "radial-gradient(ellipse 60% 40% at 50% 45%, oklch(0.82 0.06 290 / 0.12) 0%, transparent 70%)",
+          ? "radial-gradient(ellipse 60% 40% at 50% 45%, #161616 0%, transparent 70%)"
+          : "radial-gradient(ellipse 60% 40% at 50% 45%, #161616 0%, transparent 70%)",
         pointerEvents: "none",
       }} />
 
@@ -103,7 +103,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28, transform: "scale(0.7)", transformOrigin: "left center" }}>
           <div style={{
             width: 36, height: 36, borderRadius: 10,
-            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+            background: "linear-gradient(135deg, #161616, #333333)",
             display: "flex", alignItems: "center", justifyContent: "center",
             flexShrink: 0,
           }}>
@@ -147,7 +147,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
             }}
           />
           {error && (
-            <p style={{ fontSize: 12, color: "oklch(0.60 0.22 25)", margin: "6px 0 0 2px" }}>
+            <p style={{ fontSize: 12, color: "#888888", margin: "6px 0 0 2px" }}>
               密码错误，请重试
             </p>
           )}
@@ -159,7 +159,7 @@ export default function PasswordGate({ onGranted }: { onGranted: () => void }) {
           style={{
             width: "100%",
             padding: "11px 0",
-            background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.68 0.18 220))",
+            background: "linear-gradient(135deg, #161616, #999999)",
             border: "none",
             borderRadius: 10,
             fontSize: 14,

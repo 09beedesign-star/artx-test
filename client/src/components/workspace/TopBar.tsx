@@ -109,13 +109,13 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       ? "#ffffff"
       : (glass ? "rgba(247,247,245,0.72)" : "var(--design-surface-soft)");
   const border    = isDark ? "#242429"                     : "var(--hairline)";
-  const textPri   = isDark ? "#f1f1f3"                     : "oklch(0.22 0.018 255)";
-  const textSec   = isDark ? "#99999e"                     : "oklch(0.65 0.010 255)";
-  const hoverBg   = isDark ? "#232326"                     : "oklch(0 0 0 / 0.04)";
-  const controlBg = isDark ? "#171719"                     : "oklch(0 0 0 / 0.04)";
-  const controlBorder = isDark ? "#36363b"                 : "oklch(0 0 0 / 0.08)";
-  const dialogBg = isDark ? "#171719"                      : "oklch(0.995 0.002 80)";
-  const dialogInset = isDark ? "#101011"                   : "oklch(0.97 0.003 270)";
+  const textPri   = isDark ? "#f1f1f3"                     : "#262627";
+  const textSec   = isDark ? "#99999e"                     : "#777472";
+  const hoverBg   = isDark ? "#232326"                     : "rgba(0,0,0,0.04)";
+  const controlBg = isDark ? "#171719"                     : "rgba(0,0,0,0.04)";
+  const controlBorder = isDark ? "#36363b"                 : "rgba(0,0,0,0.08)";
+  const dialogBg = isDark ? "#171719"                      : "#ffffff";
+  const dialogInset = isDark ? "#101011"                   : "#f5f6f8";
 
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
@@ -142,7 +142,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
   const [projectTitleDraft, setProjectTitleDraft] = useState(projectTitle || "");
   const projectTitleInputRef = useRef<HTMLInputElement>(null);
 
-  const searchBorder = isDark ? "#36363b" : "oklch(0 0 0 / 10%)";
+  const searchBorder = isDark ? "#36363b" : "rgba(0,0,0,0.10)";
   const displayName = user?.username || "用户名";
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
   const avatarColor = useMemo(() => {
@@ -532,7 +532,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           className="flex h-7 items-center gap-1.5 px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
             background: "#C5ED47",
-            color: isDark ? "oklch(0.12 0.02 160)" : "#FFFFFF",
+            color: isDark ? "#0a3d29" : "#FFFFFF",
             borderRadius: 4,
             boxShadow: "none",
             fontWeight: 650,
@@ -569,7 +569,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             background: dialogBg,
             border: `1px solid ${controlBorder}`,
             borderRadius: 6,
-            boxShadow: "0 8px 32px oklch(0 0 0 / 0.25)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
           }}
         >
           <DropdownMenuItem
@@ -580,11 +580,11 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
             <UserRound size={13} style={{ color: textSec }} />
             <span>个人主页</span>
           </DropdownMenuItem>
-          <DropdownMenuSeparator style={{ background: isDark ? "oklch(1 0 0 / 8%)" : "oklch(0.88 0.006 255)" }} />
+          <DropdownMenuSeparator style={{ background: isDark ? "rgba(255,255,255,0.08)" : "#e6e3df" }} />
           <DropdownMenuItem
             onClick={() => setLogoutConfirmOpen(true)}
             className="flex items-center gap-2.5 px-3 py-2 type-caption cursor-pointer"
-            style={{ color: "oklch(0.68 0.22 25)" }}
+            style={{ color: "#999999" }}
           >
             <LogOut size={13} />
             <span>退出</span>
@@ -600,7 +600,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         style={{
           background: dialogBg,
           borderColor: controlBorder,
-          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
         }}
       >
         <div className="p-6">
@@ -651,7 +651,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 disabled={!apiKey}
                 className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors disabled:opacity-45"
                 style={{
-                  color: apiKeyCopied ? "oklch(0.68 0.18 145)" : textSec,
+                  color: apiKeyCopied ? "#999999" : textSec,
                   background: controlBg,
                 }}
                 title="复制 API Key"
@@ -843,7 +843,7 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
         style={{
           background: dialogBg,
           borderColor: controlBorder,
-          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
         }}
       >
         <div className="p-6">

@@ -68,72 +68,72 @@ export const skillCategoryMeta: Record<SkillStoreCategory, {
   brand_system: {
     label: "品牌系统",
     description: "品牌色、字体气质、设计 token、组件规范和应用样张。",
-    accent: "oklch(0.68 0.18 210)",
+    accent: "#999999",
   },
   logo_identity: {
     label: "Logo 识别",
     description: "Logo、字标、徽章、品牌符号和识别方向探索。",
-    accent: "oklch(0.70 0.19 300)",
+    accent: "#f5f6f8",
   },
   landing_page: {
     label: "产品页 / 落地页",
     description: "首页首屏、产品页、营销页和响应式网页视觉。",
-    accent: "oklch(0.70 0.16 155)",
+    accent: "#aaaaaa",
   },
   commerce_poster: {
     label: "电商海报 / 社媒",
     description: "活动海报、商品主图、社媒封面和营销 Banner。",
-    accent: "oklch(0.73 0.18 55)",
+    accent: "#aaaaaa",
   },
   product_visual: {
     label: "产品视觉",
     description: "商品摄影、商业渲染、白底图、场景图和卖点视觉。",
-    accent: "oklch(0.66 0.17 25)",
+    accent: "#999999",
   },
   video_storyboard: {
     label: "视频活动 / 分镜",
     description: "短视频脚本、镜头节奏、分镜卡和活动视频封面。",
-    accent: "oklch(0.67 0.19 330)",
+    accent: "#999999",
   },
   image_editing: {
     label: "局部编辑 / 改图",
     description: "去背景、擦除、扩图、换风格、修复和局部重绘。",
-    accent: "oklch(0.72 0.16 185)",
+    accent: "#aaaaaa",
   },
   visual_audit: {
     label: "视觉分析 / 质检",
     description: "参考图分析、竞品拆解、提示词审阅和设计质量检查。",
-    accent: "oklch(0.74 0.16 82)",
+    accent: "#bbbbbb",
   },
   graphic_design: {
     label: "平面设计 / 视觉表达",
     description: "艺术海报、社媒图文、知识漫画和概念视觉表达。",
-    accent: "oklch(0.69 0.19 275)",
+    accent: "#161616",
   },
   infographic: {
     label: "信息图 / 数据可视化",
     description: "数据信息图、流程说明图、对比图表和统计图视觉。",
-    accent: "oklch(0.66 0.17 235)",
+    accent: "#999999",
   },
   ui_design: {
     label: "UI 界面视觉",
     description: "界面视觉稿、组件质感、设计系统样张和交互状态。",
-    accent: "oklch(0.71 0.16 168)",
+    accent: "#aaaaaa",
   },
   office_visual: {
     label: "办公配图",
     description: "文章配图、封面图、演示幻灯片和数据汇报视觉。",
-    accent: "oklch(0.73 0.15 40)",
+    accent: "#aaaaaa",
   },
   diagram: {
     label: "流程图 / 图示",
     description: "流程图、架构图、思维导图、泳道图和示意图。",
-    accent: "oklch(0.68 0.16 200)",
+    accent: "#999999",
   },
   photo_art: {
     label: "图像创意",
     description: "照片艺术化与创意风格：针织、速写、拼贴、印章档案、复古印刷和吉祥物。",
-    accent: "oklch(0.7 0.17 330)",
+    accent: "#aaaaaa",
   },
 };
 

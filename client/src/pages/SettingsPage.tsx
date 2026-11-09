@@ -13,14 +13,14 @@ export default function SettingsPage() {
 
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.64)" : "rgba(20,20,36,0.52)";
-  const cardBg = isDark ? "oklch(0.11 0.015 270 / 0.78)" : "oklch(1 0 0 / 0.78)";
-  const cardBorder = isDark ? "oklch(1 0 0 / 8%)" : "var(--hairline)";
+  const cardBg = isDark ? "#161616" : "rgba(255,255,255,0.78)";
+  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "var(--hairline)";
 
   return (
     <div
       className="h-screen flex flex-col overflow-hidden"
       style={{
-        background: isDark ? "oklch(0.09 0.012 270)" : "var(--design-surface-soft)",
+        background: isDark ? "#161616" : "var(--design-surface-soft)",
         position: "relative",
         transition: "background 0.25s ease",
       }}
@@ -51,14 +51,14 @@ export default function SettingsPage() {
             <div
               className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-[var(--radius-md-design)]"
               style={{
-                background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.62 0.20 210))",
-                boxShadow: "0 10px 28px oklch(0.58 0.22 290 / 0.26)",
+                background: "linear-gradient(135deg, #161616, #888888)",
+                boxShadow: "0 10px 28px rgba(22,22,22,0.26)",
               }}
             >
               <Settings size={20} color="white" />
             </div>
             <div className="mb-2 flex items-center justify-center gap-2" style={{ color: textPrimary }}>
-              <Sparkles size={15} style={{ color: "oklch(0.72 0.18 200)" }} />
+              <Sparkles size={15} style={{ color: "#333333" }} />
               <h1 className="type-title-sm" style={{ fontSize: 22, fontWeight: 650 }}>设置</h1>
             </div>
             <p className="type-body-sm leading-6" style={{ color: textSecondary }}>

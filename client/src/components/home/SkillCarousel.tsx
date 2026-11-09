@@ -73,18 +73,8 @@ export function SkillCarousel({ onSkillSelect, isDark }: SkillCarouselProps) {
 
   // 根据分类生成不同的渐变背景色（作为缩略图）
   const getGradientForCategory = (category: SkillStoreCategory) => {
-    switch (category) {
-      case "brand_system":
-        return "linear-gradient(135deg, oklch(0.68 0.18 210) 0%, oklch(0.48 0.18 210) 100%)";
-      case "logo_identity":
-        return "linear-gradient(135deg, oklch(0.70 0.19 300) 0%, oklch(0.50 0.19 300) 100%)";
-      case "landing_page":
-        return "linear-gradient(135deg, oklch(0.70 0.16 155) 0%, oklch(0.50 0.16 155) 100%)";
-      case "commerce_poster":
-        return "linear-gradient(135deg, oklch(0.73 0.18 55) 0%, oklch(0.53 0.18 55) 100%)";
-      default:
-        return "linear-gradient(135deg, oklch(0.68 0.20 292) 0%, oklch(0.48 0.20 292) 100%)";
-    }
+    // 图叙黑白极简风格 - 统一使用纯色背景
+    return isDark ? "#1a1a1a" : "#f5f6f8";
   };
 
   return (
@@ -126,9 +116,9 @@ export function SkillCarousel({ onSkillSelect, isDark }: SkillCarouselProps) {
                   transform: isHovered ? "scale(1.05)" : "scale(1)",
                   boxShadow: isHovered
                     ? isDark
-                      ? "0 8px 24px oklch(0 0 0 / 0.4)"
-                      : "0 8px 24px oklch(0 0 0 / 0.15)"
-                    : "0 2px 8px oklch(0 0 0 / 0.08)",
+                      ? "0 8px 24px rgba(0,0,0,0.4)"
+                      : "0 8px 24px rgba(0,0,0,0.15)"
+                    : "0 2px 8px rgba(0,0,0,0.08)",
                 }}
               >
                 {/* 真实缩略图 */}

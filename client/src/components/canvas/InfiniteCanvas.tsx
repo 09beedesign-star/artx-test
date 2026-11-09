@@ -372,8 +372,8 @@ function AiAnnotationIcon({
           position: "absolute",
           right: -1,
           top: -3,
-          color: "oklch(0.74 0.20 290)",
-          filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.55))",
+          color: "#161616",
+          filter: "drop-shadow(0 0 5px rgba(22,22,22,0.4))",
           pointerEvents: "none",
         }}
       />
@@ -505,8 +505,8 @@ function AiDecoratedIcon({
           position: "absolute",
           right: -2,
           top: -3,
-          color: "oklch(0.74 0.20 290)",
-          filter: "drop-shadow(0 0 5px oklch(0.64 0.22 290 / 0.48))",
+          color: "#161616",
+          filter: "drop-shadow(0 0 5px rgba(22,22,22,0.4))",
           pointerEvents: "none",
         }}
       />
@@ -1010,19 +1010,19 @@ function SkillPointSelector({
   }, []);
   const bg = getMinimapSurfaceBackground(isDark);
   const hoverButtonBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.22 0.015 270)";
+    ? "#0d0d0d"
+    : "#262627";
   const compactDefaultBg = isDark ? "#525252" : bg;
   const compactSelectedBg = isDark ? "#2b2b2b" : hoverButtonBg;
   const border = getMinimapSurfaceBorder(isDark);
-  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
+  const text = isDark ? "#99999e" : "#777472";
   const hoverButtonText = "white";
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const popBg = isDark ? "#1a1a1a" : "#ffffff";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
   const activeBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.18)"
-    : "oklch(0.58 0.22 290 / 0.12)";
-  const activeText = isDark ? "oklch(0.82 0.16 290)" : "oklch(0.46 0.18 290)";
+    ? "rgba(22,22,22,0.18)"
+    : "rgba(22,22,22,0.08)";
+  const activeText = isDark ? "#161616" : "#555555";
   const skillIconColor = useCallback((id: string) => {
     const palette = [
       "#ff7ab6",
@@ -1131,7 +1131,7 @@ function SkillPointSelector({
                   : bg,
           border: compact
             ? "none"
-            : `1px solid ${activeSkill || open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+            : `1px solid ${activeSkill || open ? "rgba(22,22,22,0.45)" : border}`,
           color: compact
             ? activeSkill || open || buttonHover
               ? hoverButtonText
@@ -1321,13 +1321,13 @@ function ImageCountSelector({
   );
   const bg = getMinimapSurfaceBackground(isDark);
   const hoverBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.22 0.015 270)";
+    ? "#0d0d0d"
+    : "#262627";
   const compactDefaultBg = isDark ? "#525252" : bg;
   const compactSelectedBg = isDark ? "#2b2b2b" : hoverBg;
   const border = getMinimapSurfaceBorder(isDark);
-  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const text = isDark ? "#99999e" : "#777472";
+  const popBg = isDark ? "#1a1a1a" : "#ffffff";
 
   /**
    * 是否显示「该模型建议出 N 张」的说明。
@@ -1404,7 +1404,7 @@ function ImageCountSelector({
             ? "1px solid transparent"
             : compact
               ? "none"
-              : `1px solid ${open ? "oklch(0.62 0.22 290 / 45%)" : border}`,
+              : `1px solid ${open ? "rgba(22,22,22,0.45)" : border}`,
           color: ghost ? ghost.text : open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
@@ -1581,13 +1581,13 @@ function ImageRatioSelector({
   );
   const bg = getMinimapSurfaceBackground(isDark);
   const hoverBg = isDark
-    ? "oklch(0.13 0.015 270)"
-    : "oklch(0.22 0.015 270)";
+    ? "#0d0d0d"
+    : "#262627";
   const compactDefaultBg = isDark ? "#525252" : bg;
   const compactSelectedBg = isDark ? "#2b2b2b" : hoverBg;
   const border = getMinimapSurfaceBorder(isDark);
-  const text = isDark ? "oklch(0.74 0.01 270)" : "oklch(0.58 0.008 270)";
-  const popBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.99 0.004 270)";
+  const text = isDark ? "#99999e" : "#777472";
+  const popBg = isDark ? "#1a1a1a" : "#ffffff";
   const triggerLabel = value === "auto" ? "自动" : value;
 
   const updatePopoverPosition = useCallback(() => {
@@ -1657,7 +1657,7 @@ function ImageRatioSelector({
             ? "1px solid transparent"
             : compact
               ? "none"
-              : "1px solid " + (open ? "oklch(0.62 0.22 290 / 45%)" : border),
+              : "1px solid " + (open ? "rgba(22,22,22,0.45)" : border),
           color: ghost ? ghost.text : open || hovered ? "white" : text,
           fontSize: 11,
           lineHeight: "14px",
@@ -1727,8 +1727,8 @@ function NodeToolbar({
   isDark: boolean;
 }) {
   const imageModelOptions = useImageModelOptions();
-  const border = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const text = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
+  const border = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const text = isDark ? "#99999e" : "#99999e";
   return (
     <div
       className="flex items-center justify-between px-2 py-1.5 nodrag nopan"
@@ -1774,15 +1774,15 @@ function NodeWrapper({
   onClick?: (e: React.MouseEvent) => void;
   onMouseDownCapture?: (e: React.MouseEvent) => void;
 }) {
-  const bg = isDark ? "oklch(0.13 0.015 270)" : "oklch(0.98 0.004 270)";
+  const bg = isDark ? "#0d0d0d" : "#f8f8f8";
   const border = selected
-    ? "oklch(0.65 0.22 290)"
+    ? "#161616"
     : isDark
-      ? "oklch(1 0 0 / 10%)"
-      : "oklch(0 0 0 / 10%)";
+      ? "rgba(255,255,255,0.10)"
+      : "rgba(0,0,0,0.10)";
   const shadow = selected
-    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18), 0 18px 48px oklch(0 0 0 / 0.44)"
-    : "0 4px 24px oklch(0 0 0 / 0.25)";
+    ? "0 0 0 2px rgba(22,22,22,0.72), 0 0 0 6px rgba(22,22,22,0.18), 0 18px 48px rgba(0,0,0,0.44)"
+    : "0 4px 24px rgba(0,0,0,0.25)";
 
   return (
     <div
@@ -1809,10 +1809,10 @@ function NodeWrapper({
               left: -1,
               backgroundColor: isDark
                 ? "rgba(255,255,255,0.80)"
-                : "oklch(0.28 0.01 270)",
+                : "#333333",
               borderColor: isDark
                 ? "rgba(255,255,255,0.60)"
-                : "oklch(0.20 0.01 270)",
+                : "#2a2a2a",
             }}
           />
           <Handle
@@ -1824,10 +1824,10 @@ function NodeWrapper({
               right: -1,
               backgroundColor: isDark
                 ? "rgba(255,255,255,0.80)"
-                : "oklch(0.28 0.01 270)",
+                : "#333333",
               borderColor: isDark
                 ? "rgba(255,255,255,0.60)"
-                : "oklch(0.20 0.01 270)",
+                : "#2a2a2a",
             }}
           />
         </>
@@ -1985,11 +1985,11 @@ function ColorPickerPanel({
   onClose: () => void;
   isDark: boolean;
 }) {
-  const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
-  const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
-  const textC = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
-  const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
-  const inputBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+  const bg = isDark ? "#1a1a1a" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const textC = isDark ? "#cccccc" : "#262627";
+  const inputBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
+  const inputBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
 
   const hexToRgb = (hex: string) => {
     const r = parseInt(hex.slice(1, 3), 16) || 0;
@@ -2319,7 +2319,7 @@ function ColorPickerPanel({
               width: 24,
               height: 24,
               borderRadius: "50%",
-              border: `2px solid ${pc === safeColor ? "oklch(0.65 0.22 290)" : "transparent"}`,
+              border: `2px solid ${pc === safeColor ? "#161616" : "transparent"}`,
               background: pc === "" ? "none" : pc,
               cursor: "pointer",
               flexShrink: 0,
@@ -2426,14 +2426,14 @@ function TypographyAdvancedPanel({
   onClose: () => void;
   isDark: boolean;
 }) {
-  const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
-  const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
-  const textC = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
-  const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
-  const inputBorder = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
-  const btnBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 6%)";
-  const btnActiveBg = "oklch(0.65 0.22 290 / 0.25)";
-  const btnActiveColor = "oklch(0.72 0.18 290)";
+  const bg = isDark ? "#1a1a1a" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const textC = isDark ? "#cccccc" : "#262627";
+  const inputBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
+  const inputBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const btnBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const btnActiveBg = "rgba(22,22,22,0.25)";
+  const btnActiveColor = "#161616";
 
   const lineHeight = (data.lineHeight as number) || 1.4;
   const letterSpacing = (data.letterSpacing as number) || 0;
@@ -2621,8 +2621,8 @@ function TextFloatingToolbar({
   const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const divider = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
   const inputBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
-  const activeColor = "oklch(0.65 0.22 290)";
-  const activeBg = "oklch(0.65 0.22 290 / 0.18)";
+  const activeColor = "#161616";
+  const activeBg = "rgba(22,22,22,0.18)";
 
   const fontFamily = (nodeData.fontFamily as string) || "Inter";
   const fontSize = (nodeData.fontSize as number) || 32;
@@ -4676,7 +4676,7 @@ function SocialMediaSizePanel({
           title: "自定义封面",
           width: customWidth,
           height: customHeight,
-          tone: "oklch(0.62 0.22 290)",
+          tone: "#161616",
         }
       : SOCIAL_MEDIA_SIZE_PRESETS[0]);
   const previewRatio = Math.max(
@@ -5036,9 +5036,9 @@ function SocialMediaSizePanel({
                 key={format}
                 className="h-8 rounded-[var(--radius-md-design)] text-[11px] font-semibold uppercase transition-all active:scale-95"
                 style={{
-                  background: active ? "oklch(0.58 0.22 290 / 0.18)" : field,
-                  border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
-                  color: active ? "oklch(0.78 0.18 290)" : text,
+                  background: active ? "rgba(22,22,22,0.18)" : field,
+                  border: `1px solid ${active ? "rgba(22,22,22,0.56)" : border}`,
+                  color: active ? "#161616" : text,
                 }}
                 onClick={() => setExportFormat(format)}
               >
@@ -5136,9 +5136,9 @@ function SocialMediaSizePanel({
                           className="flex items-center gap-2 rounded-[var(--radius-md-design)] p-2 text-left transition-all active:scale-[0.98]"
                           style={{
                             background: active
-                              ? "oklch(0.58 0.22 290 / 0.18)"
+                              ? "rgba(22,22,22,0.18)"
                               : field,
-                            border: `1px solid ${active ? "oklch(0.62 0.22 290 / 0.56)" : border}`,
+                            border: `1px solid ${active ? "rgba(22,22,22,0.56)" : border}`,
                             color: text,
                           }}
                           onClick={() => togglePreset(preset.id)}
@@ -5215,7 +5215,7 @@ function SocialMediaSizePanel({
                                   color:
                                     activeCropPresetId === preset.id
                                       ? "#10130A"
-                                      : "oklch(0.78 0.18 290)",
+                                      : "#161616",
                                   border: `1px solid ${activeCropPresetId === preset.id ? "transparent" : "rgba(255,255,255,0.12)"}`,
                                 }}
                                 onClick={event => {
@@ -5240,7 +5240,7 @@ function SocialMediaSizePanel({
                               <Check
                                 size={14}
                                 className="shrink-0"
-                                style={{ color: "oklch(0.72 0.20 290)" }}
+                                style={{ color: "#f5f6f8" }}
                               />
                             )}
                           </div>
@@ -5350,7 +5350,7 @@ function SocialMediaSizePanel({
           disabled={!canGenerate}
           style={{
             background: canGenerate
-              ? "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))"
+              ? "linear-gradient(135deg, #161616, #333333)"
               : field,
             color: canGenerate ? "white" : sub,
             fontSize: 13,
@@ -5602,7 +5602,7 @@ function AssetMoreCommandPanel({
           className="mt-3 flex h-9 w-full items-center justify-center rounded-[var(--radius-md-design)] active:scale-95"
           style={{
             background:
-              "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+              "linear-gradient(135deg, #161616, #333333)",
             color: "white",
             fontSize: 13,
             fontWeight: 650,
@@ -5643,7 +5643,7 @@ function MultiSelectionFloatingToolbar({
   const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
   const text = isDark ? "rgba(255,255,255,0.82)" : "rgba(28,28,40,0.82)";
   const hover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const accent = "oklch(0.65 0.22 290)";
+  const accent = "#161616";
   const groupHint = grouped ? "已编组" : "未编组";
   const items = [
     { icon: <Boxes size={15} />, label: "编组", action: "group" },
@@ -5752,10 +5752,10 @@ function AssetPromptPanel({
   const [model, setModel] = useState("auto");
   const panelBg = isDark ? "rgba(22,22,30,0.97)" : "rgba(240,240,248,0.97)";
   const panelBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const textColor = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
+  const textColor = isDark ? "#cccccc" : "#161616";
   const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const chipBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
-  const chipText = isDark ? "oklch(0.65 0.01 270)" : "oklch(0.62 0.010 270)";
+  const chipText = isDark ? "#99999e" : "#777472";
   return (
     <div
       className="absolute nodrag nopan"
@@ -5873,7 +5873,7 @@ function AssetPromptPanel({
         </span>
         <button
           className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center transition-all hover:opacity-90"
-          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          style={{ background: "#161616", color: "white" }}
           onClick={e => {
             e.stopPropagation();
             if (prompt.trim()) {
@@ -6004,11 +6004,11 @@ function AnnotationBubble({
   const iconBtnColor = isDark ? "rgba(255,255,255,0.69)" : "rgba(0,0,0,0.45)";
   const iconBtnHover = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
   const annotationColors = [
-    "oklch(0.72 0.19 48)",
-    "oklch(0.66 0.22 290)",
-    "oklch(0.68 0.18 150)",
-    "oklch(0.70 0.16 225)",
-    "oklch(0.72 0.18 25)",
+    "#aaaaaa",
+    "#161616",
+    "#999999",
+    "#aaaaaa",
+    "#aaaaaa",
   ];
   const accentColor = ann.color || annotationColors[0];
   const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
@@ -6076,7 +6076,7 @@ function AnnotationBubble({
             padding: "0 10px",
             borderRadius: 6,
             border: "none",
-            background: "oklch(0.58 0.22 28)",
+            background: "#888888",
             color: "white",
             cursor: "pointer",
             fontSize: 12,
@@ -6122,7 +6122,7 @@ function AnnotationBubble({
             width: 22,
             height: 22,
             borderRadius: "50% 50% 50% 0",
-            background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+            background: ann.done ? "#888888" : accentColor,
             border: "2px solid rgba(255,255,255,0.9)",
             boxShadow: "0 2px 8px rgba(0,0,0,0.28)",
             display: "flex",
@@ -6179,7 +6179,7 @@ function AnnotationBubble({
           transform: "translateX(-50%)",
           width: 2,
           height: 12,
-          background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+          background: ann.done ? "#888888" : accentColor,
           borderRadius: 1,
         }}
       />
@@ -6193,7 +6193,7 @@ function AnnotationBubble({
           width: 10,
           height: 10,
           borderRadius: "50%",
-          background: ann.done ? "oklch(0.62 0.18 145)" : accentColor,
+          background: ann.done ? "#888888" : accentColor,
           border: "2px solid rgba(255,255,255,0.9)",
           boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
           cursor: "grab",
@@ -6466,7 +6466,7 @@ function AnnotationBubble({
               gap: 5,
               borderRadius: 6,
               border: "none",
-              background: `linear-gradient(135deg, ${accentColor}, oklch(0.70 0.18 205))`,
+              background: `linear-gradient(135deg, ${accentColor}, #aaaaaa)`,
               color: "white",
               padding: "5px 8px",
               cursor: "pointer",
@@ -6514,7 +6514,7 @@ function AssetInlineNote({
   const textColor = isDark ? "rgba(255,255,255,0.86)" : "rgba(24,24,36,0.86)";
   const subColor = isDark ? "rgba(255,255,255,0.64)" : "rgba(24,24,36,0.48)";
   const iconBtnHover = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const accentColor = "oklch(0.62 0.22 290)";
+  const accentColor = "#161616";
 
   const removeNote = () =>
     onUpdate({ note: "", noteOpen: false, noteEditing: false });
@@ -7745,7 +7745,7 @@ function AssetNodeComponent({
   );
 
   // 选中边框样式
-  const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const borderColor = selected ? "#161616" : "transparent";
   const shadow = selected
     ? "none"
     : "0 4px 16px rgba(0,0,0,0.22)";
@@ -8030,7 +8030,7 @@ function AssetNodeComponent({
               done: false,
               open: true,
               editing: true,
-              color: "oklch(0.72 0.19 48)",
+              color: "#aaaaaa",
               nodeId,
             },
           },
@@ -9031,8 +9031,8 @@ function AssetNodeComponent({
                         ? "#050506"
                         : "#101114"
                       : isDark
-                        ? "oklch(0.16 0.018 270)"
-                        : "oklch(0.96 0.006 270)",
+                        ? "#1a1a1a"
+                        : "#161616",
                 color: "rgba(255,255,255,0.30)",
                 zIndex: 1,
               }}
@@ -9074,7 +9074,7 @@ function AssetNodeComponent({
                     height: 28,
                     borderRadius: "50%",
                     border: `2px solid ${isDark ? "rgba(255,255,255,0.18)" : "rgba(24,24,32,0.12)"}`,
-                    borderTopColor: "oklch(0.64 0.22 285)",
+                    borderTopColor: "#161616",
                   }}
                 />
               )}
@@ -9212,11 +9212,11 @@ function AssetNodeComponent({
                 // 同为内层 overflow:hidden 的子层，跟随 INNER 半径（见常量注释）
                 borderRadius: ASSET_NODE_INNER_RADIUS,
                 color: isDark
-                  ? "oklch(0.70 0.01 270)"
-                  : "oklch(0.42 0.012 255)",
+                  ? "#99999e"
+                  : "#666666",
                 background: isDark
-                  ? "oklch(0.16 0.012 270)"
-                  : "oklch(0.94 0.006 255)",
+                  ? "#161616"
+                  : "#e6e3df",
               }}
             >
               图片未保存，请重新上传
@@ -10082,7 +10082,7 @@ function AssetNodeComponent({
                     wordBreak: "keep-all",
                     color: "white",
                     background:
-                      "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))",
+                      "linear-gradient(135deg, #161616, #aaaaaa)",
                   }}
                   onClick={confirmCrop}
                 >
@@ -10231,7 +10231,7 @@ function AssetNodeComponent({
                     wordBreak: "keep-all",
                     color: "white",
                     background:
-                      "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))",
+                      "linear-gradient(135deg, #161616, #aaaaaa)",
                   }}
                   onClick={() => {
                     void confirmExpand();
@@ -10279,8 +10279,8 @@ function AssetNodeComponent({
                     top: `${regionSelectPreview.y * 100}%`,
                     width: `${regionSelectPreview.w * 100}%`,
                     height: `${regionSelectPreview.h * 100}%`,
-                    border: "1.5px dashed oklch(0.72 0.20 290)",
-                    background: "oklch(0.58 0.22 290 / 0.16)",
+                    border: "1.5px dashed #f5f6f8",
+                    background: "rgba(22,22,22,0.16)",
                     boxShadow: "0 0 0 9999px rgba(10,10,22,0.28)",
                   }}
                 />
@@ -10367,7 +10367,7 @@ function AssetNodeComponent({
                     onChange={event =>
                       setEraseBrushSize(Number(event.target.value))
                     }
-                    style={{ width: 146, accentColor: "oklch(0.66 0.23 290)" }}
+                    style={{ width: 146, accentColor: "#161616" }}
                   />
                   <span
                     className="type-caption"
@@ -10401,7 +10401,7 @@ function AssetNodeComponent({
                           ? "white"
                           : "rgba(255,255,255,0.78)",
                         background: action.primary
-                          ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))"
+                          ? "linear-gradient(135deg, #161616, #aaaaaa)"
                           : "rgba(255,255,255,0.08)",
                         whiteSpace: "nowrap",
                         wordBreak: "keep-all",
@@ -10872,7 +10872,7 @@ function AssetNodeComponent({
                   // 缺坐标时按钮是死的，配色也要跟着退成灰，
                   // 否则仍然是高饱和渐变，看上去完全可点
                   background: canApplyExtractedText
-                    ? "linear-gradient(135deg, oklch(0.62 0.22 285), oklch(0.72 0.18 205))"
+                    ? "linear-gradient(135deg, #161616, #aaaaaa)"
                     : isDark
                       ? "rgba(255,255,255,0.14)"
                       : "rgba(0,0,0,0.16)",
@@ -11243,18 +11243,18 @@ function ChatNodeComponent({
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
-  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const subtext = isDark ? "oklch(0.65 0.010 270)" : "oklch(0.69 0.010 270)";
-  const msgBg = isDark ? "oklch(0.18 0.02 270)" : "oklch(0.94 0.005 270)";
+  const text = isDark ? "#bbbbbb" : "#262627";
+  const subtext = isDark ? "#777472" : "#99999e";
+  const msgBg = isDark ? "#111111" : "#161616";
   const aiBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.15)"
-    : "oklch(0.58 0.22 290 / 0.08)";
+    ? "rgba(22,22,22,0.10)"
+    : "rgba(22,22,22,0.08)";
   const aiBorder = isDark
-    ? "oklch(0.58 0.22 290 / 0.25)"
-    : "oklch(0.58 0.22 290 / 0.2)";
-  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const inputBg = isDark ? "oklch(0.16 0.018 270)" : "oklch(0.96 0.005 270)";
-  const inputBorder = isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)";
+    ? "rgba(22,22,22,0.25)"
+    : "rgba(22,22,22,0.2)";
+  const headerBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const inputBg = isDark ? "#1a1a1a" : "#161616";
+  const inputBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
 
   const handleNodeCtxMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -11307,9 +11307,9 @@ function ChatNodeComponent({
       >
         <div
           className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center"
-          style={{ background: "oklch(0.58 0.22 290 / 0.2)" }}
+          style={{ background: "rgba(22,22,22,0.2)" }}
         >
-          <MessageSquare size={11} style={{ color: "oklch(0.72 0.22 290)" }} />
+          <MessageSquare size={11} style={{ color: "#333333" }} />
         </div>
         <span className="type-caption" style={{ color: text }}>
           AI 对话
@@ -11376,10 +11376,10 @@ function PromptNodeComponent({
   const { deleteElements } = useReactFlow();
   const nodeId = (data as { id?: string }).id || "";
 
-  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const headerBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const inputBg = isDark ? "oklch(0.10 0.012 270)" : "oklch(0.94 0.005 270)";
-  const inputBorder = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const text = isDark ? "#bbbbbb" : "#262627";
+  const headerBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const inputBg = isDark ? "#161616" : "#161616";
+  const inputBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   const handleNodeCtxMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -11418,9 +11418,9 @@ function PromptNodeComponent({
       >
         <div
           className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center"
-          style={{ background: "oklch(0.78 0.18 50 / 0.2)" }}
+          style={{ background: "#bbbbbb" }}
         >
-          <Wand2 size={11} style={{ color: "oklch(0.78 0.18 50)" }} />
+          <Wand2 size={11} style={{ color: "#bbbbbb" }} />
         </div>
         <span className="type-caption" style={{ color: text }}>
           提示词
@@ -11445,7 +11445,7 @@ function PromptNodeComponent({
       <div className="px-3 pb-3 nodrag nopan">
         <button
           className="w-full py-1.5 rounded-[var(--radius-md-design)] type-caption flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 disabled:opacity-60"
-          style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+          style={{ background: "#161616", color: "white" }}
           disabled={!prompt.trim() || isGenerating}
           onClick={async () => {
             if (!prompt.trim() || isGenerating) return;
@@ -11724,9 +11724,9 @@ function TextNodeComponent({
       ? `${strokeWidthVal}px ${strokeColorVal}`
       : undefined;
 
-  const selBorder = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const selBorder = selected ? "#161616" : "transparent";
   const selShadow = selected
-    ? "0 0 0 2px oklch(0.65 0.22 290 / 0.72), 0 0 0 6px oklch(0.65 0.22 290 / 0.18)"
+    ? "0 0 0 2px rgba(22,22,22,0.72), 0 0 0 6px rgba(22,22,22,0.18)"
     : "none";
   // hover 时显示灰色外选框（未选中状态下）
   const hoverBorder =
@@ -11965,7 +11965,7 @@ function TapnowEdge({
               onClick={() => deleteElements({ edges: [{ id }] })}
               className="w-5 h-5 rounded-[var(--radius-pill)] flex items-center justify-center shadow-lg hover:opacity-80"
               style={{
-                background: "oklch(0.55 0.22 20)",
+                background: "#777472",
                 border: "1.5px solid rgba(255,255,255,0.3)",
               }}
             >
@@ -12114,18 +12114,18 @@ function CanvasFrameNode({
   }, [title]);
 
   const borderColor = selected
-    ? "oklch(0.65 0.22 290)"
+    ? "#161616"
     : isDark
-      ? "oklch(1 0 0 / 20%)"
-      : "oklch(0 0 0 / 18%)";
+      ? "rgba(255,255,255,0.20)"
+      : "rgba(0,0,0,0.18)";
   // 使用用户选择的背景色，默认深灰色
   const bg = withCanvasFrameAlpha(
     data.bgColor || (data.originalBgColor as string) || "#2a2a30"
   );
-  const labelColor = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.66 0.010 270)";
+  const labelColor = isDark ? "#99999e" : "#99999e";
   const handleColor = isDark
-    ? "oklch(0.65 0.22 290 / 0.80)"
-    : "oklch(0.50 0.20 290 / 0.80)";
+    ? "rgba(22,22,22,0.80)"
+    : "rgba(22,22,22,0.80)";
   const handleNodeCtxMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -12200,7 +12200,7 @@ function CanvasFrameNode({
             left: 0,
             width: Math.max(132, Math.min(260, w - 20)),
             height: 24,
-            border: "1px solid oklch(0.65 0.22 290)",
+            border: "1px solid #161616",
             borderRadius: 6,
             background: isDark
               ? "rgba(20,20,24,0.92)"
@@ -12256,7 +12256,7 @@ function CanvasFrameNode({
           width: 18,
           height: 18,
           borderRadius: "50%",
-          background: isDark ? "oklch(0.32 0.01 270)" : "oklch(0.88 0.006 270)",
+          background: isDark ? "#3a3a3a" : "#161616",
           border: `1.5px solid ${handleColor}`,
           boxShadow: isDark
             ? "0 2px 8px rgba(0,0,0,0.45)"
@@ -12349,7 +12349,7 @@ function ShapeNodeComponent({
   const h = (data.height as number) || 120;
   const fill =
     (data.fill as string) ||
-    (isDark ? "oklch(0.45 0.18 260)" : "oklch(0.60 0.18 260)");
+    (isDark ? "#161616" : "#161616");
   const stroke = (data.stroke as string) || "none";
   const strokeW = (data.strokeWidth as number) || 0;
   const opacity = (data.opacity as number) ?? 1;
@@ -12549,9 +12549,9 @@ function ShapeNodeComponent({
     );
   };
 
-  const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const borderColor = selected ? "#161616" : "transparent";
   const selectedShadow = selected
-    ? "0 0 0 1px oklch(0.65 0.22 290 / 0.72), 0 0 0 3px oklch(0.65 0.22 290 / 0.18)"
+    ? "0 0 0 1px rgba(22,22,22,0.72), 0 0 0 3px rgba(22,22,22,0.18)"
     : "none";
   const isLine = shapeType === "line" || shapeType === "arrow";
 
@@ -12633,7 +12633,7 @@ function ShapeNodeComponent({
                 height: anchorFlowPx,
                 borderRadius: "50%",
                 background: "white",
-                border: `${borderFlowPx}px solid oklch(0.65 0.22 290)`,
+                border: `${borderFlowPx}px solid #161616`,
                 cursor: "move",
                 zIndex: 20,
                 boxShadow: `0 ${1 / vpZoom}px ${4 / vpZoom}px rgba(0,0,0,0.35)`,
@@ -12649,7 +12649,7 @@ function ShapeNodeComponent({
             top: -24,
             left: 0,
             fontSize: 10,
-            color: "oklch(0.65 0.22 290)",
+            color: "#161616",
             whiteSpace: "nowrap",
             pointerEvents: "none",
           }}
@@ -12921,7 +12921,7 @@ function PenNodeComponent({
   const handleFlowPx = handleScreenPx / vpZoom;
   const borderFlowPx = 1.5 / vpZoom;
 
-  const borderColor = selected ? "oklch(0.65 0.22 290)" : "transparent";
+  const borderColor = selected ? "#161616" : "transparent";
 
   return (
     <div
@@ -12972,7 +12972,7 @@ function PenNodeComponent({
                     y1={a.y}
                     x2={a.x + a.inDx}
                     y2={a.y + a.inDy}
-                    stroke="oklch(0.65 0.22 290)"
+                    stroke="#161616"
                     strokeWidth={1 / vpZoom}
                     strokeDasharray={`${3 / vpZoom},${2 / vpZoom}`}
                   />
@@ -12983,7 +12983,7 @@ function PenNodeComponent({
                     y1={a.y}
                     x2={a.x + a.outDx}
                     y2={a.y + a.outDy}
-                    stroke="oklch(0.65 0.22 290)"
+                    stroke="#161616"
                     strokeWidth={1 / vpZoom}
                     strokeDasharray={`${3 / vpZoom},${2 / vpZoom}`}
                   />
@@ -13011,7 +13011,7 @@ function PenNodeComponent({
                     top: a.y + a.inDy - handleFlowPx / 2,
                     width: handleFlowPx,
                     height: handleFlowPx,
-                    background: "oklch(0.65 0.22 290)",
+                    background: "#161616",
                     transform: "rotate(45deg)",
                     cursor: "move",
                     zIndex: 19,
@@ -13028,7 +13028,7 @@ function PenNodeComponent({
                     top: a.y + a.outDy - handleFlowPx / 2,
                     width: handleFlowPx,
                     height: handleFlowPx,
-                    background: "oklch(0.65 0.22 290)",
+                    background: "#161616",
                     transform: "rotate(45deg)",
                     cursor: "move",
                     zIndex: 19,
@@ -13054,8 +13054,8 @@ function PenNodeComponent({
               height: anchorFlowPx,
               borderRadius: a.type === "corner" ? `${1 / vpZoom}px` : "50%",
               background:
-                selectedAnchorIdx === i ? "oklch(0.65 0.22 290)" : "white",
-              border: `${borderFlowPx}px solid oklch(0.65 0.22 290)`,
+                selectedAnchorIdx === i ? "#161616" : "white",
+              border: `${borderFlowPx}px solid #161616`,
               cursor: "move",
               zIndex: 20,
               boxShadow: `0 ${1 / vpZoom}px ${3 / vpZoom}px rgba(0,0,0,0.3)`,
@@ -13214,7 +13214,7 @@ function PenNodeComponent({
             top: -24,
             left: 0,
             fontSize: 10,
-            color: "oklch(0.65 0.22 290)",
+            color: "#161616",
             whiteSpace: "nowrap",
             pointerEvents: "none",
           }}
@@ -13293,7 +13293,7 @@ function FreehandNodeComponent({
         pointerEvents: "all",
         cursor: "move",
         // 选中时显示轮廓
-        outline: selected ? "2px solid oklch(0.65 0.22 290)" : "none",
+        outline: selected ? "2px solid #161616" : "none",
         outlineOffset: 3,
         borderRadius: 2,
       }}
@@ -13744,7 +13744,7 @@ function DraftImageNodeComponent({
             <button
               type="button"
               className="shrink-0 whitespace-nowrap rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-90 disabled:opacity-50"
-              style={{ background: "oklch(0.64 0.22 285)", color: "white" }}
+              style={{ background: "#161616", color: "white" }}
               disabled={!prompt.trim()}
               onClick={e => {
                 e.stopPropagation();
@@ -16253,18 +16253,18 @@ function BottomPromptBar({
   const skillContext = activeSkill ? buildSkillPromptContext(activeSkill) : "";
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "oklch(0.80 0.008 270)" : "oklch(0.20 0.008 270)";
-  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+  const text = isDark ? "#161616" : "#161616";
+  const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const chipBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.18)"
-    : "oklch(0.58 0.22 290 / 0.12)";
+    ? "rgba(22,22,22,0.18)"
+    : "rgba(22,22,22,0.08)";
   const chipBorder = isDark
-    ? "oklch(0.62 0.22 290 / 0.35)"
-    : "oklch(0.58 0.22 290 / 0.30)";
-  const chipText = isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)";
+    ? "rgba(22,22,22,0.35)"
+    : "rgba(22,22,22,0.30)";
+  const chipText = isDark ? "#f5f6f8" : "#161616";
   const removeColor = isDark
-    ? "oklch(0.65 0.010 270)"
-    : "oklch(0.71 0.010 270)";
+    ? "#777472"
+    : "#99999e";
   const ratioOptions = [
     "1:1",
     "4:5",
@@ -16742,8 +16742,8 @@ function BottomPromptBar({
                     height: 18,
                     borderRadius: 3,
                     background: isDark
-                      ? "oklch(1 0 0 / 8%)"
-                      : "oklch(0 0 0 / 8%)",
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.08)",
                     flexShrink: 0,
                   }}
                 >
@@ -16866,7 +16866,7 @@ function BottomPromptBar({
           <button
             className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md-design)] type-caption hover:opacity-80"
             style={{
-              color: isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)",
+              color: isDark ? "#99999e" : "#99999e",
             }}
             onClick={() => toast("参考图", { description: "功能即将上线" })}
           >
@@ -16877,7 +16877,7 @@ function BottomPromptBar({
           <span
             className="type-caption"
             style={{
-              color: isDark ? "oklch(0.38 0.008 270)" : "oklch(0.62 0.008 270)",
+              color: isDark ? "#555555" : "#777472",
             }}
           >
             {isSending
@@ -16890,10 +16890,10 @@ function BottomPromptBar({
             className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
             style={{
               background: hasContent
-                ? "oklch(0.58 0.22 290)"
+                ? "#161616"
                 : isDark
-                  ? "oklch(0.22 0.015 270)"
-                  : "oklch(0.88 0.005 270)",
+                  ? "#262627"
+                  : "#161616",
             }}
           >
             {isSending ? (
@@ -16905,8 +16905,8 @@ function BottomPromptBar({
                   hasContent
                     ? "white"
                     : isDark
-                      ? "oklch(0.40 0.01 270)"
-                      : "oklch(0.65 0.01 270)"
+                      ? "#555555"
+                      : "#99999e"
                 }
               />
             )}
@@ -16976,13 +16976,13 @@ function NodeContextMenu({
   onAction: (action: string, nodeId: string) => void;
   isDark: boolean;
 }) {
-  const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
-  const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.18 0.008 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
-  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const iconColor = isDark ? "oklch(0.69 0.010 270)" : "oklch(0.69 0.010 270)";
-  const dangerColor = "oklch(0.65 0.22 20)";
+  const bg = isDark ? "#1a1a1a" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const text = isDark ? "#cccccc" : "#262627";
+  const hoverBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
+  const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const iconColor = isDark ? "#99999e" : "#99999e";
+  const dangerColor = "#999999";
 
   const selectedCount = menu.selectedIds?.length || 1;
   const isSelectionMenu = menu.nodeType === "selection" || selectedCount > 1;
@@ -17269,15 +17269,15 @@ function GroupContainerOverlay({
 }) {
   if (groups.length === 0) return null;
   const containerBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.07)"
-    : "oklch(0.58 0.22 290 / 0.05)";
+    ? "rgba(22,22,22,0.07)"
+    : "rgba(22,22,22,0.05)";
   const containerBorder = isDark
-    ? "oklch(0.65 0.20 290 / 0.45)"
-    : "oklch(0.55 0.20 290 / 0.35)";
+    ? "rgba(22,22,22,0.45)"
+    : "rgba(22,22,22,0.35)";
   const labelBg = isDark
-    ? "oklch(0.58 0.22 290 / 0.85)"
-    : "oklch(0.52 0.20 290 / 0.90)";
-  const enteringBorder = "oklch(0.72 0.22 50 / 0.80)";
+    ? "rgba(22,22,22,0.85)"
+    : "rgba(22,22,22,0.90)";
+  const enteringBorder = "#aaaaaa";
 
   return (
     <>
@@ -17447,9 +17447,9 @@ function GroupContainerCard({
           ? "none"
           : "border-color 0.2s ease, background 0.2s ease",
         boxShadow: dragging
-          ? `0 12px 48px rgba(0,0,0,0.28), 0 0 0 2px oklch(0.65 0.20 290 / 0.60)`
+          ? `0 12px 48px rgba(0,0,0,0.28), 0 0 0 2px rgba(22,22,22,0.72)`
           : isEntering
-            ? `0 0 0 3px oklch(0.72 0.22 50 / 0.15), 0 8px 32px rgba(0,0,0,0.18)`
+            ? `0 0 0 3px #aaaaaa, 0 8px 32px rgba(0,0,0,0.18)`
             : `0 4px 24px rgba(0,0,0,0.10)`,
         animation: isFlashing
           ? "artx-group-merge-flash 0.8s ease-in-out 2"
@@ -17472,7 +17472,7 @@ function GroupContainerCard({
         style={{
           top: 6,
           left: 8,
-          background: isEntering ? "oklch(0.72 0.22 50 / 0.88)" : labelBg,
+          background: isEntering ? "#aaaaaa" : labelBg,
           color: "white",
           fontSize: 11,
           fontWeight: 600,
@@ -17509,8 +17509,8 @@ function GroupContainerCard({
             right: 10,
             fontSize: 10,
             color: isDark
-              ? "oklch(0.72 0.22 50 / 0.75)"
-              : "oklch(0.55 0.18 50 / 0.80)",
+              ? "#aaaaaa"
+              : "#777472",
             fontWeight: 500,
             pointerEvents: "none",
             userSelect: "none",
@@ -18151,12 +18151,12 @@ function AssetEditPromptBar({
         zIndex: promptBarOnTop ? PROMPT_BAR_FRONT_Z : PROMPT_BAR_BACK_Z,
         // 底色 = 画布助手对话里 AI 气泡的灰（2026-09-21 用户点名）。
         // 颜色取自对话气泡的 chipBg，别在这里另调一个"差不多的灰"。
-        background: isDark ? "#232326" : "oklch(0 0 0 / 4%)",
+        background: isDark ? "#232326" : "rgba(0,0,0,0.04)",
         // 同名键覆盖（不用 backgroundColor，避免与 background 简写冲突的 React 警告）
         ...(opaqueSurface && !isDark ? { background: "#f4f4f6" } : {}),
         backdropFilter: "blur(24px)",
-        border: `1.5px solid oklch(0.62 0.22 290 / 55%)`,
-        boxShadow: `0 0 0 3px oklch(0.62 0.22 290 / 0.12), 0 12px 48px rgba(0,0,0,0.28)`,
+        border: `1.5px solid #161616`,
+        boxShadow: `0 0 0 3px rgba(22,22,22,0.12), 0 12px 48px rgba(0,0,0,0.28)`,
         borderRadius: "var(--radius-md-design)",
         overflow: "hidden",
         // ⚠️ 入场动画的 transform 已在上面按 anchor / 传统两种模式分别给出，
@@ -18179,9 +18179,9 @@ function AssetEditPromptBar({
           className="flex items-center gap-2 px-3 py-1.5"
           style={{
             background: isDark
-              ? "oklch(0.58 0.22 290 / 0.22)"
-              : "oklch(0.58 0.22 290 / 0.10)",
-            color: isDark ? "oklch(0.85 0.14 290)" : "oklch(0.42 0.18 290)",
+              ? "rgba(22,22,22,0.15)"
+              : "rgba(22,22,22,0.10)",
+            color: isDark ? "#161616" : "#161616",
             borderBottom: `1px solid ${divider}`,
           }}
         >
@@ -18220,10 +18220,10 @@ function AssetEditPromptBar({
             gap: COMPOSER_REF_TOKEN_SIZE.gap,
             padding: COMPOSER_REF_TOKEN_SIZE.padding,
             background: isDark
-              ? "oklch(0.58 0.22 290 / 0.18)"
-              : "oklch(0.58 0.22 290 / 0.12)",
-            border: `1px solid ${isDark ? "oklch(0.62 0.22 290 / 0.35)" : "oklch(0.58 0.22 290 / 0.30)"}`,
-            color: isDark ? "oklch(0.80 0.18 290)" : "oklch(0.42 0.18 290)",
+              ? "rgba(22,22,22,0.18)"
+              : "rgba(22,22,22,0.08)",
+            border: `1px solid ${isDark ? "rgba(22,22,22,0.35)" : "rgba(22,22,22,0.30)"}`,
+            color: isDark ? "#f5f6f8" : "#161616",
           }}
         >
           <img
@@ -18284,12 +18284,12 @@ function AssetEditPromptBar({
             height: 24,
             marginLeft: 2,
             background: regionSelecting
-              ? "oklch(0.58 0.22 290 / 0.20)"
+              ? "rgba(22,22,22,0.20)"
               : "transparent",
             color: regionSelecting
               ? isDark
-                ? "oklch(0.80 0.18 290)"
-                : "oklch(0.42 0.18 290)"
+                ? "#f5f6f8"
+                : "#161616"
               : subtext,
           }}
           title={regionSelecting ? "退出框选 (Esc)" : "框选局部区域"}
@@ -18298,7 +18298,7 @@ function AssetEditPromptBar({
         >
           <AiDecoratedIcon
             size={COMPOSER_REF_TOKEN_SIZE.iconSize}
-            cutoutBg={isDark ? "oklch(0.18 0.015 270)" : "oklch(0.98 0.003 255)"}
+            cutoutBg={isDark ? "#161616" : "#f5f6f8"}
           >
             <SquareDashedMousePointer size={COMPOSER_REF_TOKEN_SIZE.iconSize} />
           </AiDecoratedIcon>
@@ -18351,14 +18351,14 @@ function AssetEditPromptBar({
                 gap: COMPOSER_REF_TOKEN_SIZE.gap,
                 padding: COMPOSER_REF_TOKEN_SIZE.padding,
                 background: isDark
-                  ? "oklch(0.72 0.18 200 / 0.18)"
-                  : "oklch(0.62 0.16 200 / 0.14)",
+                  ? "#aaaaaa"
+                  : "#888888",
                 border: `1px solid ${
                   isDark
-                    ? "oklch(0.75 0.16 200 / 0.38)"
-                    : "oklch(0.58 0.16 200 / 0.34)"
+                    ? "#bbbbbb"
+                    : "#888888"
                 }`,
-                color: isDark ? "oklch(0.86 0.13 200)" : "oklch(0.38 0.14 200)",
+                color: isDark ? "#d4d4d4" : "#444444",
               }}
               title={`局部区域 ${(regionRef.region.w * 100).toFixed(0)}% × ${(
                 regionRef.region.h * 100
@@ -18528,13 +18528,13 @@ function AssetEditPromptBar({
             style={{
               // 2026-09-21 用户点名：紫色底 + 白色图标（原先对齐全局的绿）。
               background: canSendPrompt
-                ? "oklch(0.58 0.22 290)"
+                ? "#161616"
                 : isDark
-                  ? "oklch(1 0 0 / 8%)"
-                  : "oklch(0 0 0 / 8%)",
+                  ? "rgba(255,255,255,0.08)"
+                  : "rgba(0,0,0,0.08)",
               color: canSendPrompt ? "#fff" : subtext,
               boxShadow: canSendPrompt
-                ? "0 12px 30px oklch(0.58 0.22 290 / 0.28)"
+                ? "0 12px 30px rgba(22,22,22,0.28)"
                 : "none",
             }}
           >
@@ -18708,10 +18708,10 @@ function ZoomControlBar({
         <button
           className={btnClass}
           style={{
-            color: locked ? "oklch(0.68 0.29 25)" : iconColor,
-            background: locked ? "oklch(0.62 0.28 25 / 0.18)" : "transparent",
+            color: locked ? "#999999" : iconColor,
+            background: locked ? "#888888" : "transparent",
             boxShadow: locked
-              ? "0 0 0 1px oklch(0.68 0.29 25 / 0.35), 0 0 18px oklch(0.62 0.28 25 / 0.26)"
+              ? "0 0 0 1px #999999, 0 0 18px #888888"
               : "none",
           }}
           title={locked ? "解锁画布" : "锁定画布"}
@@ -18719,12 +18719,12 @@ function ZoomControlBar({
           onClick={() => onLockedChange(!locked)}
           onMouseEnter={e =>
             (e.currentTarget.style.background = locked
-              ? "oklch(0.62 0.28 25 / 0.24)"
+              ? "#888888"
               : hoverBg)
           }
           onMouseLeave={e =>
             (e.currentTarget.style.background = locked
-              ? "oklch(0.62 0.28 25 / 0.18)"
+              ? "#888888"
               : "transparent")
           }
         >
@@ -18744,10 +18744,10 @@ function BackButton({ isDark }: { isDark: boolean }) {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const backButtonRef = useRef<HTMLDivElement>(null);
-  const bg = isDark ? "oklch(0.22 0.015 270)" : "oklch(0.88 0.005 270)";
+  const bg = isDark ? "#262627" : "#161616";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const text = isDark ? "#bbbbbb" : "#262627";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
 
   useEffect(() => {
     if (!open) return;
@@ -18849,12 +18849,12 @@ function TopLeftToolbar({
 }) {
   const [open, setOpen] = useState(false);
   const bg = isDark
-    ? "oklch(0.13 0.015 270 / 0.95)"
-    : "oklch(0.98 0.004 270 / 0.95)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0 0 0 / 12%)";
-  const text = isDark ? "oklch(0.78 0.01 270)" : "oklch(0.25 0.01 270)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
-  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
+    ? "#161616"
+    : "#161616";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+  const text = isDark ? "#bbbbbb" : "#262627";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
 
   const nodeOptions = [
     { icon: <ImageIcon size={13} />, label: "图片节点", type: "asset" },
@@ -18884,12 +18884,12 @@ function TopLeftToolbar({
         style={{
           background: open
             ? isDark
-              ? "oklch(0.55 0.18 280)"
-              : "oklch(0.50 0.18 280)"
+              ? "#161616"
+              : "#161616"
             : isDark
-              ? "oklch(0.18 0.02 270 / 0.95)"
-              : "oklch(0.97 0.004 270 / 0.95)",
-          border: `1.5px solid ${open ? "oklch(0.65 0.20 280 / 0.6)" : border}`,
+              ? "#161616"
+              : "#161616",
+          border: `1.5px solid ${open ? "rgba(22,22,22,0.6)" : border}`,
           color: open ? "white" : text,
           backdropFilter: "blur(12px)",
         }}
@@ -18925,8 +18925,8 @@ function TopLeftToolbar({
               className="type-caption uppercase"
               style={{
                 color: isDark
-                  ? "oklch(0.59 0.010 270)"
-                  : "oklch(0.71 0.010 270)",
+                  ? "#99999e"
+                  : "#99999e",
               }}
             >
               创建图片节点
@@ -18955,8 +18955,8 @@ function TopLeftToolbar({
               <span
                 style={{
                   color: isDark
-                    ? "oklch(0.55 0.15 280)"
-                    : "oklch(0.50 0.15 280)",
+                    ? "#161616"
+                    : "#161616",
                   flexShrink: 0,
                 }}
               >
@@ -19009,7 +19009,7 @@ function ImageGeneratorPopover({
   const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
   const fieldBg = isDark ? "#242424" : "rgba(0,0,0,0.035)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const accent = "oklch(0.64 0.22 285)";
+  const accent = "#161616";
   const allImageModelOptions = useImageModelOptions();
   const availableImageModels = useMemo(
     () => filterAllowedAiModelOptions(
@@ -19146,9 +19146,9 @@ function ImageGeneratorPopover({
     minWidth: 0,
     padding: "0 10px",
     borderRadius: "var(--radius-md-design)",
-    border: `1px solid ${active ? "oklch(0.64 0.22 285 / 0.52)" : border}`,
-    background: active ? "oklch(0.64 0.22 285 / 0.16)" : fieldBg,
-    color: active ? (isDark ? "white" : "oklch(0.38 0.18 285)") : text,
+    border: `1px solid ${active ? "rgba(22,22,22,0.52)" : border}`,
+    background: active ? "rgba(22,22,22,0.16)" : fieldBg,
+    color: active ? (isDark ? "white" : "#161616") : text,
     fontSize: 12,
     transition:
       "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease",
@@ -19477,8 +19477,8 @@ function ImageGeneratorPopover({
                   className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
                   style={{
                     background: isDark
-                      ? "oklch(0.16 0.015 270)"
-                      : "oklch(0.97 0.004 270)",
+                      ? "#161616"
+                      : "#161616",
                     border: `1px solid ${border}`,
                     minWidth: 220,
                     width: "max-content",
@@ -19511,17 +19511,17 @@ function ImageGeneratorPopover({
                             opacity: item.disabled ? 0.46 : 1,
                             cursor: item.disabled ? "not-allowed" : "pointer",
                             background: active
-                              ? "oklch(0.64 0.22 285 / 0.12)"
+                              ? "rgba(22,22,22,0.12)"
                               : "transparent",
                           }}
                           onMouseEnter={e =>
                             (e.currentTarget.style.background = active
-                              ? "oklch(0.64 0.22 285 / 0.12)"
+                              ? "rgba(22,22,22,0.12)"
                               : hoverBg)
                           }
                           onMouseLeave={e =>
                             (e.currentTarget.style.background = active
-                              ? "oklch(0.64 0.22 285 / 0.12)"
+                              ? "rgba(22,22,22,0.12)"
                               : "transparent")
                           }
                           onClick={() => {
@@ -19956,8 +19956,8 @@ function FontDesignDialog({
   const sub = isDark ? "rgba(255,255,255,0.65)" : "rgba(22,22,34,0.52)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
   const accent = "#C5ED47";
-  const aiAccent = "oklch(0.64 0.22 285)";
-  const activeBorder = "oklch(0.64 0.22 285 / 0.54)";
+  const aiAccent = "#161616";
+  const activeBorder = "rgba(22,22,22,0.54)";
   const activeStyle = FONT_DESIGN_STYLE_PREVIEWS[stylePreset];
   const canGenerate = textValue.trim().length > 0 && !isGenerating;
   const hasUnsavedInput =
@@ -19972,8 +19972,8 @@ function FontDesignDialog({
     minHeight: 32,
     borderRadius: "var(--radius-md-design)",
     border: `1px solid ${active ? activeBorder : border}`,
-    background: active ? "oklch(0.64 0.22 285 / 0.15)" : panelBg,
-    color: active ? (isDark ? "white" : "oklch(0.38 0.18 285)") : text,
+    background: active ? "rgba(22,22,22,0.15)" : panelBg,
+    color: active ? (isDark ? "white" : "#161616") : text,
     fontSize: 12,
     transition:
       "background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, opacity 0.16s ease",
@@ -20078,7 +20078,7 @@ function FontDesignDialog({
               className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg-design)]"
               style={{
                 color: aiAccent,
-                background: "oklch(0.64 0.22 285 / 0.14)",
+                background: "rgba(22,22,22,0.14)",
               }}
             >
               <FontDesignIcon size={18} cutoutBg={bg} />
@@ -20273,7 +20273,7 @@ function FontDesignDialog({
                   className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
                   style={{
                     color: aiAccent,
-                    background: "oklch(0.64 0.22 285 / 0.12)",
+                    background: "rgba(22,22,22,0.12)",
                     border: `1px solid ${activeBorder}`,
                   }}
                 >
@@ -20291,7 +20291,7 @@ function FontDesignDialog({
                       className="group overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-transform hover:scale-[1.01] active:scale-95"
                       style={{
                         background: active
-                          ? "oklch(0.64 0.22 285 / 0.14)"
+                          ? "rgba(22,22,22,0.14)"
                           : raisedBg,
                         border: `1px solid ${active ? activeBorder : border}`,
                         color: text,
@@ -21012,10 +21012,10 @@ function SaveProjectConfirmDialog({
   onCancel: () => void;
   onSave: () => void;
 }) {
-  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
-  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
+  const bg = isDark ? "#161616" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "#e6e3df";
+  const text = isDark ? "#f1f1f3" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   return (
     <div
@@ -21033,7 +21033,7 @@ function SaveProjectConfirmDialog({
         style={{
           background: bg,
           border: `1px solid ${border}`,
-          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
         }}
         onMouseDown={e => e.stopPropagation()}
       >
@@ -21054,7 +21054,7 @@ function SaveProjectConfirmDialog({
             onClick={onCancel}
             className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
             style={{
-              background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
               border: `1px solid ${border}`,
               color: text,
             }}
@@ -21066,9 +21066,9 @@ function SaveProjectConfirmDialog({
             className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
             style={{
               background:
-                "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                "linear-gradient(135deg, #161616, #333333)",
               color: "white",
-              boxShadow: "0 8px 24px oklch(0.58 0.22 290 / 0.22)",
+              boxShadow: "0 8px 24px rgba(22,22,22,0.22)",
             }}
           >
             保存
@@ -21088,10 +21088,10 @@ function NewCanvasConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const bg = isDark ? "oklch(0.15 0.018 270)" : "oklch(0.995 0.002 80)";
-  const border = isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)";
-  const text = isDark ? "oklch(0.85 0.01 270)" : "oklch(0.22 0.018 255)";
-  const sub = isDark ? "oklch(0.71 0.010 270)" : "oklch(0.65 0.010 255)";
+  const bg = isDark ? "#161616" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.12)" : "#e6e3df";
+  const text = isDark ? "#f1f1f3" : "#262627";
+  const sub = isDark ? "#99999e" : "#777472";
 
   return (
     <div
@@ -21108,7 +21108,7 @@ function NewCanvasConfirmDialog({
         style={{
           background: bg,
           border: `1px solid ${border}`,
-          boxShadow: "0 24px 80px oklch(0 0 0 / 0.35)",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
         }}
         onMouseDown={event => event.stopPropagation()}
       >
@@ -21129,7 +21129,7 @@ function NewCanvasConfirmDialog({
             onClick={onCancel}
             className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
             style={{
-              background: isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 0.04)",
+              background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
               border: `1px solid ${border}`,
               color: text,
             }}
@@ -22152,25 +22152,25 @@ function CanvasAssistantPanel({
     return stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()];
   });
   const pendingHomePromptHandledRef = useRef(false);
-  const bg = isDark ? "#171718" : "oklch(0.995 0.002 80 / 0.98)";
-  const border = isDark ? "rgba(42,42,45,0.72)" : "oklch(0 0 0 / 10%)";
-  const text = isDark ? "#b4b4b8" : "oklch(0.18 0.008 270)";
-  const sub = isDark ? "#99999e" : "oklch(0.64 0.010 255)";
-  const chipBg = isDark ? "#232326" : "oklch(0 0 0 / 4%)";
-  const elevatedBg = isDark ? "#353535" : "oklch(1 0 0 / 0.98)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 5%)";
+  const bg = isDark ? "#171718" : "rgba(245,246,248,0.98)";
+  const border = isDark ? "rgba(42,42,45,0.72)" : "rgba(0,0,0,0.10)";
+  const text = isDark ? "#b4b4b8" : "#262627";
+  const sub = isDark ? "#99999e" : "#888888";
+  const chipBg = isDark ? "#232326" : "rgba(0,0,0,0.04)";
+  const elevatedBg = isDark ? "#353535" : "rgba(255,255,255,0.98)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
   const compactSelectorBg = isDark ? "#525252" : getMinimapSurfaceBackground(isDark);
   const compactSelectorHoverBg = isDark
     ? "#2b2b2b"
-    : "oklch(0.22 0.015 270)";
+    : "#262627";
   const compactSelectorActiveBg = isDark
     ? "#2b2b2b"
-    : "oklch(0.22 0.015 270)";
+    : "#262627";
   const compactSelectorBorder = getMinimapSurfaceBorder(isDark);
-  const compactSelectorActiveBorder = "oklch(0.62 0.22 290 / 45%)";
+  const compactSelectorActiveBorder = "rgba(22,22,22,0.45)";
   const compactSelectorText = isDark
-    ? "oklch(0.75 0.01 270)"
-    : "oklch(0.58 0.008 270)";
+    ? "#bbbbbb"
+    : "#777472";
   const compactSelectorActiveText = "white";
   const activeGlow =
     "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
@@ -25717,7 +25717,7 @@ function CanvasAssistantPanel({
               borderRadius: 999,
               background:
                 splitterHover || splitterActive
-                  ? "oklch(0.62 0.22 290)"
+                  ? "#161616"
                   : border,
               boxShadow:
                 splitterHover || splitterActive
@@ -26278,8 +26278,8 @@ function CanvasAssistantPanel({
                   style={{
                     zIndex: 40,
                     background: isDark
-                      ? "oklch(0.18 0.015 270 / 0.88)"
-                      : "oklch(0.98 0.008 270 / 0.92)",
+                      ? "#161616"
+                      : "#161616",
                     border: "2px dashed rgba(197,237,71,0.85)",
                     backdropFilter: "blur(2px)",
                   }}
@@ -26318,8 +26318,8 @@ function CanvasAssistantPanel({
                   background: memoryContextEnabled
                     ? "rgba(197,237,71,0.16)"
                     : isDark
-                      ? "oklch(1 0 0 / 6%)"
-                      : "oklch(0 0 0 / 5%)",
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.05)",
                   border: `1px solid ${memoryContextEnabled ? "rgba(197,237,71,0.45)" : border}`,
                   opacity: memoryContextBusy ? 0.6 : 1,
                   transition: "background 160ms, border-color 160ms",
@@ -26374,8 +26374,8 @@ function CanvasAssistantPanel({
                     className="inline-flex max-w-full items-center gap-1.5 rounded-[var(--radius-pill)] px-2 py-1 type-caption"
                     style={{
                       background: isDark
-                        ? "oklch(1 0 0 / 6%)"
-                        : "oklch(0 0 0 / 5%)",
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(0,0,0,0.05)",
                       border: `1px solid ${border}`,
                       color: text,
                     }}
@@ -26758,8 +26758,8 @@ function CanvasAssistantPanel({
                           className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                           style={{
                             color: isDark
-                              ? "oklch(0.72 0.008 270)"
-                              : "oklch(0.42 0.008 270)",
+                              ? "#161616"
+                              : "#161616",
                             border: "none",
                             padding: 0,
                             lineHeight: 1,
@@ -26863,8 +26863,8 @@ function CanvasAssistantPanel({
                           className="flex h-4 w-4 items-center justify-center flex-shrink-0 rounded-full bg-transparent transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                           style={{
                             color: isDark
-                              ? "oklch(0.72 0.008 270)"
-                              : "oklch(0.42 0.008 270)",
+                              ? "#161616"
+                              : "#161616",
                             border: "none",
                             padding: 0,
                             lineHeight: 1,
@@ -27227,8 +27227,8 @@ function CanvasAssistantPanel({
                           style={{
                             ...(agentMenuStyle || {}),
                             background: isDark
-                              ? "oklch(0.16 0.015 270)"
-                              : "oklch(0.97 0.004 270)",
+                              ? "#161616"
+                              : "#161616",
                             border: `1px solid ${border}`,
                             color: text,
                             backdropFilter: "blur(16px)",
@@ -27256,15 +27256,15 @@ function CanvasAssistantPanel({
                                 background: assistantAutoMode
                                   ? "#C5ED47"
                                   : isDark
-                                    ? "oklch(1 0 0 / 14%)"
-                                    : "oklch(0 0 0 / 12%)",
+                                    ? "rgba(255,255,255,0.14)"
+                                    : "rgba(0,0,0,0.12)",
                                 border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
                               }}
                               thumbStyle={{
                                 background: assistantAutoMode
                                   ? "#111827"
                                   : isDark
-                                    ? "oklch(0.68 0.01 270)"
+                                    ? "#999999"
                                     : "#fff",
                                 boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
                               }}
@@ -27476,8 +27476,8 @@ function CanvasAssistantPanel({
                         canSubmit || isSubmitting
                           ? "#C5ED47"
                           : isDark
-                            ? "oklch(1 0 0 / 8%)"
-                            : "oklch(0 0 0 / 8%)",
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(0,0,0,0.08)",
                       color: canSubmit || isSubmitting ? "#000" : sub,
                       opacity: isAuthenticated ? 1 : 0.65,
                       boxShadow: canSubmit
@@ -27620,13 +27620,13 @@ function CanvasSearchBar({
 
   const bg = isDark ? "rgba(22,22,30,0.80)" : "rgba(255,255,255,0.82)";
   const panelBg = isDark
-    ? "oklch(0.15 0.018 270 / 0.98)"
-    : "oklch(0.995 0.002 80 / 0.98)";
+    ? "#161616"
+    : "rgba(245,246,248,0.98)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const divider = isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)";
-  const text = isDark ? "oklch(0.82 0.008 270)" : "oklch(0.20 0.008 270)";
-  const sub = isDark ? "oklch(0.66 0.010 270)" : "oklch(0.65 0.010 255)";
-  const hoverBg = isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 5%)";
+  const divider = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const text = isDark ? "#cccccc" : "#161616";
+  const sub = isDark ? "#99999e" : "#777472";
+  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
 
   // Always expanded — no collapse
   return (
@@ -27646,7 +27646,7 @@ function CanvasSearchBar({
         style={{
           height: 38,
           background: bg,
-          border: `1px solid ${open ? "oklch(0.62 0.22 290 / 0.55)" : border}`,
+          border: `1px solid ${open ? "rgba(22,22,22,0.55)" : border}`,
           backdropFilter: "blur(14px)",
           transition: "border-color 0.18s ease",
         }}
@@ -27656,7 +27656,7 @@ function CanvasSearchBar({
         <Search
           size={14}
           style={{
-            color: open ? "oklch(0.72 0.18 290)" : sub,
+            color: open ? "#161616" : sub,
             flexShrink: 0,
             transition: "color 0.15s",
           }}
@@ -27723,7 +27723,7 @@ function CanvasSearchBar({
               >
                 <LayoutGrid
                   size={13}
-                  style={{ color: "oklch(0.62 0.18 290)", flexShrink: 0 }}
+                  style={{ color: "#161616", flexShrink: 0 }}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{project.title}</span>
@@ -27768,8 +27768,8 @@ function CanvasSearchBar({
                   className="w-9 h-9 rounded-[var(--radius-md-design)] overflow-hidden flex items-center justify-center"
                   style={{
                     background: isDark
-                      ? "oklch(0.20 0.004 270)"
-                      : "oklch(0.88 0.004 270)",
+                      ? "#161616"
+                      : "#161616",
                     border: `1px solid ${divider}`,
                     flexShrink: 0,
                   }}
@@ -27798,11 +27798,11 @@ function CanvasSearchBar({
                   }}
                   className="px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-85"
                   style={{
-                    background: "oklch(0.58 0.22 290 / 0.18)",
-                    border: "1px solid oklch(0.62 0.22 290 / 0.35)",
+                    background: "rgba(22,22,22,0.18)",
+                    border: "1px solid rgba(22,22,22,0.35)",
                     color: isDark
-                      ? "oklch(0.82 0.18 290)"
-                      : "oklch(0.42 0.18 290)",
+                      ? "#f5f6f8"
+                      : "#161616",
                     flexShrink: 0,
                   }}
                 >
@@ -39110,8 +39110,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             className="absolute inset-0"
             style={{
               background: isDark
-                ? "oklch(0.12 0.015 270 / 0.72)"
-                : "oklch(0.96 0.008 270 / 0.80)",
+                ? "#161616"
+                : "#161616",
               backdropFilter: "blur(2px)",
             }}
           />
@@ -39124,11 +39124,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               transform: "translate(-50%, -50%)",
               width: "min(480px, 60vw)",
               height: "min(320px, 40vh)",
-              border: `2.5px dashed ${isDark ? "oklch(0.72 0.18 290 / 0.80)" : "oklch(0.52 0.18 290 / 0.75)"}`,
+              border: `2.5px dashed ${isDark ? "rgba(22,22,22,0.80)" : "rgba(22,22,22,0.75)"}`,
               borderRadius: "var(--radius-lg-design, 12px)",
               background: isDark
-                ? "oklch(0.58 0.18 290 / 0.08)"
-                : "oklch(0.58 0.18 290 / 0.06)",
+                ? "rgba(22,22,22,0.08)"
+                : "rgba(22,22,22,0.06)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -39142,8 +39142,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 height: 52,
                 borderRadius: "50%",
                 background: isDark
-                  ? "oklch(0.58 0.20 290 / 0.25)"
-                  : "oklch(0.58 0.20 290 / 0.15)",
+                  ? "rgba(22,22,22,0.25)"
+                  : "rgba(22,22,22,0.15)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -39153,8 +39153,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 size={26}
                 style={{
                   color: isDark
-                    ? "oklch(0.80 0.18 290)"
-                    : "oklch(0.48 0.18 290)",
+                    ? "#f5f6f8"
+                    : "#161616",
                 }}
               />
             </div>
@@ -39162,8 +39162,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               style={{
                 textAlign: "center",
                 color: isDark
-                  ? "oklch(0.88 0.012 270)"
-                  : "oklch(0.28 0.012 270)",
+                  ? "#161616"
+                  : "#161616",
                 fontSize: 16,
                 fontWeight: 700,
                 letterSpacing: "0.01em",
@@ -39175,8 +39175,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               style={{
                 textAlign: "center",
                 color: isDark
-                  ? "oklch(0.62 0.008 270)"
-                  : "oklch(0.52 0.008 270)",
+                  ? "#777472"
+                  : "#161616",
                 fontSize: 13,
                 fontWeight: 400,
               }}
@@ -39195,9 +39195,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 height: 40,
                 borderRadius: "50%",
                 background: isDark
-                  ? "oklch(0.72 0.20 290 / 0.30)"
-                  : "oklch(0.55 0.18 290 / 0.25)",
-                border: `2px solid ${isDark ? "oklch(0.72 0.20 290 / 0.70)" : "oklch(0.52 0.18 290 / 0.65)"}`,
+                  ? "rgba(22,22,22,0.30)"
+                  : "rgba(22,22,22,0.25)",
+                border: `2px solid ${isDark ? "rgba(255,255,255,0.70)" : "rgba(22,22,22,0.65)"}`,
                 pointerEvents: "none",
                 transition: "left 0.05s, top 0.05s",
               }}
@@ -39286,7 +39286,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               : "0 4px 20px rgba(0,0,0,0.12)",
           }}
           maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
-          nodeColor={isDark ? "oklch(0.35 0.02 270)" : "oklch(0.75 0.005 270)"}
+          nodeColor={isDark ? "#444444" : "#161616"}
           zoomable
           pannable={!isCanvasLocked}
         />
@@ -39580,9 +39580,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             className="w-[min(360px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] p-5 shadow-2xl"
             style={{
               background: isDark
-                ? "oklch(0.15 0.018 270)"
-                : "oklch(0.995 0.002 80)",
-              border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+                ? "#161616"
+                : "#ffffff",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "#e6e3df"}`,
             }}
             onMouseDown={e => e.stopPropagation()}
           >
@@ -39590,8 +39590,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               className="type-caption mb-3"
               style={{
                 color: isDark
-                  ? "oklch(0.82 0.008 270)"
-                  : "oklch(0.22 0.018 255)",
+                  ? "#cccccc"
+                  : "#262627",
                 fontWeight: 600,
               }}
             >
@@ -39614,11 +39614,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               }}
               className="w-full px-3 py-2 rounded-[var(--radius-md-design)] type-caption outline-none"
               style={{
-                background: isDark ? "oklch(1 0 0 / 6%)" : "oklch(0 0 0 / 4%)",
-                border: `1px solid ${isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)"}`,
+                background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)"}`,
                 color: isDark
-                  ? "oklch(0.85 0.008 270)"
-                  : "oklch(0.18 0.008 270)",
+                  ? "#161616"
+                  : "#262627",
               }}
               placeholder="输入打组名称..."
             />
@@ -39628,8 +39628,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption"
                 style={{
                   color: isDark
-                    ? "oklch(0.69 0.010 270)"
-                    : "oklch(0.65 0.010 270)",
+                    ? "#99999e"
+                    : "#777472",
                 }}
               >
                 取消
@@ -39646,7 +39646,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   setRenamingGroupId(null);
                 }}
                 className="px-3 py-1.5 rounded-[var(--radius-md-design)] type-caption"
-                style={{ background: "oklch(0.58 0.22 290)", color: "white" }}
+                style={{ background: "#161616", color: "white" }}
               >
                 确认
               </button>
@@ -39742,15 +39742,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const screenH = nh * viewport.zoom;
           const panelLeft = screenX + screenW + 6;
           const panelTop = screenY + screenH / 2;
-          const bg = isDark ? "oklch(0.14 0.018 270)" : "oklch(0.99 0.004 270)";
-          const border = isDark ? "oklch(1 0 0 / 14%)" : "oklch(0 0 0 / 12%)";
+          const bg = isDark ? "#1a1a1a" : "#ffffff";
+          const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
           const text = isDark
-            ? "oklch(0.82 0.008 270)"
-            : "oklch(0.18 0.008 270)";
-          const inputBg = isDark ? "oklch(1 0 0 / 7%)" : "oklch(0 0 0 / 5%)";
+            ? "#cccccc"
+            : "#262627";
+          const inputBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
           const inputBorder = isDark
-            ? "oklch(1 0 0 / 14%)"
-            : "oklch(0 0 0 / 12%)";
+            ? "rgba(255,255,255,0.14)"
+            : "rgba(0,0,0,0.12)";
           const applyShapeParams = () => {
             const newOpacity = Math.max(
               0,
@@ -39946,7 +39946,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     padding: "7px 0",
                     borderRadius: 6,
                     border: "none",
-                    background: "oklch(0.55 0.22 290)",
+                    background: "#161616",
                     color: "#fff",
                     fontWeight: 600,
                     cursor: "pointer",
@@ -40034,9 +40034,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             className="w-[min(380px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
             style={{
               background: isDark
-                ? "oklch(0.15 0.018 270)"
-                : "oklch(0.995 0.002 80)",
-              border: `1px solid ${isDark ? "oklch(1 0 0 / 12%)" : "oklch(0.88 0.006 255)"}`,
+                ? "#161616"
+                : "#ffffff",
+              border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "#e6e3df"}`,
             }}
             onMouseDown={e => e.stopPropagation()}
           >
@@ -40044,25 +40044,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             <div
               className="flex items-center justify-between px-5 py-4"
               style={{
-                borderBottom: `1px solid ${isDark ? "oklch(1 0 0 / 8%)" : "oklch(0 0 0 / 8%)"}`,
+                borderBottom: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
               }}
             >
               <div className="flex items-center gap-2.5">
                 <div
                   className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center"
-                  style={{ background: "oklch(0.58 0.22 290 / 0.15)" }}
+                  style={{ background: "rgba(22,22,22,0.10)" }}
                 >
                   <Download
                     size={14}
-                    style={{ color: "oklch(0.72 0.18 290)" }}
+                    style={{ color: "#161616" }}
                   />
                 </div>
                 <span
                   className="type-caption"
                   style={{
                     color: isDark
-                      ? "oklch(0.85 0.008 270)"
-                      : "oklch(0.18 0.008 270)",
+                      ? "#161616"
+                      : "#262627",
                     fontWeight: 600,
                   }}
                 >
@@ -40090,8 +40090,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-md-design)] transition-all hover:opacity-70"
                 style={{
                   color: isDark
-                    ? "oklch(0.69 0.010 270)"
-                    : "oklch(0.65 0.010 270)",
+                    ? "#99999e"
+                    : "#777472",
                 }}
               >
                 <X size={14} />
@@ -40104,8 +40104,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="type-caption mb-3"
                 style={{
                   color: isDark
-                    ? "oklch(0.69 0.010 270)"
-                    : "oklch(0.65 0.010 270)",
+                    ? "#99999e"
+                    : "#777472",
                 }}
               >
                 选择下载格式
@@ -40124,19 +40124,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     style={{
                       background:
                         downloadFormat === fmt
-                          ? "oklch(0.58 0.22 290 / 0.18)"
+                          ? "rgba(22,22,22,0.18)"
                           : isDark
-                            ? "oklch(1 0 0 / 6%)"
-                            : "oklch(0 0 0 / 4%)",
-                      border: `1px solid ${downloadFormat === fmt ? "oklch(0.62 0.22 290 / 0.50)" : isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)"}`,
+                            ? "rgba(255,255,255,0.06)"
+                            : "rgba(0,0,0,0.04)",
+                      border: `1px solid ${downloadFormat === fmt ? "rgba(22,22,22,0.50)" : isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
                       color:
                         downloadFormat === fmt
                           ? isDark
-                            ? "oklch(0.82 0.18 290)"
-                            : "oklch(0.42 0.18 290)"
+                            ? "#f5f6f8"
+                            : "#161616"
                           : isDark
-                            ? "oklch(0.65 0.008 270)"
-                            : "oklch(0.45 0.008 270)",
+                            ? "#99999e"
+                            : "#161616",
                     }}
                   >
                     .{fmt.toUpperCase()}
@@ -40147,8 +40147,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="type-caption mt-2"
                 style={{
                   color: isDark
-                    ? "oklch(0.59 0.010 270)"
-                    : "oklch(0.71 0.010 270)",
+                    ? "#99999e"
+                    : "#99999e",
                   fontSize: 11,
                 }}
               >
@@ -40167,12 +40167,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption transition-all hover:opacity-80"
                 style={{
                   background: isDark
-                    ? "oklch(1 0 0 / 6%)"
-                    : "oklch(0 0 0 / 5%)",
-                  border: `1px solid ${isDark ? "oklch(1 0 0 / 10%)" : "oklch(0 0 0 / 10%)"}`,
+                    ? "rgba(255,255,255,0.06)"
+                    : "rgba(0,0,0,0.05)",
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)"}`,
                   color: isDark
-                    ? "oklch(0.60 0.01 270)"
-                    : "oklch(0.65 0.010 270)",
+                    ? "#888888"
+                    : "#777472",
                 }}
               >
                 取消
@@ -40252,9 +40252,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 className="flex-1 py-2.5 rounded-[var(--radius-md-design)] type-caption font-medium transition-all active:scale-95"
                 style={{
                   background:
-                    "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                    "linear-gradient(135deg, #161616, #333333)",
                   color: "white",
-                  boxShadow: "0 4px 16px oklch(0.58 0.22 290 / 0.30)",
+                  boxShadow: "0 4px 16px rgba(22,22,22,0.30)",
                 }}
               >
                 开始下载
@@ -40328,9 +40328,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       shapePreviewType === "line" ||
                       shapePreviewType === "arrow"
                         ? "none"
-                        : "oklch(0.65 0.22 290 / 0.15)"
+                        : "rgba(22,22,22,0.15)"
                     }
-                    stroke="oklch(0.65 0.22 290)"
+                    stroke="#161616"
                     strokeWidth={2}
                     strokeDasharray={
                       shapePreviewType === "line" ||
@@ -40347,8 +40347,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   style={{
                     width: "100%",
                     height: "100%",
-                    border: "2px solid oklch(0.65 0.22 290)",
-                    background: "oklch(0.65 0.22 290 / 0.08)",
+                    border: "2px solid #161616",
+                    background: "rgba(22,22,22,0.08)",
                     borderRadius: 4,
                     boxSizing: "border-box",
                   }}
@@ -40390,7 +40390,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 y1={lastScreenY}
                 x2={penCursorPos.x}
                 y2={penCursorPos.y}
-                stroke="oklch(0.65 0.22 290)"
+                stroke="#161616"
                 strokeWidth={1.5}
                 strokeDasharray="5,3"
                 strokeLinecap="round"
@@ -40401,7 +40401,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                 cy={penCursorPos.y}
                 r={4}
                 fill="white"
-                stroke="oklch(0.65 0.22 290)"
+                stroke="#161616"
                 strokeWidth={1.5}
               />
             </svg>
@@ -40484,8 +40484,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   top: ry,
                   width: rw,
                   height: rh,
-                  border: "2px dashed oklch(0.65 0.22 290 / 0.80)",
-                  background: "oklch(0.65 0.22 290 / 0.06)",
+                  border: "2px dashed rgba(22,22,22,0.80)",
+                  background: "rgba(22,22,22,0.06)",
                   borderRadius: 4,
                   zIndex: 9800,
                   boxSizing: "border-box",
@@ -40821,7 +40821,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                             {selectedPreset && (
                               <span
                                 style={{
-                                  color: "oklch(0.65 0.22 290)",
+                                  color: "#161616",
                                   fontSize: 11,
                                   fontWeight: 600,
                                 }}
@@ -40975,7 +40975,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                             {selectedSocialPreset && (
                               <span
                                 style={{
-                                  color: "oklch(0.65 0.22 290)",
+                                  color: "#161616",
                                   fontSize: 11,
                                   fontWeight: 600,
                                   overflow: "hidden",
@@ -41127,7 +41127,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                                       <span
                                         style={{
                                           color: active
-                                            ? "oklch(0.74 0.18 290)"
+                                            ? "#f5f6f8"
                                             : sub,
                                           fontSize: 11,
                                           fontWeight: 650,
@@ -41471,7 +41471,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                                 background: c,
                                 border:
                                   canvasBgColor === c
-                                    ? "2px solid oklch(0.65 0.22 290)"
+                                    ? "2px solid #161616"
                                     : `1px solid ${isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"}`,
                                 cursor: "pointer",
                                 padding: 0,
@@ -41633,12 +41633,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                       fontSize: 12,
                       fontWeight: 600,
                       background:
-                        "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))",
+                        "linear-gradient(135deg, #161616, #333333)",
                       border: "none",
                       color: "white",
                       cursor: "pointer",
                       transition: "opacity 0.15s",
-                      boxShadow: "0 2px 8px oklch(0.58 0.22 290 / 0.30)",
+                      boxShadow: "0 2px 8px rgba(22,22,22,0.30)",
                     }}
                     onMouseEnter={e => (e.currentTarget.style.opacity = "0.88")}
                     onMouseLeave={e => (e.currentTarget.style.opacity = "1")}

@@ -50,13 +50,13 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
   return (
     <aside
       className="flex flex-col h-full w-[220px] shrink-0"
-      style={{ background: "#222222", borderRight: "1px solid oklch(1 0 0 / 6%)" }}
+      style={{ background: "#222222", borderRight: "1px solid rgba(255,255,255,0.06)" }}
     >
       {/* Logo */}
       <div className="flex origin-left scale-[0.7] items-center gap-2.5 px-4 py-4 shrink-0">
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}
+          style={{ background: "linear-gradient(135deg, #161616, #333333)" }}
         >
           <Sparkles size={14} className="text-white" />
         </div>
@@ -76,11 +76,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
                 "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-left group",
                 isActive
                   ? "text-white"
-                  : "text-[oklch(0.82_0.012_270)] hover:text-white"
+                  : "text-[#bbbbbb] hover:text-white"
               )}
               style={isActive ? {
-                background: "oklch(1 0 0 / 8%)",
-                borderLeft: "2.5px solid oklch(0.58 0.22 290)",
+                background: "rgba(255,255,255,0.08)",
+                borderLeft: "2.5px solid #161616",
               } : {
                 borderLeft: "2.5px solid transparent",
               }}
@@ -90,7 +90,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
               {item.badge && (
                 <span
                   className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                  style={{ background: "oklch(0.58 0.22 290 / 0.25)", color: "oklch(0.78 0.18 290)" }}
+                  style={{ background: "rgba(22,22,22,0.25)", color: "#161616" }}
                 >
                   {item.badge}
                 </span>
@@ -101,7 +101,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       </nav>
 
       {/* Divider */}
-      <div className="mx-3 my-3 shrink-0" style={{ height: 1, background: "oklch(1 0 0 / 6%)" }} />
+      <div className="mx-3 my-3 shrink-0" style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
 
       {/* Recent Projects */}
       <div className="flex-1 overflow-hidden flex flex-col px-2">
@@ -114,11 +114,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             size={13}
             className="transition-transform duration-200"
             style={{
-              color: "oklch(0.85 0.010 270)",
+              color: "#161616",
               transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)",
             }}
           />
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "oklch(0.82 0.010 270)" }}>
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#161616" }}>
             最近项目
           </span>
           <div
@@ -126,7 +126,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             onClick={(e) => { e.stopPropagation(); toast("新建项目", { description: "功能即将上线" }); }}
             className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <Plus size={12} style={{ color: "oklch(0.85 0.010 270)" }} />
+            <Plus size={12} style={{ color: "#161616" }} />
           </div>
         </div>
 
@@ -146,30 +146,30 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       </div>
 
       {/* Bottom actions */}
-      <div className="px-2 pb-3 space-y-0.5 shrink-0" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)", paddingTop: 12 }}>
+      <div className="px-2 pb-3 space-y-0.5 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12 }}>
         {/* Upgrade CTA */}
         <button
           onClick={() => toast("升级计划", { description: "功能即将上线" })}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group"
-          style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.15), oklch(0.72 0.18 200 / 0.15))", border: "1px solid oklch(0.58 0.22 290 / 0.3)" }}
+          style={{ background: "linear-gradient(135deg, rgba(22,22,22,0.15), #aaaaaa)", border: "1px solid rgba(22,22,22,0.3)" }}
         >
-          <Zap size={14} style={{ color: "oklch(0.78 0.18 290)" }} />
-          <span className="text-[13px] font-medium" style={{ color: "oklch(0.78 0.18 290)" }}>升级到 Pro</span>
+          <Zap size={14} style={{ color: "#161616" }} />
+          <span className="text-[13px] font-medium" style={{ color: "#161616" }}>升级到 Pro</span>
         </button>
 
         {/* User avatar */}
         <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
           <div
             className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
-            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}
+            style={{ background: "linear-gradient(135deg, #161616, #333333)", color: "white" }}
           >
             {avatarLetter}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "oklch(0.85 0.010 270)" }}>免费版 · 0 积分</div>
+            <div className="text-[11px]" style={{ color: "#161616" }}>免费版 · 0 积分</div>
           </div>
-          <ChevronRight size={12} style={{ color: "oklch(0.82 0.010 270)" }} />
+          <ChevronRight size={12} style={{ color: "#161616" }} />
         </div>
       </div>
 
@@ -189,21 +189,21 @@ function ProjectItem({ project, isActive, onSelect, delay }: {
       onClick={() => onSelect(project.id)}
       className={cn(
         "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all duration-150 animate-fade-up group",
-        isActive ? "text-white" : "text-[oklch(0.80_0.01_270)] hover:text-white hover:bg-white/5"
+        isActive ? "text-white" : "text-[#bbbbbb] hover:text-white hover:bg-white/5"
       )}
       style={{
         animationDelay: `${delay}ms`,
-        background: isActive ? "oklch(1 0 0 / 7%)" : undefined,
-        borderLeft: isActive ? "2px solid oklch(0.58 0.22 290)" : "2px solid transparent",
+        background: isActive ? "rgba(255,255,255,0.07)" : undefined,
+        borderLeft: isActive ? "2px solid #161616" : "2px solid transparent",
       }}
     >
       <div
         className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: isActive ? "oklch(0.58 0.22 290)" : "oklch(0.35 0.01 270)" }}
+        style={{ background: isActive ? "#161616" : "#555555" }}
       />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium truncate">{project.title}</div>
-        <div className="text-[10px] truncate" style={{ color: "oklch(0.68 0.010 270)" }}>{project.updatedAt}</div>
+        <div className="text-[10px] truncate" style={{ color: "#161616" }}>{project.updatedAt}</div>
       </div>
     </button>
   );

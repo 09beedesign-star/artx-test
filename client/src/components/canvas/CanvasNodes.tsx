@@ -76,12 +76,12 @@ function ModelSwitcher({
   const [open, setOpen] = useState(false);
   const current = models.find((m) => m.id === modelId) ?? AUTO_AI_MODEL;
 
-  const chipBg  = isDark ? "oklch(1 0 0 / 5%)"          : "oklch(0 0 0 / 5%)";
-  const chipBdr = isDark ? "oklch(1 0 0 / 10%)"          : "oklch(0 0 0 / 10%)";
-  const textPri = isDark ? "oklch(0.80 0.008 270)"       : "oklch(0.20 0.008 270)";
-  const textSec = isDark ? "oklch(0.45 0.01 270)"        : "oklch(0.55 0.01 270)";
-  const popBg   = isDark ? "oklch(0.15 0.018 270)"       : "oklch(0.99 0.004 270)";
-  const popBdr  = isDark ? "oklch(1 0 0 / 12%)"          : "oklch(0 0 0 / 12%)";
+  const chipBg  = isDark ? "rgba(255,255,255,0.05)"          : "rgba(0,0,0,0.05)";
+  const chipBdr = isDark ? "rgba(255,255,255,0.10)"          : "rgba(0,0,0,0.10)";
+  const textPri = isDark ? "#161616"       : "#161616";
+  const textSec = isDark ? "#666666"        : "#777472";
+  const popBg   = isDark ? "#161616"       : "#161616";
+  const popBdr  = isDark ? "rgba(255,255,255,0.12)"          : "rgba(0,0,0,0.12)";
 
   return (
     <div className="relative">
@@ -90,9 +90,9 @@ function ModelSwitcher({
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium transition-all"
         style={{
-          background: open ? "oklch(0.58 0.22 290 / 0.15)" : chipBg,
-          border: `1px solid ${open ? "oklch(0.58 0.22 290 / 0.35)" : chipBdr}`,
-          color: open ? "oklch(0.78 0.18 290)" : textPri,
+          background: open ? "rgba(22,22,22,0.10)" : chipBg,
+          border: `1px solid ${open ? "rgba(22,22,22,0.35)" : chipBdr}`,
+          color: open ? "#161616" : textPri,
         }}
       >
         <ModelIconMark model={current} />
@@ -108,7 +108,7 @@ function ModelSwitcher({
             style={{
               background: popBg,
               border: `1px solid ${popBdr}`,
-              boxShadow: "0 -8px 24px oklch(0 0 0 / 0.4)",
+              boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
               minWidth: 180,
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -124,10 +124,10 @@ function ModelSwitcher({
                   onClick={(e) => { e.stopPropagation(); onChange(m.id); setOpen(false); }}
                   className="w-full flex items-start gap-2 px-3 py-1.5 text-[12px] transition-colors text-left"
                   style={{
-                    background: isActive ? "oklch(0.58 0.22 290 / 0.12)" : "transparent",
-                    color: isActive ? "oklch(0.78 0.18 290)" : textPri,
+                    background: isActive ? "rgba(22,22,22,0.08)" : "transparent",
+                    color: isActive ? "#161616" : textPri,
                   }}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = isDark ? "oklch(1 0 0 / 5%)" : "oklch(0 0 0 / 4%)"; }}
+                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"; }}
                   onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}
                 >
                   <ModelIconMark model={m} />
@@ -137,7 +137,7 @@ function ModelSwitcher({
                       <span className="truncate" style={{ color: textSec, fontSize: 10, marginTop: 2, maxWidth: 148 }}>{m.description}</span>
                     ) : null}
                   </div>
-                  {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />}
+                  {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ background: "#333333" }} />}
                 </button>
               );
             })}
@@ -175,15 +175,15 @@ export function NodeWrapper({
       onClick={(e) => { e.stopPropagation(); onSelect(node.id); }}
     >
       {isSelected && (
-        <div className="absolute pointer-events-none" style={{ inset: -2, border: "1.5px solid oklch(0.58 0.22 290 / 0.7)", boxShadow: "0 0 0 4px oklch(0.58 0.22 290 / 0.12)", borderRadius: 18, zIndex: 1 }} />
+        <div className="absolute pointer-events-none" style={{ inset: -2, border: "1.5px solid rgba(22,22,22,0.7)", boxShadow: "0 0 0 4px rgba(22,22,22,0.12)", borderRadius: 18, zIndex: 1 }} />
       )}
       <button
         className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full flex items-center justify-center z-10 transition-opacity duration-150"
-        style={{ background: "oklch(0.20 0.02 270)", border: "1px solid oklch(1 0 0 / 15%)", opacity: isSelected ? 1 : 0 }}
+        style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.15)", opacity: isSelected ? 1 : 0 }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onRemove(node.id); }}
       >
-        <X size={10} style={{ color: "oklch(0.60 0.01 270)" }} />
+        <X size={10} style={{ color: "#888888" }} />
       </button>
       <div className="group/node">{children}</div>
     </div>
@@ -211,17 +211,17 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
     };
   }, []);
 
-  const typeColor: Record<string, string> = { image: "oklch(0.78 0.18 290)", video: "oklch(0.72 0.18 200)", brand: "oklch(0.78 0.18 60)", poster: "oklch(0.80 0.18 330)" };
+  const typeColor: Record<string, string> = { image: "#161616", video: "#333333", brand: "#fbbf24", poster: "#cccccc" };
   const typeLabel: Record<string, string> = { image: "图片", video: "视频", brand: "品牌", poster: "海报" };
-  const color = typeColor[asset.type] ?? "oklch(0.78 0.18 290)";
+  const color = typeColor[asset.type] ?? "#161616";
 
   return (
     <NodeWrapper node={node} isSelected={isSelected} onDragStart={onDragStart} onSelect={onSelect} onRemove={onRemove} minWidth={180}>
       <div className="rounded-2xl overflow-hidden transition-shadow duration-200"
         style={{
-          background: "oklch(0.14 0.018 270)",
-          border: `1px solid ${isSelected ? "oklch(0.58 0.22 290 / 0.4)" : "oklch(1 0 0 / 10%)"}`,
-          boxShadow: isSelected ? "0 12px 40px oklch(0.58 0.22 290 / 0.2), 0 4px 16px oklch(0 0 0 / 0.5)" : "0 4px 20px oklch(0 0 0 / 0.4)",
+          background: "#1a1a1a",
+          border: `1px solid ${isSelected ? "rgba(22,22,22,0.40)" : "rgba(255,255,255,0.10)"}`,
+          boxShadow: isSelected ? "0 12px 40px rgba(22,22,22,0.2), 0 4px 16px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.4)",
         }}
       >
         {/* Image */}
@@ -229,11 +229,11 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
           <img src={asset.src} alt={asset.title} className="w-full h-full object-cover pointer-events-none" draggable={false} />
           <div className="absolute inset-0 bg-[#222222]/0 group-hover/img:bg-[#222222]/35 transition-all duration-200 flex items-center justify-center gap-2 opacity-0 group-hover/img:opacity-100">
             <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast("下载", { description: "功能即将上线" }); }}
-              className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "oklch(1 0 0 / 20%)" }}>
+              className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "rgba(255,255,255,0.20)" }}>
               <Download size={13} className="text-white" />
             </button>
             <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast("全屏预览", { description: "功能即将上线" }); }}
-              className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "oklch(1 0 0 / 20%)" }}>
+              className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm" style={{ background: "rgba(255,255,255,0.20)" }}>
               <Maximize2 size={13} className="text-white" />
             </button>
           </div>
@@ -249,22 +249,22 @@ export function AssetNode({ node, isSelected, onDragStart, onSelect, onRemove }:
             <div className="text-[13px] font-semibold text-white truncate flex-1">{asset.title}</div>
             <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast("更多操作", { description: "功能即将上线" }); }}
               className="p-0.5 rounded hover:bg-white/10 transition-colors ml-1">
-              <MoreHorizontal size={12} style={{ color: "oklch(0.45 0.01 270)" }} />
+              <MoreHorizontal size={12} style={{ color: "#666666" }} />
             </button>
           </div>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "oklch(0.72 0.18 200)" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#333333" }}>
             {asset.width} × {asset.height}
           </span>
         </div>
 
         {/* ── Model switcher bottom bar ── */}
-        <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
+        <div className="flex items-center gap-2 px-3 pb-2.5 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           onMouseDown={(e) => e.stopPropagation()}>
           <ModelSwitcher modelId={modelId} onChange={setModelId} models={imageModelOptions} isDark={true} />
           <div className="flex-1" />
           <button onClick={(e) => { e.stopPropagation(); toast("重新生成", { description: "功能即将上线" }); }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all"
-            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.2), oklch(0.72 0.18 200 / 0.15))", border: "1px solid oklch(0.58 0.22 290 / 0.25)", color: "oklch(0.78 0.18 290)" }}>
+            style={{ background: "linear-gradient(135deg, rgba(22,22,22,0.2), #aaaaaa)", border: "1px solid rgba(22,22,22,0.25)", color: "#161616" }}>
             <Sparkles size={9} />
             重新生成
           </button>
@@ -338,23 +338,23 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
     <NodeWrapper node={node} isSelected={isSelected} onDragStart={onDragStart} onSelect={onSelect} onRemove={onRemove} minWidth={320} fullDrag={false}>
       <div className="rounded-2xl overflow-hidden flex flex-col"
         style={{
-          background: "oklch(0.13 0.016 270)",
-          border: `1px solid ${isSelected ? "oklch(0.58 0.22 290 / 0.4)" : "oklch(1 0 0 / 10%)"}`,
-          boxShadow: "0 8px 32px oklch(0 0 0 / 0.5)",
+          background: "#161616",
+          border: `1px solid ${isSelected ? "rgba(22,22,22,0.40)" : "rgba(255,255,255,0.10)"}`,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
           height: node.height || 420,
         }}
       >
         {/* Header — drag handle */}
         <div className="flex items-center gap-2 px-3 py-2.5 shrink-0 cursor-grab active:cursor-grabbing"
-          style={{ borderBottom: "1px solid oklch(1 0 0 / 6%)" }}
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
           onMouseDown={(e) => { if (e.button !== 0) return; onDragStart(e, node.id); }}
         >
           <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}>
+            style={{ background: "linear-gradient(135deg, #161616, #333333)" }}>
             <Sparkles size={11} className="text-white" />
           </div>
           <span className="text-[13px] font-semibold text-white flex-1">AI 对话</span>
-          <GripVertical size={13} style={{ color: "oklch(0.35 0.01 270)" }} />
+          <GripVertical size={13} style={{ color: "#555555" }} />
         </div>
 
         {/* Messages */}
@@ -363,22 +363,22 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
             <div key={msg.id} className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
               <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold"
                 style={msg.role === "user"
-                  ? { background: "oklch(0.22 0.02 270)", color: "oklch(0.65 0.01 270)" }
-                  : { background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }
+                  ? { background: "#1a1a1a", color: "#99999e" }
+                  : { background: "linear-gradient(135deg, #161616, #333333)" }
                 }>
                 {msg.role === "user" ? "U" : <Sparkles size={9} className="text-white" />}
               </div>
               <div className={cn("flex flex-col gap-1.5 max-w-[85%]", msg.role === "user" ? "items-end" : "items-start")}>
                 {msg.steps && (
-                  <div className="rounded-xl px-3 py-2 space-y-1.5 w-full" style={{ background: "oklch(0.16 0.02 270)", border: "1px solid oklch(1 0 0 / 8%)" }}>
+                  <div className="rounded-xl px-3 py-2 space-y-1.5 w-full" style={{ background: "#111111", border: "1px solid rgba(255,255,255,0.08)" }}>
                     {msg.steps.map((step) => (
                       <div key={step.id} className="flex items-center gap-2">
                         <div className="w-3.5 h-3.5 flex items-center justify-center">
-                          {step.status === "done" ? <Check size={9} style={{ color: "oklch(0.72 0.18 200)" }} />
-                            : step.status === "running" ? <Loader2 size={9} className="animate-spin" style={{ color: "oklch(0.58 0.22 290)" }} />
-                            : <div className="w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.30 0.01 270)" }} />}
+                          {step.status === "done" ? <Check size={9} style={{ color: "#333333" }} />
+                            : step.status === "running" ? <Loader2 size={9} className="animate-spin" style={{ color: "#161616" }} />
+                            : <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#3a3a3a" }} />}
                         </div>
-                        <span className="text-[11px]" style={{ color: step.status === "done" ? "oklch(0.72 0.18 200)" : step.status === "running" ? "oklch(0.80 0.008 270)" : "oklch(0.40 0.01 270)" }}>
+                        <span className="text-[11px]" style={{ color: step.status === "done" ? "#333333" : step.status === "running" ? "#161616" : "#555555" }}>
                           {step.label}
                         </span>
                       </div>
@@ -388,8 +388,8 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
                 {msg.content && (
                   <div className="rounded-xl px-3 py-2 text-[12px] leading-relaxed"
                     style={msg.role === "user"
-                      ? { background: "oklch(0.58 0.22 290 / 0.18)", border: "1px solid oklch(0.58 0.22 290 / 0.28)", color: "oklch(0.88 0.008 270)" }
-                      : { background: "oklch(0.16 0.02 270)", border: "1px solid oklch(1 0 0 / 8%)", color: "oklch(0.80 0.008 270)" }
+                      ? { background: "rgba(22,22,22,0.18)", border: "1px solid rgba(22,22,22,0.28)", color: "#161616" }
+                      : { background: "#111111", border: "1px solid rgba(255,255,255,0.08)", color: "#161616" }
                     }>
                     {msg.content}
                   </div>
@@ -400,11 +400,11 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
           {isGenerating && (
             <div className="flex gap-2">
               <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}>
+                style={{ background: "linear-gradient(135deg, #161616, #333333)" }}>
                 <Sparkles size={9} className="text-white" />
               </div>
-              <div className="flex gap-1 items-center px-3 py-2 rounded-xl" style={{ background: "oklch(0.16 0.02 270)", border: "1px solid oklch(1 0 0 / 8%)" }}>
-                {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full animate-bounce" style={{ background: "oklch(0.58 0.22 290)", animationDelay: `${i * 150}ms` }} />)}
+              <div className="flex gap-1 items-center px-3 py-2 rounded-xl" style={{ background: "#111111", border: "1px solid rgba(255,255,255,0.08)" }}>
+                {[0, 1, 2].map((i) => <span key={i} className="w-1 h-1 rounded-full animate-bounce" style={{ background: "#161616", animationDelay: `${i * 150}ms` }} />)}
               </div>
             </div>
           )}
@@ -412,17 +412,17 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
         </div>
 
         {/* Input */}
-        <div className="px-2.5 pb-2 shrink-0" style={{ borderTop: "1px solid oklch(1 0 0 / 6%)", paddingTop: 6 }}
+        <div className="px-2.5 pb-2 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 6 }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <div className="flex items-end gap-2 rounded-xl px-3 py-2" style={{ background: "oklch(0.16 0.02 270)", border: "1px solid oklch(1 0 0 / 10%)" }}>
+          <div className="flex items-end gap-2 rounded-xl px-3 py-2" style={{ background: "#111111", border: "1px solid rgba(255,255,255,0.10)" }}>
             <textarea value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
               placeholder="继续对话…" rows={1}
               className="flex-1 bg-transparent outline-none resize-none text-[12px]"
-              style={{ color: "oklch(0.85 0.008 270)", lineHeight: 1.5 }} />
+              style={{ color: "#161616", lineHeight: 1.5 }} />
             <button onClick={(e) => { e.stopPropagation(); handleSend(); }} disabled={!input.trim() || isGenerating}
               className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 disabled:opacity-40 transition-all"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}>
+              style={{ background: "linear-gradient(135deg, #161616, #333333)" }}>
               <Send size={10} className="text-white" />
             </button>
           </div>
@@ -430,10 +430,10 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
 
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1.5 shrink-0"
-          style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <MessageSquare size={10} style={{ color: "oklch(0.38 0.01 270)" }} />
-          <span className="text-[10px]" style={{ color: "oklch(0.38 0.01 270)" }}>模型</span>
+          <MessageSquare size={10} style={{ color: "#444444" }} />
+          <span className="text-[10px]" style={{ color: "#444444" }}>模型</span>
           <ModelSwitcher modelId={modelId} onChange={setModelId} isDark={true} />
         </div>
       </div>
@@ -454,19 +454,19 @@ export function PromptNode({
     <NodeWrapper node={node} isSelected={isSelected} onDragStart={onDragStart} onSelect={onSelect} onRemove={onRemove} minWidth={280} fullDrag={false}>
       <div className="rounded-2xl overflow-hidden"
         style={{
-          background: "oklch(0.14 0.018 270)",
-          border: `1px solid ${isSelected ? "oklch(0.58 0.22 290 / 0.5)" : "oklch(0.58 0.22 290 / 0.2)"}`,
-          boxShadow: "0 8px 32px oklch(0.58 0.22 290 / 0.1), 0 4px 16px oklch(0 0 0 / 0.4)",
+          background: "#1a1a1a",
+          border: `1px solid ${isSelected ? "rgba(22,22,22,0.5)" : "rgba(22,22,22,0.2)"}`,
+          boxShadow: "0 8px 32px rgba(22,22,22,0.1), 0 4px 16px rgba(0,0,0,0.4)",
         }}
       >
         {/* Header — drag handle */}
         <div className="flex items-center gap-2 px-3 py-2.5 cursor-grab active:cursor-grabbing"
-          style={{ borderBottom: "1px solid oklch(1 0 0 / 6%)", background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.12), oklch(0.72 0.18 200 / 0.08))" }}
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "linear-gradient(135deg, rgba(22,22,22,0.12), #aaaaaa)" }}
           onMouseDown={(e) => { if (e.button !== 0) return; onDragStart(e, node.id); }}>
-          <Wand2 size={13} style={{ color: "oklch(0.72 0.18 290)" }} />
-          <span className="text-[12px] font-semibold" style={{ color: "oklch(0.78 0.18 290)" }}>提示词</span>
+          <Wand2 size={13} style={{ color: "#f5f6f8" }} />
+          <span className="text-[12px] font-semibold" style={{ color: "#161616" }}>提示词</span>
           <div className="flex-1" />
-          <GripVertical size={13} style={{ color: "oklch(0.35 0.01 270)" }} />
+          <GripVertical size={13} style={{ color: "#555555" }} />
         </div>
 
         {/* Textarea */}
@@ -474,14 +474,14 @@ export function PromptNode({
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
             placeholder="描述你想生成的内容…" rows={4}
             className="w-full bg-transparent outline-none resize-none text-[13px] leading-relaxed"
-            style={{ color: "oklch(0.85 0.008 270)" }} />
+            style={{ color: "#161616" }} />
         </div>
 
         {/* Actions */}
         <div className="flex items-center gap-2 px-3 pb-2" onMouseDown={(e) => e.stopPropagation()}>
           <button onClick={(e) => { e.stopPropagation(); toast("上传参考图", { description: "功能即将上线" }); }}
             className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-            <Paperclip size={13} style={{ color: "oklch(0.50 0.01 270)" }} />
+            <Paperclip size={13} style={{ color: "#666666" }} />
           </button>
           <div className="flex-1" />
           <button onClick={async (e) => {
@@ -511,7 +511,7 @@ export function PromptNode({
               }
             }} disabled={!prompt.trim() || isGenerating}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-40 transition-all"
-            style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))", color: "white" }}>
+            style={{ background: "linear-gradient(135deg, #161616, #333333)", color: "white" }}>
             {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
             {isGenerating ? "生成中" : "生成"}
           </button>
@@ -519,10 +519,10 @@ export function PromptNode({
 
         {/* ── Model switcher bottom bar ── */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1.5"
-          style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }}
+          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <Wand2 size={10} style={{ color: "oklch(0.38 0.01 270)" }} />
-          <span className="text-[10px]" style={{ color: "oklch(0.38 0.01 270)" }}>模型</span>
+          <Wand2 size={10} style={{ color: "#444444" }} />
+          <span className="text-[10px]" style={{ color: "#444444" }}>模型</span>
           <ModelSwitcher modelId={modelId} onChange={setModelId} isDark={true} />
         </div>
       </div>
@@ -533,10 +533,10 @@ export function PromptNode({
 // ── Text Node ─────────────────────────────────────────────────
 
 const NOTE_COLORS = [
-  { bg: "oklch(0.22 0.06 290)", border: "oklch(0.58 0.22 290 / 0.4)", text: "oklch(0.85 0.008 270)" },
-  { bg: "oklch(0.20 0.06 200)", border: "oklch(0.72 0.18 200 / 0.4)", text: "oklch(0.85 0.008 270)" },
-  { bg: "oklch(0.22 0.06 60)",  border: "oklch(0.78 0.18 60 / 0.4)",  text: "oklch(0.85 0.008 270)" },
-  { bg: "oklch(0.20 0.04 330)", border: "oklch(0.80 0.18 330 / 0.4)", text: "oklch(0.85 0.008 270)" },
+  { bg: "#161616", border: "rgba(22,22,22,0.40)", text: "#161616" },
+  { bg: "#262627", border: "#aaaaaa", text: "#161616" },
+  { bg: "#262627",  border: "#bbbbbb",  text: "#161616" },
+  { bg: "#262627", border: "#cccccc", text: "#161616" },
 ];
 
 export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: Omit<NodeWrapperProps, "children" | "className" | "fullDrag">) {
@@ -550,18 +550,18 @@ export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
       <div className="rounded-2xl overflow-hidden"
         style={{
           background: color.bg,
-          border: `1px solid ${isSelected ? "oklch(0.58 0.22 290 / 0.6)" : color.border}`,
-          boxShadow: "0 4px 16px oklch(0 0 0 / 0.3)",
+          border: `1px solid ${isSelected ? "rgba(22,22,22,0.60)" : color.border}`,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
         }}
       >
         {/* Header — drag handle */}
         <div className="flex items-center gap-1.5 px-3 py-2 cursor-grab active:cursor-grabbing"
           style={{ borderBottom: `1px solid ${color.border}` }}
           onMouseDown={(e) => { if (e.button !== 0) return; onDragStart(e, node.id); }}>
-          <Type size={11} style={{ color: "oklch(0.55 0.01 270)" }} />
-          <span className="text-[10px]" style={{ color: "oklch(0.48 0.01 270)" }}>备注</span>
+          <Type size={11} style={{ color: "#777472" }} />
+          <span className="text-[10px]" style={{ color: "#666666" }}>备注</span>
           <div className="flex-1" />
-          <GripVertical size={11} style={{ color: "oklch(0.35 0.01 270)" }} />
+          <GripVertical size={11} style={{ color: "#555555" }} />
         </div>
 
         {/* Textarea */}
@@ -575,8 +575,8 @@ export function TextNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1.5"
           style={{ borderTop: `1px solid ${color.border}` }}
           onMouseDown={(e) => e.stopPropagation()}>
-          <Cpu size={10} style={{ color: "oklch(0.38 0.01 270)" }} />
-          <span className="text-[10px]" style={{ color: "oklch(0.38 0.01 270)" }}>模型</span>
+          <Cpu size={10} style={{ color: "#444444" }} />
+          <span className="text-[10px]" style={{ color: "#444444" }}>模型</span>
           <ModelSwitcher modelId={modelId} onChange={setModelId} isDark={true} />
         </div>
       </div>

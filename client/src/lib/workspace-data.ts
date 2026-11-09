@@ -22,7 +22,7 @@ export type AiModelOption = {
 export const AUTO_AI_MODEL: AiModelOption = {
   id: "auto",
   label: "auto",
-  color: "oklch(0.78 0.18 120)",
+  color: "#bbbbbb",
   description: "根据提示词自动选择对话或生图模型",
 };
 
@@ -51,34 +51,34 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   // 本身不含任何品牌关键字，不写 icon 就会落到 "none" 变成无图标。
   // OG image2.5 两系列（2026-09-11 接入，sunburst medium 为全站默认）。
   // 两系价格完全相同，画风不同，都放出来供用户手动切换。
-  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "oklch(0.72 0.18 200)", description: "高性价比，日常首选", icon: "openai" },
-  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "oklch(0.74 0.16 285)", description: "高性价比，色彩浓郁", icon: "openai" },
-  { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "oklch(0.70 0.16 150)", description: "出图快，适合打草稿", icon: "openai" },
-  { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "oklch(0.70 0.16 150)", description: "快速试风格与配色", icon: "openai" },
-  { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "oklch(0.82 0.18 95)", description: "高清细节，适合成稿", icon: "openai" },
-  { id: "vod-og25-flare-high", label: "image2.5 high flare", color: "oklch(0.82 0.18 95)", description: "高清质感，氛围感强", icon: "openai" },
+  { id: "vod-og25-sunburst-medium", label: "image2.5 medium", color: "#333333", description: "高性价比，日常首选", icon: "openai" },
+  { id: "vod-og25-flare-medium", label: "image2.5 medium flare", color: "#f5f6f8", description: "高性价比，色彩浓郁", icon: "openai" },
+  { id: "vod-og25-sunburst-low", label: "image2.5 low", color: "#aaaaaa", description: "出图快，适合打草稿", icon: "openai" },
+  { id: "vod-og25-flare-low", label: "image2.5 low flare", color: "#aaaaaa", description: "快速试风格与配色", icon: "openai" },
+  { id: "vod-og25-sunburst-high", label: "image2.5 high", color: "#cccccc", description: "高清细节，适合成稿", icon: "openai" },
+  { id: "vod-og25-flare-high", label: "image2.5 high flare", color: "#cccccc", description: "高清质感，氛围感强", icon: "openai" },
   // label 是纯展示文案，与 id / 后端真实接口解耦
   // （路由看 id，发给腾讯的版本串由 tencent-vod-aigc.ts 决定）。
   // 2026-09-12 按要求调整对外命名：去掉 og 前缀、gem 前缀改 banana，后缀不变。
   // 这张表必须与 server/image-generation.ts 的 imageModelLabels 保持一致，
   // 否则 /api/ai/models 下发的目录文案会覆盖前端，UI 上出现两套名字。
-  { id: "vod-gem", label: "banana 3.1", color: "oklch(0.72 0.18 200)", description: "指令理解准，改图听话", icon: "gemini" },
-  { id: "vod-gem-lite", label: "banana 3.1 lite", color: "oklch(0.76 0.16 130)", description: "响应快，适合多轮微调", icon: "gemini" },
+  { id: "vod-gem", label: "banana 3.1", color: "#333333", description: "指令理解准，改图听话", icon: "gemini" },
+  { id: "vod-gem-lite", label: "banana 3.1 lite", color: "#bbbbbb", description: "响应快，适合多轮微调", icon: "gemini" },
   // nano banana 2.1 = 腾讯 VOD GG 3.6（2026-10-11 接入）。必须与 server/image-generation.ts 三张表一致。
-  { id: "vod-gg36", label: "banana 2.1", color: "oklch(0.74 0.16 285)", description: "多图融合，角色一致性强", icon: "gemini" },
+  { id: "vod-gg36", label: "banana 2.1", color: "#f5f6f8", description: "多图融合，角色一致性强", icon: "gemini" },
   // image2.6（OG，2026-10 接入）：独有 SVG 矢量导出 / GIF 动图。sunburst 与 flare 价格完全相同。
-  { id: "vod-og26-sunburst-medium", label: "image2.6 medium", color: "oklch(0.72 0.18 200)", description: "新一代主力，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og26-flare-medium", label: "image2.6 medium flare", color: "oklch(0.74 0.16 285)", description: "色彩浓郁，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og26-sunburst-low", label: "image2.6 low", color: "oklch(0.70 0.16 150)", description: "快速出稿，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og26-flare-low", label: "image2.6 low flare", color: "oklch(0.70 0.16 150)", description: "快速试色，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og26-sunburst-high", label: "image2.6 high", color: "oklch(0.82 0.18 95)", description: "高清成稿，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og26-flare-high", label: "image2.6 high flare", color: "oklch(0.82 0.18 95)", description: "高清质感，可导SVG/GIF", icon: "openai" },
-  { id: "vod-og", label: "image2", color: "oklch(0.74 0.16 285)", description: "画面稳定，长文案不崩", icon: "openai" },
-  { id: "vod-mj", label: "mj v8.2", color: "oklch(0.78 0.15 40)", description: "艺术表现强，构图出彩", icon: "midjourney" },
-  { id: "vod-kling", label: "kling 3.0", color: "oklch(0.76 0.16 130)", description: "国风人像与电商主图", icon: "kling" },
-  { id: "vod-si", label: "si 5.0 pro", color: "oklch(0.82 0.18 95)", description: "真实感强，接近摄影", icon: "si" },
-  { id: "vod-qwen", label: "qwen 0925", color: "oklch(0.70 0.16 150)", description: "中文排版与海报文字", icon: "qwen" },
-  { id: "vod-jimeng", label: "jimeng 4.0", color: "oklch(0.82 0.18 95)", description: "性价比高，国潮插画", icon: "jimeng" },
+  { id: "vod-og26-sunburst-medium", label: "image2.6 medium", color: "#333333", description: "新一代主力，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-medium", label: "image2.6 medium flare", color: "#f5f6f8", description: "色彩浓郁，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-sunburst-low", label: "image2.6 low", color: "#aaaaaa", description: "快速出稿，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-low", label: "image2.6 low flare", color: "#aaaaaa", description: "快速试色，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-sunburst-high", label: "image2.6 high", color: "#cccccc", description: "高清成稿，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og26-flare-high", label: "image2.6 high flare", color: "#cccccc", description: "高清质感，可导SVG/GIF", icon: "openai" },
+  { id: "vod-og", label: "image2", color: "#f5f6f8", description: "画面稳定，长文案不崩", icon: "openai" },
+  { id: "vod-mj", label: "mj v8.2", color: "#bbbbbb", description: "艺术表现强，构图出彩", icon: "midjourney" },
+  { id: "vod-kling", label: "kling 3.0", color: "#bbbbbb", description: "国风人像与电商主图", icon: "kling" },
+  { id: "vod-si", label: "si 5.0 pro", color: "#cccccc", description: "真实感强，接近摄影", icon: "si" },
+  { id: "vod-qwen", label: "qwen 0925", color: "#aaaaaa", description: "中文排版与海报文字", icon: "qwen" },
+  { id: "vod-jimeng", label: "jimeng 4.0", color: "#cccccc", description: "性价比高，国潮插画", icon: "jimeng" },
 ];
 
 // 文本 / 多模态理解模型清单（用户下拉框唯一可见项）。
@@ -87,7 +87,7 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
 // 否则前端传参会被服务端白名单静默丢弃。
 // 注意：上面的 IMAGE_AI_MODELS 属于图片**生成**模型，一个都不能动。
 export const TEXT_AI_MODELS: AiModelOption[] = [
-  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "oklch(0.74 0.14 45)", icon: "anthropic" },
+  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "#bbbbbb", icon: "anthropic" },
 ];
 
 /**

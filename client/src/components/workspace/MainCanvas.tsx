@@ -133,35 +133,35 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
       {/* Project header */}
       <div
         className="flex items-center gap-3 px-4 shrink-0"
-        style={{ height: 48, borderBottom: "1px solid oklch(1 0 0 / 6%)" }}
+        style={{ height: 48, borderBottom: "1px solid rgba(255,255,255,0.08)" }}
       >
         <div className="flex items-center gap-1.5 text-[12px]">
-          <span style={{ color: "oklch(0.62 0.010 270)" }}>我的项目</span>
-          <ChevronRight size={11} style={{ color: "oklch(0.35 0.01 270)" }} />
-          <span className="font-semibold" style={{ color: "oklch(0.85 0.01 270)" }}>{project.title}</span>
+          <span style={{ color: "#a0a0a6" }}>我的项目</span>
+          <ChevronRight size={11} style={{ color: "#555" }} />
+          <span className="font-semibold" style={{ color: "#f1f1f3" }}>{project.title}</span>
         </div>
         <div
           className="flex items-center gap-1.5 px-2 py-0.5 rounded-full"
-          style={{ background: "oklch(0.72 0.18 200 / 0.12)", border: "1px solid oklch(0.72 0.18 200 / 0.25)" }}
+          style={{ background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)" }}
         >
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "oklch(0.72 0.18 200)" }} />
-          <span className="text-[10px] font-medium" style={{ color: "oklch(0.72 0.18 200)" }}>进行中</span>
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#10b981" }} />
+          <span className="text-[10px] font-medium" style={{ color: "#10b981" }}>进行中</span>
         </div>
         <div className="flex-1" />
-        <div className="flex items-center gap-1 text-[11px]" style={{ color: "oklch(0.59 0.010 270)" }}>
+        <div className="flex items-center gap-1 text-[11px]" style={{ color: "#777472" }}>
           <Clock size={11} />
           <span>{project.updatedAt}</span>
         </div>
         <button onClick={() => setStarred(!starred)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">
-          <Star size={13} style={{ color: starred ? "oklch(0.78 0.18 60)" : "oklch(0.59 0.010 270)", fill: starred ? "oklch(0.78 0.18 60)" : "none" }} />
+          <Star size={13} style={{ color: starred ? "#f59e0b" : "#777472", fill: starred ? "#f59e0b" : "none" }} />
         </button>
         <button onClick={() => toast("分享项目", { description: "功能即将上线" })} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">
-          <Share2 size={13} style={{ color: "oklch(0.59 0.010 270)" }} />
+          <Share2 size={13} style={{ color: "#777472" }} />
         </button>
         <button
           onClick={() => toast("导出资产", { description: "功能即将上线" })}
           className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[12px] font-medium transition-all duration-150 hover:bg-white/5"
-          style={{ border: "1px solid oklch(1 0 0 / 10%)", color: "oklch(0.65 0.01 270)" }}
+          style={{ border: "1px solid rgba(255,255,255,0.10)", color: "#a0a0a6" }}
         >
           <Download size={12} />导出
         </button>
@@ -170,7 +170,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
       {/* Tab bar */}
       <div
         className="flex items-center gap-1 px-4 shrink-0"
-        style={{ height: 44, borderBottom: "1px solid oklch(1 0 0 / 6%)" }}
+        style={{ height: 44, borderBottom: "1px solid rgba(255,255,255,0.08)" }}
       >
         {(["chat", "gallery"] as const).map((tab) => (
           <button
@@ -180,7 +180,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
               "px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150",
               activeTab === tab ? "text-white" : "hover:text-white"
             )}
-            style={activeTab === tab ? { background: "oklch(1 0 0 / 8%)", color: "white" } : { color: "oklch(0.66 0.010 270)" }}
+            style={activeTab === tab ? { background: "rgba(255,255,255,0.10)", color: "white" } : { color: "#777472" }}
           >
             {tab === "chat" ? "对话生成" : "素材画廊"}
           </button>
@@ -189,7 +189,7 @@ export default function MainCanvas({ projectId = "p1" }: MainCanvasProps) {
         <button
           onClick={() => { setMessages([]); toast("已清空对话", { description: "开始新的创作" }); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] transition-colors hover:bg-white/5"
-          style={{ color: "oklch(0.66 0.010 270)" }}
+          style={{ color: "#777472" }}
         >
           <RefreshCw size={12} />新对话
         </button>
@@ -236,24 +236,24 @@ function ChatView({
           <div className="flex items-center gap-2 px-1">
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }}
+              style={{ background: "linear-gradient(135deg, #333333, #666666)" }}
             >
               <Sparkles size={12} className="text-white" />
             </div>
             <div
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
-              style={{ background: "oklch(0.16 0.02 270)", border: "1px solid oklch(1 0 0 / 8%)" }}
+              style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.10)" }}
             >
               <div className="flex gap-1">
                 {[0, 1, 2].map((i) => (
                   <span
                     key={i}
                     className="w-1.5 h-1.5 rounded-full animate-bounce"
-                    style={{ background: "oklch(0.58 0.22 290)", animationDelay: `${i * 150}ms` }}
+                    style={{ background: "#ffffff", animationDelay: `${i * 150}ms` }}
                   />
                 ))}
               </div>
-              <span className="text-[12px]" style={{ color: "oklch(0.69 0.010 270)" }}>AI 正在思考…</span>
+              <span className="text-[12px]" style={{ color: "#a0a0a6" }}>AI 正在思考…</span>
             </div>
           </div>
         )}
@@ -267,11 +267,11 @@ function ChatView({
             <button
               key={s}
               onClick={() => setInput(s)}
-              className="px-3 py-1.5 rounded-full text-[12px] transition-all duration-150 hover:border-purple-500/40"
+              className="px-3 py-1.5 rounded-full text-[12px] transition-all duration-150 hover:border-white/20"
               style={{
-                background: "oklch(1 0 0 / 4%)",
-                border: "1px solid oklch(1 0 0 / 8%)",
-                color: "oklch(0.73 0.010 270)",
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                color: "#a0a0a6",
               }}
             >
               {s}
@@ -280,11 +280,11 @@ function ChatView({
         </div>
 
         <div
-          className="rounded-xl overflow-hidden transition-all duration-200"
+          className="rounded-2xl overflow-hidden transition-all duration-200"
           style={{
-            background: "oklch(0.16 0.02 270)",
-            border: `1px solid ${input ? "oklch(0.58 0.22 290 / 0.35)" : "oklch(1 0 0 / 10%)"}`,
-            boxShadow: input ? "0 0 0 3px oklch(0.58 0.22 290 / 0.08)" : undefined,
+            background: "#1a1a1a",
+            border: `1px solid ${input ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.10)"}`,
+            boxShadow: input ? "0 0 0 3px rgba(255,255,255,0.06)" : undefined,
           }}
         >
           <textarea
@@ -296,29 +296,29 @@ function ChatView({
             placeholder="描述你想要生成的设计内容..."
             rows={3}
             className="w-full bg-transparent px-4 pt-3 pb-2 text-sm outline-none resize-none"
-            style={{ color: "oklch(0.88 0.008 270)", fontSize: 14, lineHeight: 1.6 }}
+            style={{ color: "#f1f1f3", fontSize: 14, lineHeight: 1.6 }}
           />
           <div className="flex items-center gap-2 px-3 pb-3">
             <button onClick={() => toast("上传素材", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              <Paperclip size={14} style={{ color: "oklch(0.66 0.010 270)" }} />
+              <Paperclip size={14} style={{ color: "#777472" }} />
             </button>
             <button onClick={() => toast("风格设置", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-              <Wand2 size={14} style={{ color: "oklch(0.66 0.010 270)" }} />
+              <Wand2 size={14} style={{ color: "#777472" }} />
             </button>
             <div className="flex-1" />
-            <span className="text-[11px]" style={{ color: "oklch(0.57 0.010 270)" }}>{input.length}/2000</span>
+            <span className="text-[11px]" style={{ color: "#555" }}>{input.length}/2000</span>
             <button
               onClick={onSend}
               disabled={!input.trim() || isGenerating}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 disabled:opacity-40 hover:opacity-90"
-              style={{ background: "#C5ED47", color: "#000" }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-150 disabled:opacity-40 hover:bg-[#e8e8e8]"
+              style={{ background: "#ffffff", color: "#111111" }}
             >
               {isGenerating ? <Loader2 size={13} className="animate-spin" /> : <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-3.5 w-3.5 object-contain" style={{ filter: "brightness(0)" }} />}
               {isGenerating ? "生成中…" : "生成"}
             </button>
           </div>
         </div>
-        <p className="text-center text-[10px] mt-2" style={{ color: "oklch(0.35 0.01 270)" }}>
+        <p className="text-center text-[10px] mt-2" style={{ color: "#555" }}>
           按 Enter 发送 · Shift+Enter 换行 · 标准生图约 300 积分/张
         </p>
       </div>
@@ -340,12 +340,12 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
     <div className="flex flex-col items-center justify-center py-12 px-4">
       <div
         className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-        style={{ background: "linear-gradient(135deg, oklch(0.58 0.22 290 / 0.2), oklch(0.72 0.18 200 / 0.2))", border: "1px solid oklch(0.58 0.22 290 / 0.3)" }}
+        style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)" }}
       >
-        <Sparkles size={24} style={{ color: "oklch(0.72 0.18 290)" }} />
+        <Sparkles size={24} style={{ color: "#f1f1f3" }} />
       </div>
-      <h3 className="text-lg font-bold mb-1" style={{ color: "oklch(0.90 0.008 270)" }}>开始你的创作</h3>
-      <p className="text-[13px] text-center mb-8" style={{ color: "oklch(0.66 0.010 270)" }}>
+      <h3 className="text-lg font-bold mb-1" style={{ color: "#f1f1f3" }}>开始你的创作</h3>
+      <p className="text-[13px] text-center mb-8" style={{ color: "#a0a0a6" }}>
         描述你的设计需求，AI 将为你生成专业的视觉资产
       </p>
       <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
@@ -353,12 +353,12 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
           <button
             key={item.title}
             onClick={() => onSuggest(item.prompt)}
-            className="flex flex-col items-start gap-1.5 p-3 rounded-xl text-left transition-all duration-150 hover:border-purple-500/30 card-hover"
-            style={{ background: "oklch(0.15 0.018 270)", border: "1px solid oklch(1 0 0 / 8%)" }}
+            className="flex flex-col items-start gap-1.5 p-3 rounded-xl text-left transition-all duration-150 hover:border-white/20 card-hover"
+            style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.10)" }}
           >
             <span className="text-xl">{item.icon}</span>
-            <span className="text-[13px] font-semibold" style={{ color: "oklch(0.85 0.008 270)" }}>{item.title}</span>
-            <span className="text-[11px]" style={{ color: "oklch(0.64 0.010 270)" }}>{item.desc}</span>
+            <span className="text-[13px] font-semibold" style={{ color: "#f1f1f3" }}>{item.title}</span>
+            <span className="text-[11px]" style={{ color: "#777472" }}>{item.desc}</span>
           </button>
         ))}
       </div>
@@ -379,8 +379,8 @@ function MessageBubble({ message, index }: { message: ChatMessage; index: number
       <div
         className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[12px] font-bold"
         style={isUser
-          ? { background: "oklch(0.22 0.02 270)", color: "oklch(0.70 0.01 270)" }
-          : { background: "linear-gradient(135deg, oklch(0.58 0.22 290), oklch(0.72 0.18 200))" }
+          ? { background: "#2a2a2a", color: "#a0a0a6" }
+          : { background: "linear-gradient(135deg, #333333, #555555)" }
         }
       >
         {isUser ? "U" : <Sparkles size={12} className="text-white" />}
@@ -390,7 +390,7 @@ function MessageBubble({ message, index }: { message: ChatMessage; index: number
         {!isUser && message.steps && message.steps.length > 0 && (
           <div
             className="rounded-xl px-4 py-3 space-y-2 w-full"
-            style={{ background: "oklch(0.15 0.018 270)", border: "1px solid oklch(1 0 0 / 8%)" }}
+            style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.10)" }}
           >
             {message.steps.map((step) => (
               <StepItem key={step.id} step={step} />
@@ -402,13 +402,13 @@ function MessageBubble({ message, index }: { message: ChatMessage; index: number
           <div
             className="rounded-xl px-4 py-3 text-sm leading-relaxed"
             style={isUser ? {
-              background: "oklch(0.58 0.22 290 / 0.18)",
-              border: "1px solid oklch(0.58 0.22 290 / 0.28)",
-              color: "oklch(0.90 0.008 270)",
+              background: "rgba(255,255,255,0.10)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              color: "#f1f1f3",
             } : {
-              background: "oklch(0.15 0.018 270)",
-              border: "1px solid oklch(1 0 0 / 8%)",
-              color: "oklch(0.82 0.008 270)",
+              background: "#1a1a1a",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "#e0e0e0",
             }}
           >
             {message.content}
@@ -423,7 +423,7 @@ function MessageBubble({ message, index }: { message: ChatMessage; index: number
           </div>
         )}
 
-        <span className="text-[10px] px-1" style={{ color: "oklch(0.36 0.01 270)" }}>
+        <span className="text-[10px] px-1" style={{ color: "#555" }}>
           {message.timestamp.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
         </span>
       </div>
@@ -438,28 +438,28 @@ function StepItem({ step }: { step: AgentStep }) {
     <div className="flex items-center gap-2.5">
       <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0">
         {step.status === "done" ? (
-          <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: "oklch(0.72 0.18 200 / 0.2)" }}>
-            <Check size={9} style={{ color: "oklch(0.72 0.18 200)" }} />
+          <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: "rgba(16,185,129,0.15)" }}>
+            <Check size={9} style={{ color: "#10b981" }} />
           </div>
         ) : step.status === "running" ? (
-          <Loader2 size={12} className="animate-spin" style={{ color: "oklch(0.58 0.22 290)" }} />
+          <Loader2 size={12} className="animate-spin" style={{ color: "#ffffff" }} />
         ) : (
-          <div className="w-2 h-2 rounded-full" style={{ background: "oklch(0.30 0.01 270)" }} />
+          <div className="w-2 h-2 rounded-full" style={{ background: "#444" }} />
         )}
       </div>
       <span
         className="text-[12px] font-medium"
         style={{
           color: step.status === "done"
-            ? "oklch(0.72 0.18 200)"
+            ? "#10b981"
             : step.status === "running"
-            ? "oklch(0.85 0.008 270)"
-            : "oklch(0.59 0.010 270)",
+            ? "#f1f1f3"
+            : "#777472",
         }}
       >
         {step.label}
       </span>
-      <span className="text-[10px] ml-auto" style={{ color: "oklch(0.36 0.01 270)" }}>{step.detail}</span>
+      <span className="text-[10px] ml-auto" style={{ color: "#555" }}>{step.detail}</span>
     </div>
   );
 }
@@ -469,17 +469,17 @@ function StepItem({ step }: { step: AgentStep }) {
 function AssetCard({ asset }: { asset: GeneratedAsset }) {
   const typeLabel = { image: "图片", video: "视频", brand: "品牌", poster: "海报" }[asset.type];
   const typeColor = {
-    image: "oklch(0.78 0.18 290)",
-    video: "oklch(0.72 0.18 200)",
-    brand: "oklch(0.78 0.18 60)",
-    poster: "oklch(0.80 0.18 330)",
+    image: "#f1f1f3",
+    video: "#10b981",
+    brand: "#f59e0b",
+    poster: "#f472b6",
   }[asset.type];
   const TypeIcon = { image: ImageIcon, video: Video, brand: Palette, poster: ImageIcon }[asset.type];
 
   return (
     <div
       className="rounded-xl overflow-hidden card-hover group cursor-pointer"
-      style={{ background: "oklch(0.13 0.016 270)", border: "1px solid oklch(1 0 0 / 8%)" }}
+      style={{ background: "#141414", border: "1px solid rgba(255,255,255,0.08)" }}
       onClick={() => toast("预览资产", { description: "功能即将上线" })}
     >
       <div className="relative overflow-hidden" style={{ aspectRatio: "3/4" }}>
@@ -492,14 +492,14 @@ function AssetCard({ asset }: { asset: GeneratedAsset }) {
           <button
             onClick={(e) => { e.stopPropagation(); toast("下载", { description: "功能即将上线" }); }}
             className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors"
-            style={{ background: "oklch(1 0 0 / 20%)" }}
+            style={{ background: "rgba(255,255,255,0.20)" }}
           >
             <Download size={13} className="text-white" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); toast("全屏预览", { description: "功能即将上线" }); }}
             className="w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors"
-            style={{ background: "oklch(1 0 0 / 20%)" }}
+            style={{ background: "rgba(255,255,255,0.20)" }}
           >
             <Maximize2 size={13} className="text-white" />
           </button>
@@ -532,13 +532,13 @@ function GalleryView({ assets }: { assets: GeneratedAsset[] }) {
             onClick={() => setFilter(f)}
             className="px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-150"
             style={filter === f ? {
-              background: "oklch(0.58 0.22 290 / 0.18)",
-              border: "1px solid oklch(0.58 0.22 290 / 0.4)",
-              color: "oklch(0.80 0.18 290)",
+              background: "rgba(255,255,255,0.10)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              color: "#f1f1f3",
             } : {
-              background: "oklch(1 0 0 / 4%)",
-              border: "1px solid oklch(1 0 0 / 8%)",
-              color: "oklch(0.66 0.010 270)",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "#a0a0a6",
             }}
           >
             {{ all: "全部", image: "图片", video: "视频", brand: "品牌" }[f]}
@@ -546,14 +546,14 @@ function GalleryView({ assets }: { assets: GeneratedAsset[] }) {
         ))}
         <div className="flex-1" />
         <button onClick={() => toast("排序", { description: "功能即将上线" })} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-          <MoreHorizontal size={15} style={{ color: "oklch(0.65 0.010 270)" }} />
+          <MoreHorizontal size={15} style={{ color: "#777472" }} />
         </button>
       </div>
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16">
-          <ImageIcon size={32} style={{ color: "oklch(0.32 0.01 270)" }} className="mb-3" />
-          <p className="text-[13px]" style={{ color: "oklch(0.62 0.010 270)" }}>暂无该类型素材</p>
+          <ImageIcon size={32} style={{ color: "#555" }} className="mb-3" />
+          <p className="text-[13px]" style={{ color: "#a0a0a6" }}>暂无该类型素材</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
