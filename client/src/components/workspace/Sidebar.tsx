@@ -34,14 +34,12 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
   const avatarLetter = displayName.trim().slice(0, 1).toUpperCase() || "U";
 
   const handleNavClick = (id: string) => {
-    // 邀请是弹窗而非路由页，所以在白名单之前单独分流；
-    // 若放到 onNavSelect 里会让上层误以为发生了页面切换。
     if (id === "invite") {
       setInviteOpen(true);
       return;
     }
-    if (id !== "projects" && id !== "home") {
-      toast("功能即将上线", { description: "该功能正在开发中，敬请期待。" });
+    if (id !== "projects" && id !== "home" && id !== "templates" && id !== "community") {
+      toast("功能即将上线", { description: "该功能正在开发中,敬请期待。" });
       return;
     }
     onNavSelect(id);
@@ -52,73 +50,63 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       className="flex flex-col h-full w-[220px] shrink-0"
       style={{ background: "#222222", borderRight: "1px solid rgba(255,255,255,0.06)" }}
     >
-      {/* Logo */}
-      <div className="flex origin-left scale-[0.7] items-center gap-2.5 px-4 py-4 shrink-0">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "linear-gradient(135deg, #161616, #333333)" }}
+      {/* 顶部导航区 - 三段式第一段 */}
+      <div className="shrink-0 px-2 pt-3 pb-2 space-y-1">
+        <button
+          onClick={() => handleNavClick("home")}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-pill)] text-sm transition-all duration-200 text-left group hover:scale-[1.02] active:scale-98"
+          style={{
+            background: activeNav === "home" ? "#161616" : "transparent",
+            color: activeNav === "home" ? "white" : "#bbbbbb",
+            boxShadow: activeNav === "home" ? "0px 2px 8px rgba(0,0,0,0.08)" : "none",
+          }}
         >
-          <Sparkles size={14} className="text-white" />
-        </div>
-        <span className="font-bold text-[15px] tracking-tight text-white">Lovart AI</span>
+          <Plus size={15} className="shrink-0" />
+          <span className="flex-1 font-medium text-[13px]">新创作</span>
+        </button>
+        <button
+          onClick={() => handleNavClick("templates")}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-pill)] text-sm transition-all duration-200 text-left group hover:scale-[1.02] active:scale-98"
+          style={{
+            background: activeNav === "templates" ? "rgba(255,255,255,0.08)" : "transparent",
+            color: activeNav === "templates" ? "white" : "#bbbbbb",
+          }}
+        >
+          <LayoutTemplate size={15} className="shrink-0" />
+          <span className="flex-1 font-medium text-[13px]">创作模板</span>
+        </button>
+        <button
+          onClick={() => handleNavClick("community")}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-pill)] text-sm transition-all duration-200 text-left group hover:scale-[1.02] active:scale-98"
+          style={{
+            background: activeNav === "community" ? "rgba(255,255,255,0.08)" : "transparent",
+            color: activeNav === "community" ? "white" : "#bbbbbb",
+          }}
+        >
+          <Sparkles size={15} className="shrink-0" />
+          <span className="flex-1 font-medium text-[13px]">画布社区</span>
+        </button>
       </div>
 
-      {/* Nav items */}
-      <nav className="px-2 space-y-0.5 shrink-0">
-        {NAV_ITEMS.map((item) => {
-          const Icon = ICON_MAP[item.icon] || Home;
-          const isActive = activeNav === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => handleNavClick(item.id)}
-              className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 text-left group",
-                isActive
-                  ? "text-white"
-                  : "text-[#bbbbbb] hover:text-white"
-              )}
-              style={isActive ? {
-                background: "rgba(255,255,255,0.08)",
-                borderLeft: "2.5px solid #161616",
-              } : {
-                borderLeft: "2.5px solid transparent",
-              }}
-            >
-              <Icon size={15} className="shrink-0" />
-              <span className="flex-1 font-medium text-[13px]">{item.label}</span>
-              {item.badge && (
-                <span
-                  className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                  style={{ background: "rgba(22,22,22,0.25)", color: "#161616" }}
-                >
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
       {/* Divider */}
-      <div className="mx-3 my-3 shrink-0" style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
+      <div className="mx-3 my-2 shrink-0" style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
 
-      {/* Recent Projects */}
-      <div className="flex-1 overflow-hidden flex flex-col px-2">
+      {/* 中部项目列表区 - 三段式第二段(可滚动) */}
+      <div className="flex-1 overflow-hidden flex flex-col px-2 min-h-0">
         <div
           role="button"
           onClick={() => setProjectsExpanded(!projectsExpanded)}
-          className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left mb-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left mb-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer shrink-0"
         >
           <ChevronDown
             size={13}
             className="transition-transform duration-200"
             style={{
-              color: "#161616",
+              color: "#aaaaaa",
               transform: projectsExpanded ? "rotate(0deg)" : "rotate(-90deg)",
             }}
           />
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#161616" }}>
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: "#aaaaaa" }}>
             最近项目
           </span>
           <div
@@ -126,12 +114,12 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
             onClick={(e) => { e.stopPropagation(); toast("新建项目", { description: "功能即将上线" }); }}
             className="ml-auto p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <Plus size={12} style={{ color: "#161616" }} />
+            <Plus size={12} style={{ color: "#aaaaaa" }} />
           </div>
         </div>
 
         {projectsExpanded && (
-          <div className="flex-1 overflow-y-auto space-y-0.5">
+          <div className="flex-1 overflow-y-auto space-y-0.5 min-h-0">
             {PROJECTS.map((project, i) => (
               <ProjectItem
                 key={project.id}
@@ -145,9 +133,19 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
         )}
       </div>
 
-      {/* Bottom actions */}
-      <div className="px-2 pb-3 space-y-0.5 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12 }}>
-        {/* Upgrade CTA */}
+      {/* 底部固定区 - 三段式第三段 */}
+      <div className="px-2 pb-3 space-y-1 shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12 }}>
+        {/* 最近 */}
+        <button
+          onClick={() => handleNavClick("history")}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group hover:bg-white/5"
+          style={{ color: "#bbbbbb" }}
+        >
+          <History size={14} className="shrink-0" />
+          <span className="text-[13px] font-medium">最近</span>
+        </button>
+
+        {/* 订阅 */}
         <button
           onClick={() => toast("升级计划", { description: "功能即将上线" })}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group"
@@ -167,9 +165,9 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[12px] font-medium text-white truncate">{displayName}</div>
-            <div className="text-[11px]" style={{ color: "#161616" }}>免费版 · 0 积分</div>
+            <div className="text-[11px]" style={{ color: "#aaaaaa" }}>免费版 · 0 积分</div>
           </div>
-          <ChevronRight size={12} style={{ color: "#161616" }} />
+          <ChevronRight size={12} style={{ color: "#aaaaaa" }} />
         </div>
       </div>
 
@@ -194,16 +192,16 @@ function ProjectItem({ project, isActive, onSelect, delay }: {
       style={{
         animationDelay: `${delay}ms`,
         background: isActive ? "rgba(255,255,255,0.07)" : undefined,
-        borderLeft: isActive ? "2px solid #161616" : "2px solid transparent",
+        borderLeft: isActive ? "2px solid #aaaaaa" : "2px solid transparent",
       }}
     >
       <div
         className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: isActive ? "#161616" : "#555555" }}
+        style={{ background: isActive ? "#aaaaaa" : "#555555" }}
       />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium truncate">{project.title}</div>
-        <div className="text-[10px] truncate" style={{ color: "#161616" }}>{project.updatedAt}</div>
+        <div className="text-[10px] truncate" style={{ color: "#aaaaaa" }}>{project.updatedAt}</div>
       </div>
     </button>
   );

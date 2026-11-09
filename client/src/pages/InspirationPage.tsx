@@ -1,11 +1,13 @@
 /**
  * InspirationPage — AI image prompt gallery.
+ * 样式对标截图2 "创作模板" 风格：
+ * 顶部搜索栏 + 分类 tab (横向滚动) + 编辑精选轮播 + 探索灵感网格
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Copy, Sparkles, X } from "lucide-react";
+import { Copy, Search, Sparkles, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
@@ -36,6 +38,9 @@ type PromptItem = InspirationFeedItem;
 const ALL_GROUPS = "全部分类";
 const ALL_SUBCATEGORIES = "全部";
 const INSPIRATION_PAGE_SIZE = 50;
+
+// 编辑精选分类 tab - 对应截图2的分类导航
+const EDITOR_TABS = ["精选", "订阅", "大师设计", "节日推荐", "品牌风格", "极简主义", "赛博朋克"] as const;
 
 function getParam(name: string, fallback: string) {
   const value = new URLSearchParams(globalThis.location?.search || "").get(name);
@@ -75,6 +80,10 @@ export default function InspirationPage() {
   const [externalItems, setExternalItems] = useState<PromptItem[]>([]);
   const [visibleCount, setVisibleCount] = useState(INSPIRATION_PAGE_SIZE);
   const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeEditorTab, setActiveEditorTab] = useState<string>(EDITOR_TABS[0]);
+  const [featuredScrollPos, setFeaturedScrollPos] = useState(0);
+  const featuredScrollRef = useRef<HTMLDivElement | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const promptScrollRef = useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
@@ -156,9 +165,13 @@ export default function InspirationPage() {
     return allPromptItems.filter((item) => {
       const matchesGroup = activeGroup === ALL_GROUPS || item.group === activeGroup;
       const matchesSubcategory = activeSubcategory === ALL_SUBCATEGORIES || item.subcategory === activeSubcategory;
-      return matchesGroup && matchesSubcategory;
+      const matchesSearch = !searchQuery.trim() || 
+        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.field.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesGroup && matchesSubcategory && matchesSearch;
     });
-  }, [activeGroup, activeSubcategory, allPromptItems]);
+  }, [activeGroup, activeSubcategory, allPromptItems, searchQuery]);
   const visibleItems = useMemo(() => filteredItems.slice(0, visibleCount), [filteredItems, visibleCount]);
   const canLoadMore = visibleCount < filteredItems.length;
 
@@ -261,6 +274,13 @@ export default function InspirationPage() {
    * ⚠️ 只带提示词、不带图片：灵感图是远程 URL，而交接通道要求 data:URL，
    * 硬塞进去画布侧会拿到一个加载不出来的引用图（且不报错）。
    */
+  const scrollFeatured = (dir: "left" | "right") => {
+    const el = featuredScrollRef.current;
+    if (!el) return;
+    const scrollAmount = 340;
+    el.scrollBy({ left: dir === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
+  };
+
   const importToCanvas = (item: PromptItem) => {
     const text = item.prompt?.trim() || item.title;
     const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
@@ -297,162 +317,306 @@ export default function InspirationPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: isDark ? "#171717" : "var(--design-surface-soft)" }}>
-        <main className="mx-auto px-5 py-8 sm:px-8 sm:py-10" style={{ maxWidth: 1320 }}>
+        <main className="mx-auto px-5 py-6 sm:px-8" style={{ maxWidth: 1320 }}>
+
+          {/* ── 顶部搜索栏 ── */}
           <section className="mb-6">
-            <div>
-              <div className="mb-3 flex items-center gap-2">
-                <Sparkles size={15} style={{ color: "#333333" }} />
-                <span className="type-caption" style={{ color: "#333333" }}>AI 图片生成提示词图库</span>
+            <div className="flex items-center gap-4">
+              <div className="flex-1 relative">
+                <Search
+                  size={15}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                  style={{ color: isDark ? "#666666" : "#999999" }}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="搜索创作模板、提示词..."
+                  className="w-full rounded-[var(--radius-pill)] py-2.5 pl-10 pr-4 text-[13px] outline-none transition-all"
+                  style={{
+                    background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
+                    border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
+                    color: text,
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2"
+                    aria-label="清除搜索"
+                  >
+                    <X size={13} style={{ color: isDark ? "#666666" : "#999999" }} />
+                  </button>
+                )}
               </div>
-              <h1 className="type-display-sm" style={{ color: text, letterSpacing: 0 }}>超多优质 AI 图片灵感提示词持续更新中，一键复制，你也能生成高质量的 AI 图片。</h1>
-              <p className="type-body-sm mt-3 max-w-3xl leading-6" style={{ color: sub }}>
-                汇总热门 AI 图片案例，按分类浏览图片与提示词。
-              </p>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[var(--radius-lg-design)] p-3.5" style={{ background: panelBg, border: `1px solid ${border}`, backdropFilter: "blur(18px)" }}>
-            <div className="flex flex-col gap-3">
-              <div
-                className="flex flex-wrap items-center gap-2"
-                role="tablist"
-                aria-label="主分类筛选"
-              >
-                {visibleGroups.map((group) => {
-                  const active = group === activeGroup;
-                  const count = group === ALL_GROUPS ? allPromptItems.length : categoryCounts.get(group) || 0;
+          {/* ── 分类 Tab (横向滚动) ── */}
+          <section className="mb-6">
+            <div
+              className="flex items-center gap-1 overflow-x-auto pb-1"
+              role="tablist"
+              aria-label="创作模板分类"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              {/* 主分类 tab */}
+              {visibleGroups.map((group) => {
+                const active = group === activeGroup;
+                return (
+                  <button
+                    key={group}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => updateFilters(group)}
+                    className="shrink-0 whitespace-nowrap px-4 py-2 text-[13px] font-medium transition-all relative"
+                    style={{
+                      color: active ? (isDark ? "white" : "#161616") : (isDark ? "#888888" : "#999999"),
+                      borderBottom: active
+                        ? `2px solid ${isDark ? "white" : "#161616"}`
+                        : "2px solid transparent",
+                    }}
+                  >
+                    {group}
+                  </button>
+                );
+              })}
+            </div>
+            {/* 分隔线 */}
+            <div style={{ height: 1, background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" }} />
+
+            {/* 子分类 pill */}
+            {availableSubcategories.length > 1 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {availableSubcategories.map((subcategory) => {
+                  const active = subcategory === activeSubcategory;
                   return (
                     <button
-                      key={group}
+                      key={subcategory}
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => updateFilters(group)}
-                      className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-2.5 type-caption transition-all active:scale-95"
+                      onClick={() => updateSubcategory(subcategory)}
+                      className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-1.5 text-[12px] transition-all active:scale-95"
                       style={{
-                        background: active ? activeBg : "transparent",
-                        border: `1px solid ${active ? "rgba(22,22,22,0.42)" : "transparent"}`,
-                        color: active ? "#161616" : sub,
-                        fontWeight: active ? 760 : 650,
+                        background: active
+                          ? (isDark ? "rgba(255,255,255,0.14)" : "rgba(22,22,22,0.10)")
+                          : "transparent",
+                        border: `1px solid ${active
+                          ? (isDark ? "rgba(255,255,255,0.25)" : "rgba(22,22,22,0.20)")
+                          : (isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)")}`,
+                        color: active ? (isDark ? "white" : "#161616") : sub,
+                        fontWeight: active ? 600 : 400,
                       }}
                     >
-                      {group}
-                      <span style={{ opacity: 0.62 }}> {count}</span>
+                      {subcategory}
                     </button>
                   );
                 })}
               </div>
+            )}
+          </section>
 
-              <div
-                aria-hidden="true"
-                className="h-px w-full"
-                style={{ background: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)" }}
-              />
-
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="细分类筛选">
-                  {availableSubcategories.map((subcategory) => {
-                    const active = subcategory === activeSubcategory;
-                    const count = subcategory === ALL_SUBCATEGORIES
-                      ? allPromptItems.filter(item => activeGroup === ALL_GROUPS || item.group === activeGroup).length
-                      : categoryCounts.get(subcategory) || 0;
-                    return (
-                      <button
-                        key={subcategory}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => updateSubcategory(subcategory)}
-                        className="max-w-[168px] shrink-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-2 type-caption transition-all active:scale-95"
-                        style={{
-                          background: active ? "#aaaaaa" : "transparent",
-                          border: `1px solid ${active ? "#aaaaaa" : border}`,
-                          color: active ? "#cccccc" : sub,
-                        }}
-                      >
-                        {subcategory}
-                        <span style={{ opacity: 0.62 }}> {count}</span>
-                      </button>
-                    );
-                  })}
+          {/* ── 编辑精选轮播 ── (仅无搜索词时显示) */}
+          {!searchQuery && visibleItems.length > 0 && (
+            <section className="mb-8">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} style={{ color: isDark ? "#888888" : "#555555" }} />
+                  <span className="text-[14px] font-semibold" style={{ color: text }}>编辑精选</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => scrollFeatured("left")}
+                    className="flex h-7 w-7 items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                      border: `1px solid ${border}`,
+                    }}
+                    aria-label="向左滚动"
+                  >
+                    <ChevronLeft size={13} style={{ color: isDark ? "#cccccc" : "#555555" }} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollFeatured("right")}
+                    className="flex h-7 w-7 items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95"
+                    style={{
+                      background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                      border: `1px solid ${border}`,
+                    }}
+                    aria-label="向右滚动"
+                  >
+                    <ChevronRight size={13} style={{ color: isDark ? "#cccccc" : "#555555" }} />
+                  </button>
                 </div>
               </div>
-            </div>
-          </section>
 
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <p className="type-caption" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-              当前显示 {visibleItems.length} / {filteredItems.length} 组
-            </p>
-          </div>
-
-          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visibleItems.map((item) => {
-              const identity = normalizeInspirationIdentity(item.title);
-              return (
-                <InspirationCard
-                  key={`${item.rank}-${item.title}`}
-                  item={item}
-                  isDark={isDark}
-                  cardBg={cardBg}
-                  border={border}
-                  shadow={shadow}
-                  text={text}
-                  sub={sub}
-                  activeBg={activeBg}
-                  hovered={hoveredItemKey === `${item.rank}-${item.title}`}
-                  onOpen={() => setSelectedItem(item)}
-                  onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
-                  onMouseLeave={handleInspirationCardMouseLeave}
-                  onCopyPrompt={() => copyPrompt(item.prompt)}
-                  onImportToCanvas={() => importToCanvas(item)}
-                  reactionSlot={
-                    /*
-                     * ⚠️ 这里原来**没有传 count** —— 专题页的卡片只有一颗心，没有数字，
-                     * 于是用户点赞后毫无反馈（用户明确要求「点赞收藏之后都要有增加数值」）。
-                     * 基数来自 title 哈希，与首页同一个纯函数，两页数字必然相同。
-                     */
-                    <InspirationReactionButton
-                      kind="like"
-                      active={inspirationReactions.isActive("like", identity)}
-                      idleColor={sub}
-                      count={getDisplayLikeCount(
-                        getInspirationLikeBaseCount(item.title),
-                        inspirationReactions.isActive("like", identity)
-                      )}
-                      onToggle={() => inspirationReactions.toggle("like", toReactionItem(item))}
-                    />
-                  }
-                />
-              );
-            })}
-          </section>
-          {filteredItems.length === 0 && (
-            <section className="rounded-[var(--radius-lg-design)] p-8 text-center" style={{ background: panelBg, border: `1px solid ${border}` }}>
-              <p className="type-body-sm" style={{ color: text, fontWeight: 720 }}>当前分类暂无图片和提示词</p>
-              <p className="type-caption mt-2" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-                后续导入该分类的数据后，这里会自动显示对应图片和提示词。
-              </p>
+              {/* 精选轮播容器 */}
+              <div
+                ref={featuredScrollRef}
+                className="flex gap-4 overflow-x-auto pb-2"
+                style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+              >
+                {visibleItems.slice(0, 8).map((item) => (
+                  <article
+                    key={`featured-${item.rank}-${item.title}`}
+                    onClick={() => setSelectedItem(item)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedItem(item); } }}
+                    role="button"
+                    tabIndex={0}
+                    className="group shrink-0 cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] transition-all duration-300 hover:scale-[1.02]"
+                    style={{
+                      width: 320,
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                    }}
+                    onMouseEnter={() => handleInspirationCardMouseEnter(`featured-${item.rank}-${item.title}`)}
+                    onMouseLeave={handleInspirationCardMouseLeave}
+                  >
+                    {/* 封面图 16:10 */}
+                    <div className="relative overflow-hidden bg-[#1a1a1a]" style={{ aspectRatio: "16 / 10" }}>
+                      <img
+                        src={item.imageUrl}
+                        alt={item.title}
+                        className="h-full w-full object-cover transition-transform duration-500 ease-out"
+                        style={{
+                          transform: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)",
+                        }}
+                        loading="lazy"
+                        onError={e => { e.currentTarget.style.display = "none"; }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #2a2a2a)", zIndex: 0 }}>
+                        <span className="text-[11px]" style={{ color: "#666" }}>待加载</span>
+                      </div>
+                      {/* hover 时显示操作按钮 */}
+                      <div
+                        className="absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-200"
+                        style={{
+                          opacity: hoveredItemKey === `featured-${item.rank}-${item.title}` ? 1 : 0,
+                          background: "rgba(0,0,0,0.35)",
+                          zIndex: 10,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); importToCanvas(item); }}
+                          className="rounded-[var(--radius-pill)] px-3 py-1.5 text-[11px] font-medium transition-all hover:scale-105"
+                          style={{ background: "white", color: "#161616" }}
+                        >
+                          导入画布
+                        </button>
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); copyPrompt(item.prompt); }}
+                          className="rounded-[var(--radius-pill)] px-3 py-1.5 text-[11px] font-medium transition-all hover:scale-105"
+                          style={{ background: "rgba(255,255,255,0.18)", color: "white", border: "1px solid rgba(255,255,255,0.3)" }}
+                        >
+                          复制提示词
+                        </button>
+                      </div>
+                    </div>
+                    {/* 底部元信息 */}
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12px] font-semibold" style={{ color: text }}>{item.title}</p>
+                        <p className="truncate text-[11px] mt-0.5" style={{ color: sub }}>{item.field}</p>
+                      </div>
+                      <span
+                        className="ml-2 shrink-0 rounded-[var(--radius-pill)] px-2 py-0.5 text-[10px]"
+                        style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", color: sub }}
+                      >
+                        模板
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
             </section>
           )}
-          {canLoadMore && (
-            <div className="flex justify-center pt-6">
-              <button
-                type="button"
-                onClick={() => setVisibleCount(count => Math.min(count + INSPIRATION_PAGE_SIZE, filteredItems.length, INSPIRATION_TARGET_COUNT))}
-                className="rounded-[var(--radius-pill)] px-5 py-2.5 type-caption transition-all hover:scale-[1.02] active:scale-95"
-                style={{
-                  background: activeBg,
-                  border: "1px solid rgba(22,22,22,0.42)",
-                  color: "#161616",
-                  letterSpacing: 0,
-                  textTransform: "none",
-                }}
-              >
-                加载更多
-              </button>
+
+          {/* ── 探索灵感网格 ── */}
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <span className="text-[14px] font-semibold" style={{ color: text }}>
+                {searchQuery ? `搜索结果` : "探索灵感"}
+                <span className="ml-2 text-[12px] font-normal" style={{ color: sub }}>
+                  {filteredItems.length} 个
+                </span>
+              </span>
             </div>
-          )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {visibleItems.map((item) => {
+                const identity = normalizeInspirationIdentity(item.title);
+                return (
+                  <InspirationCard
+                    key={`${item.rank}-${item.title}`}
+                    item={item}
+                    isDark={isDark}
+                    cardBg={cardBg}
+                    border={border}
+                    shadow={shadow}
+                    text={text}
+                    sub={sub}
+                    activeBg={activeBg}
+                    hovered={hoveredItemKey === `${item.rank}-${item.title}`}
+                    onOpen={() => setSelectedItem(item)}
+                    onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
+                    onMouseLeave={handleInspirationCardMouseLeave}
+                    onCopyPrompt={() => copyPrompt(item.prompt)}
+                    onImportToCanvas={() => importToCanvas(item)}
+                    reactionSlot={
+                      <InspirationReactionButton
+                        kind="like"
+                        active={inspirationReactions.isActive("like", identity)}
+                        idleColor={sub}
+                        count={getDisplayLikeCount(
+                          getInspirationLikeBaseCount(item.title),
+                          inspirationReactions.isActive("like", identity)
+                        )}
+                        onToggle={() => inspirationReactions.toggle("like", toReactionItem(item))}
+                      />
+                    }
+                  />
+                );
+              })}
+            </div>
+
+            {filteredItems.length === 0 && (
+              <div className="rounded-[var(--radius-lg-design)] p-10 text-center" style={{ background: panelBg, border: `1px solid ${border}` }}>
+                <p className="text-[14px] font-medium" style={{ color: text }}>
+                  {searchQuery ? `未找到「${searchQuery}」相关内容` : "当前分类暂无内容"}
+                </p>
+                <p className="mt-2 text-[12px]" style={{ color: sub }}>
+                  {searchQuery ? "试试其他关键词，或清除搜索查看全部" : "后续导入数据后会自动显示"}
+                </p>
+              </div>
+            )}
+
+            {canLoadMore && (
+              <div className="flex justify-center pt-6">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(c => Math.min(c + INSPIRATION_PAGE_SIZE, filteredItems.length, INSPIRATION_TARGET_COUNT))}
+                  className="rounded-[var(--radius-pill)] px-6 py-2.5 text-[13px] transition-all hover:scale-[1.02] active:scale-95"
+                  style={{
+                    background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                    border: `1px solid ${border}`,
+                    color: text,
+                  }}
+                >
+                  加载更多
+                </button>
+              </div>
+            )}
+          </section>
+
         </main>
       </div>
 

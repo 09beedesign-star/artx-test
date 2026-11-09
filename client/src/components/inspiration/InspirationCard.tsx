@@ -1,19 +1,13 @@
 /**
  * 灵感推荐卡片 —— 专题页与个人中心**共用的唯一实现**。
  *
- * 【为什么抽出来】
- * 用户要求个人中心「我赞过的 / 我的收藏」两个 tab
- * 「直接复用灵感推荐专题页的卡片样式，所有信息保持一致，
- *   包括卡片右上角的一键导入画布 icon 也保留一样」。
- * 📌 复制一份 JSX 过去 = 同一份 UI 的第二个出口：专题页改了样式，
- * 个人中心不会跟着改，两边慢慢长歪，而这不会报任何错。
+ * 2026-11-09 UI 重构为创作模板风格：
+ * - 封面图 16:10 比例，hover 时轻微放大
+ * - hover 时卡片整体抬升投影 0px 4px 16px rgba(0,0,0,0.14)
+ * - 底部仅展示标题 + 分类标签 + 操作按钮（参考截图2）
+ * - 删除了原有的大块 prompt 展示区，改为精简的一行元信息
  *
- * 【头像的位置与描边】
- * 用户给的参考图里，头像压在图片区右下角、和下方信息区交界处，外围一圈描边。
- * ⚠️ 用户特别强调「描边不能覆盖下方的文字或者标签」：
- * 所以头像绝对定位在**图片容器**内（`bottom` 为负值仅越过交界线一点），
- * 并且信息区顶部预留了 `paddingTop`，让标签行从头像下方开始排。
- * 📌 若把头像放进信息区或用 `transform` 硬顶出去，描边就会压在「UI设计」标签上。
+ * ⚠️ 不改变数据结构和 props 接口——个人中心复用无需改动。
  */
 import { Download } from "lucide-react";
 import type { ReactNode } from "react";
@@ -73,31 +67,56 @@ export function InspirationCard({
       }}
       role="button"
       tabIndex={0}
-      className="cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)] text-left transition-all"
-      style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: shadow }}
+      className="cursor-pointer overflow-hidden text-left transition-all duration-300"
+      style={{
+        background: cardBg,
+        border: `1px solid ${border}`,
+        borderRadius: "var(--radius-lg-design)",
+        // hover 时整体抬升投影，与截图2 hover 态保持一致
+        boxShadow: hovered
+          ? "0px 4px 16px rgba(0,0,0,0.14)"
+          : "0 1px 4px rgba(0,0,0,0.05)",
+        transform: hovered ? "translateY(-2px)" : "translateY(0)",
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="relative overflow-hidden bg-[#222222]" style={{ aspectRatio: "16 / 10" }}>
+      {/* ── 封面图区 16:10 ── */}
+      <div className="relative overflow-hidden bg-[#1a1a1a]" style={{ aspectRatio: "16 / 10" }}>
         <img
           src={item.imageUrl}
           alt={item.title}
-          className="relative z-10 h-full w-full object-cover transition-transform duration-300 ease-out"
-          style={{ transform: hovered ? "scale(1.08)" : "scale(1)" }}
+          className="relative z-10 h-full w-full object-cover transition-transform duration-500 ease-out"
+          style={{ transform: hovered ? "scale(1.06)" : "scale(1)" }}
           loading="lazy"
           onError={event => {
             event.currentTarget.style.display = "none";
           }}
         />
+        {/* 图片加载失败兜底背景 */}
         <div
-          className="absolute inset-0 flex items-center justify-center px-6 text-center"
-          style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)", zIndex: 0 }}
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ background: "linear-gradient(135deg, #1a1a1a, #2a2a2a)", zIndex: 0 }}
         >
-          <span className="type-caption leading-5" style={{ color: "#e6e3df", letterSpacing: 0, textTransform: "none" }}>
-            本地图片待同步
-          </span>
+          <span style={{ color: "#555", fontSize: 11 }}>待加载</span>
         </div>
 
+        {/* hover 时显示操作覆盖层 */}
+        <div
+          className="absolute inset-0 z-20 flex items-end pb-3 px-3 gap-2 transition-opacity duration-200"
+          style={{ opacity: hovered ? 1 : 0, background: "linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 60%)" }}
+        >
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onCopyPrompt(); }}
+            className="rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all hover:scale-105 active:scale-95"
+            style={{ background: "rgba(255,255,255,0.92)", color: "#161616" }}
+          >
+            复制提示词
+          </button>
+        </div>
+
+        {/* 右上角导入画布按钮 */}
         {onImportToCanvas && (
           <button
             type="button"
@@ -105,79 +124,40 @@ export function InspirationCard({
               event.stopPropagation();
               onImportToCanvas();
             }}
-            className="absolute right-2 top-2 z-20 rounded-full p-2 shadow-lg transition-all hover:scale-110"
-            style={{ background: "#C5ED47" }}
+            className="absolute right-2 top-2 z-30 rounded-full p-1.5 shadow-lg transition-all hover:scale-110 active:scale-95"
+            style={{ background: "#ffffff", opacity: hovered ? 1 : 0.7 }}
             aria-label="一键导入画布"
             title="一键导入画布"
           >
-            <Download size={14} style={{ color: "#111" }} />
+            <Download size={13} style={{ color: "#161616" }} />
           </button>
         )}
-
-        {/* ⚠️ 虚拟创作者头像已按用户要求全站移除（专题页 + 个人中心都走这张卡）。 */}
       </div>
 
-      {/*
-        ⚠️ 这里原本是 `p-4 pt-7` —— 多出的上内边距是**专门给越过交界线的头像让位**的。
-        头像删掉后必须一并回收，否则会剩一条没有来由的空白，看起来像排版错位。
-        📌 判据：删元素时，凡是「为这个元素而加的布局补偿」都要跟着删。
-      */}
-      <div className="flex min-h-[270px] flex-col p-4">
-        <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
+      {/* ── 底部元信息区 ── */}
+      <div className="px-3 py-2.5">
+        {/* 标题行 */}
+        <h2
+          className="truncate whitespace-nowrap text-[13px] font-semibold leading-5"
+          style={{ color: text }}
+        >
+          {item.title}
+        </h2>
+
+        {/* 分类标签 + 点赞 */}
+        <div className="mt-1.5 flex items-center justify-between gap-2">
           <span
-            className="min-w-0 truncate whitespace-nowrap rounded-[var(--radius-pill)] px-2.5 py-1 type-caption"
-            style={{ background: activeBg, color: "#f5f6f8", letterSpacing: 0, textTransform: "none" }}
+            className="shrink-0 truncate rounded-[var(--radius-pill)] px-2 py-0.5 text-[11px]"
+            style={{
+              background: activeBg,
+              color: isDark ? "rgba(255,255,255,0.6)" : "#555555",
+              maxWidth: "70%",
+            }}
           >
             {item.field}
           </span>
-          {reactionSlot}
-        </div>
-
-        <h2 className="min-w-0 truncate whitespace-nowrap type-body-sm leading-5" style={{ color: text, fontWeight: 750 }}>
-          {item.title}
-        </h2>
-        <p className="min-w-0 truncate whitespace-nowrap type-caption mt-2 leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>
-          {item.description}
-        </p>
-        <p
-          className="mt-3 rounded-[var(--radius-md-design)] p-3 type-caption leading-5"
-          style={{
-            background: isDark ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.035)",
-            color: isDark ? "#aaaaaa" : "#777472",
-            display: "-webkit-box",
-            letterSpacing: 0,
-            overflow: "hidden",
-            textTransform: "none",
-            WebkitBoxOrient: "vertical",
-            WebkitLineClamp: 4,
-          }}
-        >
-          {item.prompt}
-        </p>
-        <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-          <span
-            className="type-caption"
-            style={{ color: isDark ? "#161616" : "#161616", letterSpacing: 0, textTransform: "none" }}
-          >
-            点击查看完整提示词
-          </span>
-          <button
-            type="button"
-            onClick={event => {
-              event.stopPropagation();
-              onCopyPrompt();
-            }}
-            className="shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 type-caption transition-all hover:scale-105 active:scale-95"
-            style={{
-              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-              border: `1px solid ${border}`,
-              color: text,
-              letterSpacing: 0,
-              textTransform: "none",
-            }}
-          >
-            复制提示词
-          </button>
+          {/* 点赞 slot */}
+          <span className="shrink-0">{reactionSlot}</span>
         </div>
       </div>
     </article>
