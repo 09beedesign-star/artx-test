@@ -1,6 +1,8 @@
+/**
+ * Switch — 图叙 AI 风格：激活色 #161616，thumb 白色，高度 18px
+ */
 import * as React from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
-
 import { cn } from "@/lib/utils";
 
 type SwitchProps = React.ComponentProps<typeof SwitchPrimitive.Root> & {
@@ -8,17 +10,19 @@ type SwitchProps = React.ComponentProps<typeof SwitchPrimitive.Root> & {
   thumbStyle?: React.CSSProperties;
 };
 
-function Switch({
-  className,
-  thumbClassName,
-  thumbStyle,
-  ...props
-}: SwitchProps) {
+function Switch({ className, thumbClassName, thumbStyle, ...props }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-input focus-visible:border-ring focus-visible:ring-ring/50 dark:data-[state=unchecked]:bg-input/80 inline-flex h-[18px] w-[34px] shrink-0 items-center rounded-full border border-transparent p-[2px] shadow-xs transition-all outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+        // 容器轨道
+        "inline-flex h-[20px] w-[36px] shrink-0 cursor-pointer items-center rounded-full border border-transparent p-[2px] transition-all outline-none",
+        // 激活态：#161616；未激活：灰色轨道
+        "data-[state=checked]:bg-[#161616] data-[state=unchecked]:bg-[rgba(22,22,22,0.18)]",
+        "dark:data-[state=unchecked]:bg-[rgba(255,255,255,0.18)] dark:data-[state=checked]:bg-white",
+        // focus ring
+        "focus-visible:ring-[2px] focus-visible:ring-[#161616]/30 dark:focus-visible:ring-white/30",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -26,7 +30,11 @@ function Switch({
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
         className={cn(
-          "bg-background dark:data-[state=unchecked]:bg-foreground dark:data-[state=checked]:bg-primary-foreground pointer-events-none block size-[14px] rounded-full ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0",
+          "pointer-events-none block size-[16px] rounded-full shadow-sm transition-transform",
+          // 激活态：白色 thumb 右移；未激活：深色 thumb
+          "data-[state=checked]:bg-white data-[state=checked]:translate-x-4",
+          "data-[state=unchecked]:bg-white data-[state=unchecked]:translate-x-0",
+          "dark:data-[state=checked]:bg-[#161616] dark:data-[state=unchecked]:bg-white",
           thumbClassName
         )}
         style={thumbStyle}

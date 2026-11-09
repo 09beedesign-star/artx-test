@@ -64,10 +64,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       style={
         {
-          // 报错 toast 需要按文案自适应加宽（见 index.css 中 data-artx-negative 规则），
-          // 这里放开 sonner 的固定宽度变量，实际宽度由 CSS 决定。
+          // 报错 toast 需要按文案自适应加宽(见 index.css 中 data-artx-negative 规则),
+          // 这里放开 sonner 的固定宽度变量,实际宽度由 CSS 决定。
           "--width": "min(680px, calc(100vw - 48px))",
-          "--normal-bg": "rgba(0,0,0,0.60)",
+          "--normal-bg": "#222222",
           "--normal-text": "rgba(255,255,255,0.92)",
           "--normal-border": "rgba(255,255,255,0.10)",
         } as React.CSSProperties
