@@ -1,7 +1,6 @@
 /**
- * AppShell — Global Layout with Left Sidebar
- * Design: Neo-Studio — wide sidebar with nav groups
- * Sections: 首页 / 灵感推荐 / 技能商店 / 工作台
+ * AppShell — Three-Column Layout (图叙 AI 风格)
+ * Left icon rail | Middle nav panel | Right content
  */
 import { useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
@@ -18,8 +17,8 @@ import InviteDialog from "@/components/workspace/InviteDialog";
 import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
-  Store,
-  PanelLeft, PanelRight, Brain,
+  Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
+  Users, LayoutGrid, Layers,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 
@@ -629,6 +628,92 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     </div>
   ) : null;
 
+  // ── Icon rail button (left column) ─────────────────────────────
+  const IconRailBtn = ({
+    icon: Icon, label, path, onClick, active: forceActive, tourId,
+  }: {
+    icon: React.ElementType;
+    label: string;
+    path?: string;
+    onClick?: () => void;
+    active?: boolean;
+    tourId?: TourAnchor;
+  }) => {
+    const active = forceActive !== undefined ? forceActive : (path ? isActive(path) : false);
+    const handleClick = () => {
+      if (onClick) { onClick(); return; }
+      if (path) {
+        if (!isAuthenticated && path === "/workspace") { openLoginModal(); return; }
+        navigate(path);
+      }
+    };
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        data-tour-id={tourId}
+        title={label}
+        aria-label={label}
+        className="flex h-9 w-9 items-center justify-center rounded-lg transition-all"
+        style={{
+          background: active ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(22,22,22,0.10)") : "transparent",
+          color: active ? (isDark ? "#ffffff" : "#161616") : (isDark ? "#999999" : "#888888"),
+        }}
+        onMouseEnter={e => {
+          if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.06)";
+        }}
+        onMouseLeave={e => {
+          if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+        }}
+      >
+        <Icon size={17} strokeWidth={active ? 1.9 : 1.5} />
+      </button>
+    );
+  };
+
+  // ── Middle panel nav item ────────────────────────────────────
+  const PanelNavItem = ({
+    icon: Icon, label, path, onClick, tourId,
+  }: {
+    icon: React.ElementType;
+    label: string;
+    path?: string;
+    onClick?: () => void;
+    tourId?: TourAnchor;
+  }) => {
+    const active = path ? isActive(path) : false;
+    const handleClick = () => {
+      if (onClick) { onClick(); return; }
+      if (path) {
+        if (!isAuthenticated && path === "/workspace") { openLoginModal(); return; }
+        navigate(path);
+      }
+    };
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        data-tour-id={tourId}
+        className="w-full flex h-[32px] items-center gap-2 rounded-lg px-2.5 text-left transition-all"
+        style={{
+          background: active ? (isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.08)") : "transparent",
+          color: active ? (isDark ? "#f1f1f3" : "#161616") : (isDark ? "#888888" : "#777777"),
+        }}
+        onMouseEnter={e => {
+          if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)";
+        }}
+        onMouseLeave={e => {
+          if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+        }}
+      >
+        <Icon size={15} strokeWidth={active ? 1.9 : 1.5} style={{ flexShrink: 0, opacity: active ? 1 : 0.75 }} />
+        <span style={{ fontSize: 12.5, fontWeight: active ? 560 : 440, letterSpacing: "-0.01em" }} className="truncate">
+          {label}
+        </span>
+      </button>
+    );
+  };
+
   if (shouldHideSidebar) {
     return (
       <>
@@ -653,195 +738,195 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     );
   }
 
-  // ── Shared nav item renderer ──────────────────────────────────
-  const NavItem = ({
-    icon: Icon, label, path, iconSize = 16, tourId,
-  }: { icon: React.ElementType; label: string; path: string; iconSize?: number; tourId?: TourAnchor }) => {
-    const active = isActive(path);
-    const handleClick = () => {
-      if (!isAuthenticated && path === "/workspace") {
-        openLoginModal();
-        return;
-      }
-      navigate(path);
-    };
-
-    return (
-      <button
-        onClick={handleClick}
-        data-tour-id={tourId}
-        className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
-        style={{
-          background: active ? activeBg : "transparent",
-          color: active ? activeColor : textSecondary,
-          borderRadius: 6,
-        }}
-        onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = hoverBg; }}
-        onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-        title={navCollapsed ? label : undefined}
-      >
-        <Icon size={iconSize} strokeWidth={active ? 1.8 : 1.45} style={{ color: "currentColor", flexShrink: 0, opacity: active ? 1 : 0.7 }} />
-        {navCollapsed ? null : (
-          <span className="truncate" style={{ fontSize: 12, fontWeight: active ? 560 : 450, letterSpacing: 0 }}>{label}</span>
-        )}
-      </button>
-    );
-  };
-
   return (
-    <div className="flex h-screen gap-3 overflow-hidden p-3" style={{ background: mainBg }}>
-      {/* ── Left Sidebar ── */}
-      <aside
-        className="flex flex-col flex-shrink-0 overflow-hidden"
+    <div className="flex h-screen overflow-hidden" style={{ background: mainBg }}>
+
+      {/* ── Column 1: Icon Rail (52px) ── */}
+      <div
+        className="flex flex-shrink-0 flex-col items-center py-3 gap-1"
         style={{
-          width: navCollapsed ? 68 : 180,
-          background: sidebarBg,
-          border: `1px solid ${sidebarBorder}`,
-          borderRadius: 16,
-          zIndex: 10,
-          transition: "background 0.25s ease, width 0.22s cubic-bezier(0.23,1,0.32,1)",
+          width: 52,
+          background: isDark ? "#0d0d0d" : "#f5f5f5",
+          borderRight: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.08)"}`,
         }}
       >
-        {/* Logo + 侧边栏折叠开关（图标与画布对话框的收起/展开一致） */}
-        <div className={`flex items-center gap-2 pt-5 pb-4 ${navCollapsed ? "justify-center px-2" : "px-4"}`}>
-          {navCollapsed ? null : (
-            <button
-              type="button"
-              className={`${BRAND_LOGO_SIZE} cursor-pointer transition-opacity hover:opacity-85`}
-              onClick={() => navigate("/")}
-              aria-label="ArtXStudio 首页"
-            >
-              <img
-                src={artxStudioLogo}
-                alt="ArtXStudio"
-                className="block h-full w-full object-contain object-left"
-              />
-            </button>
-          )}
+        {/* Logo */}
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="mb-2 flex h-8 w-8 items-center justify-center"
+          aria-label="ArtXStudio 首页"
+          title="ArtXStudio 首页"
+        >
+          <img src={artxStudioLogo} alt="ArtX" className="h-5 w-5 object-contain" />
+        </button>
+
+        {/* Primary nav icons */}
+        <IconRailBtn icon={Home}       label="首页"      path="/"                  tourId={TOUR_ANCHORS.navHome} />
+        <IconRailBtn icon={Sparkles}   label="创作模板"  path="/inspiration"        tourId={TOUR_ANCHORS.navInspiration} />
+        <IconRailBtn icon={Users}      label="画布社区"   path="/community"          />
+        <IconRailBtn icon={FolderOpen} label="工作台"    path="/workspace"           tourId={TOUR_ANCHORS.navWorkspace} />
+        <IconRailBtn icon={Store}      label="电商画布"  path="/ecommerce-canvas"    />
+        <IconRailBtn icon={Library}    label="技能商店"  path="/skills"              tourId={TOUR_ANCHORS.navSkills} />
+        <IconRailBtn icon={Brain}      label="长期记忆"  path="/memory"              />
+        <IconRailBtn icon={CreditCard} label="充值与订阅" path="/billing"            tourId={TOUR_ANCHORS.navBilling} />
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Bottom utility icons */}
+        <IconRailBtn icon={Gift}       label="邀请好友"   onClick={openInviteDialog}  tourId={TOUR_ANCHORS.navInvite} />
+        <IconRailBtn icon={QrCode}     label="加入社群"   onClick={openCommunityDialog} />
+        <IconRailBtn icon={HelpCircle} label="帮助与反馈" onClick={handleHelpClick}    active={helpActive} />
+        <IconRailBtn icon={KeyRound}   label="API key"   onClick={openApiKeyDialog}   />
+        <IconRailBtn
+          icon={Compass}
+          label="新手引导"
+          onClick={() => {
+            onboarding.resetAll();
+            toast.success("新手引导已重置，进入对应页面即可重新观看");
+          }}
+        />
+
+        {/* Panel toggle */}
+        <button
+          type="button"
+          onClick={() => setNavCollapsed(v => !v)}
+          title={navCollapsed ? "展开导航面板" : "收起导航面板"}
+          aria-label={navCollapsed ? "展开导航面板" : "收起导航面板"}
+          className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg transition-all"
+          style={{ color: isDark ? "#666" : "#aaa" }}
+          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#aaa")}
+        >
+          {navCollapsed
+            ? <PanelLeftOpen size={16} strokeWidth={1.5} />
+            : <PanelLeftClose size={16} strokeWidth={1.5} />
+          }
+        </button>
+      </div>
+
+      {/* ── Column 2: Middle Nav Panel (220px, collapsible) ── */}
+      <div
+        className="flex flex-shrink-0 flex-col overflow-hidden"
+        style={{
+          width: navCollapsed ? 0 : 220,
+          opacity: navCollapsed ? 0 : 1,
+          pointerEvents: navCollapsed ? "none" : "auto",
+          background: isDark ? "#111111" : "#fafafa",
+          borderRight: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.08)"}`,
+          transition: "width 0.22s cubic-bezier(0.23,1,0.32,1), opacity 0.18s ease",
+          overflow: "hidden",
+        }}
+      >
+        <div className="flex flex-col h-full overflow-y-auto px-2.5 py-4" style={{ scrollbarWidth: "none" }}>
+          {/* New creation button */}
           <button
             type="button"
-            onClick={() => setNavCollapsed(v => !v)}
-            aria-label={navCollapsed ? "展开侧边栏" : "收起侧边栏"}
-            aria-expanded={!navCollapsed}
-            title={navCollapsed ? "展开侧边栏" : "收起侧边栏"}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-all"
-            style={{ background: "transparent", color: textSecondary }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+            onClick={() => navigate("/")}
+            className="mb-4 flex h-9 w-full items-center justify-between gap-2 rounded-full px-4 transition-all"
+            style={{
+              background: "#161616",
+              color: "#ffffff",
+            }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "#333333")}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "#161616")}
           >
-            {navCollapsed ? <PanelRight size={16} strokeWidth={1.45} /> : <PanelLeft size={16} strokeWidth={1.45} />}
-          </button>
-        </div>
-
-        {/* ── Scrollable nav body ── */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2.5" style={{ scrollbarWidth: "none" }}>
-
-          {/* Top nav */}
-          <div className="flex flex-col gap-0.5">
-            <NavItem icon={Home}    label="首页"     path="/" tourId={TOUR_ANCHORS.navHome} />
-            <NavItem icon={Sparkles} label="灵感推荐" path="/inspiration" iconSize={15} tourId={TOUR_ANCHORS.navInspiration} />
-            <NavItem icon={Library}  label="技能商店" path="/skills"      iconSize={15} tourId={TOUR_ANCHORS.navSkills} />
-            <NavItem icon={FolderOpen} label="工作台" path="/workspace" iconSize={15} tourId={TOUR_ANCHORS.navWorkspace} />
-            <NavItem icon={Store} label="电商画布" path="/ecommerce-canvas" iconSize={15} />
-            <NavItem icon={Brain} label="长期记忆" path="/memory" iconSize={15} />
-            <NavItem icon={CreditCard} label="充值与订阅" path="/billing" iconSize={15} tourId={TOUR_ANCHORS.navBilling} />
-            <button
-              onClick={openInviteDialog}
-              data-tour-id={TOUR_ANCHORS.navInvite}
-              title={navCollapsed ? "邀请好友" : undefined}
-              className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
+            <div className="flex items-center gap-2">
+              <Plus size={14} strokeWidth={2} />
+              <span style={{ fontSize: 13, fontWeight: 520, letterSpacing: "-0.01em" }}>新创作</span>
+            </div>
+            <kbd
+              className="flex items-center gap-0.5 rounded px-1 py-0.5"
               style={{
-                background: "transparent",
-                color: textSecondary,
-                borderRadius: 6,
+                fontSize: 10,
+                background: "rgba(255,255,255,0.12)",
+                color: "rgba(255,255,255,0.7)",
+                fontFamily: "inherit",
               }}
-              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
             >
-              <Gift size={15} strokeWidth={1.45} style={{ color: "currentColor", flexShrink: 0, opacity: 0.7 }} />
-              {navCollapsed ? null : (
-                <span className="truncate" style={{ fontSize: 12, fontWeight: 450, letterSpacing: 0 }}>邀请好友</span>
-              )}
-            </button>
+              ⌘K
+            </kbd>
+          </button>
+
+          {/* Main nav items */}
+          <div className="flex flex-col gap-0.5 mb-4">
+            <PanelNavItem icon={Sparkles}   label="创作模板"  path="/inspiration"   tourId={TOUR_ANCHORS.navInspiration} />
+            <PanelNavItem icon={Users}      label="画布社区"  path="/community"     />
           </div>
 
-        </div>
+          {/* Divider */}
+          <div
+            className="mb-3 mt-1"
+            style={{ height: 1, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.08)" }}
+          />
 
-        {/* ── Bottom: Help ── */}
-        <div
-          className="px-2.5 pb-4 pt-3 flex flex-col gap-0.5"
-        >
-          <button
-            onClick={openCommunityDialog}
-            title={navCollapsed ? "加入社群" : undefined}
-            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
-            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-          >
-            <QrCode size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            {navCollapsed ? null : (
-              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>加入社群</span>
-            )}
-          </button>
-          <button
-            onClick={handleHelpClick}
-            aria-current={helpActive ? "page" : undefined}
-            title={navCollapsed ? "帮助与反馈" : undefined}
-            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
-            style={{
-              background: helpActive ? activeBg : "transparent",
-              borderRadius: 6,
-              color: helpActive ? activeColor : textSecondary,
-            }}
-            onMouseEnter={e => {
-              if (!helpActive) (e.currentTarget as HTMLElement).style.background = hoverBg;
-            }}
-            onMouseLeave={e => {
-              if (!helpActive) (e.currentTarget as HTMLElement).style.background = "transparent";
-            }}
-          >
-            <HelpCircle size={14} strokeWidth={helpActive ? 1.8 : 1.45} style={{ flexShrink: 0, opacity: helpActive ? 1 : 0.7 }} />
-            {navCollapsed ? null : (
-              <span className="truncate" style={{ fontSize: 12, fontWeight: helpActive ? 560 : 450, letterSpacing: 0 }}>帮助与反馈</span>
-            )}
-          </button>
-          <button
-            onClick={openApiKeyDialog}
-            title={navCollapsed ? "API key" : undefined}
-            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
-            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-          >
-            <KeyRound size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            {navCollapsed ? null : (
-              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>API key</span>
-            )}
-          </button>
-          <button
-            onClick={() => {
-              onboarding.resetAll();
-              toast.success("新手引导已重置，进入对应页面即可重新观看");
-            }}
-            title={navCollapsed ? "新手引导" : undefined}
-            className={`w-full flex h-[31px] items-center gap-2.5 px-2.5 type-caption transition-all text-left${navCollapsed ? " justify-center px-0" : ""}`}
-            style={{ background: "transparent", borderRadius: 6, color: textSecondary }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverBg)}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-          >
-            <Compass size={14} strokeWidth={1.45} style={{ flexShrink: 0, opacity: 0.7 }} />
-            {navCollapsed ? null : (
-              <span className="truncate" style={{ fontSize: 12, letterSpacing: 0 }}>新手引导</span>
-            )}
-          </button>
-        </div>
-      </aside>
+          {/* Projects section */}
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? "#555" : "#aaa", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+              项目
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => navigate("/workspace")}
+                title="前往工作台"
+                className="flex h-5 w-5 items-center justify-center rounded transition-all"
+                style={{ color: isDark ? "#666" : "#bbb" }}
+                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
+                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#bbb")}
+              >
+                <LayoutGrid size={13} strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
 
-      {/* ── Page Content ── */}
-      <main className="min-w-0 flex-1 overflow-hidden" style={{ background: "#0a0a0b" }}>
+          {/* Recent projects label */}
+          <button
+            type="button"
+            className="mb-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left"
+            style={{ color: isDark ? "#666" : "#aaa" }}
+            onClick={() => navigate("/workspace")}
+          >
+            <ChevronDown size={12} strokeWidth={1.8} />
+            <span style={{ fontSize: 11.5, fontWeight: 500, letterSpacing: "-0.01em" }}>最近</span>
+          </button>
+
+          {/* Empty state */}
+          <div
+            className="flex flex-1 flex-col items-center justify-start px-2 pt-4 gap-1.5"
+          >
+            <Layers size={22} strokeWidth={1.2} style={{ color: isDark ? "#333" : "#ddd" }} />
+            <span
+              style={{
+                fontSize: 11.5,
+                color: isDark ? "#444" : "#ccc",
+                textAlign: "center",
+                lineHeight: 1.5,
+              }}
+            >
+              打开的项目会显示在这里
+            </span>
+          </div>
+
+          {/* Bottom utility in panel */}
+          <div
+            className="mt-auto pt-3 flex flex-col gap-0.5"
+            style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.08)"}` }}
+          >
+            <PanelNavItem icon={Store}      label="电商画布"   path="/ecommerce-canvas" />
+            <PanelNavItem icon={Library}    label="技能商店"   path="/skills"           tourId={TOUR_ANCHORS.navSkills} />
+            <PanelNavItem icon={Brain}      label="长期记忆"   path="/memory"           />
+            <PanelNavItem icon={CreditCard} label="充值与订阅"  path="/billing"          tourId={TOUR_ANCHORS.navBilling} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Column 3: Page Content ── */}
+      <main className="min-w-0 flex-1 overflow-hidden" style={{ background: isDark ? "#0a0a0b" : "#ffffff" }}>
         {children}
       </main>
+
       {communityDialog}
       {helpDialog}
       {apiKeyDialog}
