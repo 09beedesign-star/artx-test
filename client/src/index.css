@@ -1123,3 +1123,22 @@ html.light img[src*="artxstudio-logo"],
   animation: artx-fade-in 240ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
   will-change: opacity, transform;
 }
+
+/* ── 画布右侧输入面板 — 圆角回到 UI 统一调整前 ───────────────────────────
+   全站统一时把圆角变量整体放大了（6px → 8/10/16/24/32），右侧这块面板
+   因此变成「一大块圆角卡片套一圈胶囊」，比调整前明显更圆。
+   这里用作用域局部覆盖变量，而不是去改 :root —— 改全局会把侧栏、按钮、
+   弹窗全部退回 6px，那就不是「只恢复这个面板」了。
+
+   ⚠️ 必须覆盖到 --radius-pill：面板里的引用标签、上下文记忆胶囊都用它，
+      漏掉这一项会出现「外框方了、里面的胶囊还是圆的」的混搭。
+   ───────────────────────────────────────────────────────────────────────── */
+.artx-canvas-composer {
+  --radius: 6px;
+  --radius-xs: 6px;
+  --radius-sm-design: 6px;
+  --radius-md-design: 6px;
+  --radius-lg-design: 6px;
+  --radius-xl-design: 6px;
+  --radius-pill: 6px;
+}

@@ -27,9 +27,10 @@ import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
-  Users, LayoutGrid, Layers, FileText,
+  Users, LayoutGrid, Layers, FileText, Zap,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
+import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
@@ -97,7 +98,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [location, navigate] = useLocation();
   const search = useSearch();
   const { resolvedTheme } = useTheme();
-  const { isAuthenticated, openLoginModal } = useAuth();
+  const { isAuthenticated, user, openLoginModal } = useAuth();
+  const { openBilling } = useBillingDialog();
   const onboarding = useOnboarding();
   const [helpOpen, setHelpOpen] = useState(false);
   const [communityOpen, setCommunityOpen] = useState(false);
@@ -154,6 +156,79 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
   // 路由变化 = 可能的「刚打开某块画板」，最近列表要重排
   useEffect(() => { refreshPanel(); }, [location, activeFolderId, refreshPanel]);
+
+  /**
+   * 侧栏底部的积分余额。
+   *
+   * ⚠️ 与 TopBar 各取一份，别试图让 TopBar 把余额「传下来」：
+   *    TopBar 只在有顶栏的页面存在，而侧栏是全局的；反过来依赖会让
+   *    首页、画布这些没有 TopBar 的页面拿不到余额，静默显示成 0。
+   *    两个消费点各自 refresh 同一份服务端事实，才是唯一可靠的做法。
+   * ⚠️ 服务端不返回 balance 时必须保持 null（显示「--」），
+   *    不能兜底成 0 —— 用户会把「没取到」读成「积分花光了」。
+   */
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+
+  const refreshCreditBalance = useCallback(async () => {
+    if (!isAuthenticated) {
+      setCreditBalance(null);
+      return;
+    }
+    const token = getStoredAuthToken();
+    if (!token) {
+      setCreditBalance(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${getAppApiBaseUrl()}/api/billing/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || typeof payload.balance !== "number") return;
+      setCreditBalance(payload.balance);
+    } catch {
+      // 网络抖动时保留上一次的数值，不要闪成「--」
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void refreshCreditBalance();
+  }, [refreshCreditBalance, user?.id]);
+
+  useEffect(() => {
+    if (!isAuthenticated || typeof window === "undefined") return;
+    const handleCreditsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ balance?: number }>).detail;
+      if (typeof detail?.balance === "number") setCreditBalance(detail.balance);
+      void refreshCreditBalance();
+    };
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") void refreshCreditBalance();
+    };
+    const interval = window.setInterval(() => void refreshCreditBalance(), 15_000);
+    window.addEventListener("focus", refreshCreditBalance);
+    // 用完积分立刻回到侧栏可见，否则要等 15 秒轮询才变
+    window.addEventListener("artx:credits-updated", handleCreditsUpdated);
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshCreditBalance);
+      window.removeEventListener("artx:credits-updated", handleCreditsUpdated);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, [isAuthenticated, refreshCreditBalance]);
+
+  /**
+   * 侧栏「升级」= 打开订阅浮层（不跳页）。
+   * 未登录先弹登录：没身份看不到自己的套餐。
+   */
+  const openUpgrade = useCallback(() => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    openBilling("subscription");
+  }, [isAuthenticated, openLoginModal, openBilling]);
 
   /*
    * 「新创作」的唯一入口。
@@ -1128,15 +1203,87 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             </div>
           )}
 
-          {/* Bottom utility in panel */}
+          {/*
+            底部只留「个人中心 + 积分」两块。
+
+            ⚠️ 电商画布 / 技能商店 / 长期记忆 / 充值与订阅 这四项已从这里移除，
+               但入口没有消失 —— 它们仍在最左侧 icon 栏上一一对应，
+               这里再放一份是重复出口（点哪都行反而让人以为有两套功能）。
+          */}
           <div
-            className="mt-auto pt-3 flex flex-col gap-0.5"
+            className="mt-auto pt-2 flex flex-col gap-2"
             style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.08)"}` }}
           >
-            <PanelNavItem icon={Store}      label="电商画布"   path="/ecommerce-canvas" />
-            <PanelNavItem icon={Library}    label="技能商店"   path="/skills"           tourId={TOUR_ANCHORS.navSkills} />
-            <PanelNavItem icon={Brain}      label="长期记忆"   path="/memory"           />
-            <PanelNavItem icon={CreditCard} label="充值与订阅"  path="/billing"          tourId={TOUR_ANCHORS.navBilling} />
+            {/* 个人中心 */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAuthenticated) {
+                  openLoginModal();
+                  return;
+                }
+                navigate("/profile");
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-all"
+              style={{ color: isDark ? "#c8c8cc" : "#3a3a3c" }}
+              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)")}
+              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+            >
+              {/*
+                头像优先用「首字母圆章」，不引外链图片：
+                未登录 / 头像挂掉时引图会露出破图，而首字母永远是完整的。
+              */}
+              <span
+                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full"
+                style={{
+                  background: isDark ? "rgba(255,255,255,0.12)" : "rgba(22,22,22,0.08)",
+                  color: isDark ? "#f1f1f3" : "#161616",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                {(user?.username || "U").trim().slice(0, 1).toUpperCase() || "U"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate" style={{ fontSize: 12.5, fontWeight: 520, letterSpacing: "-0.01em" }}>
+                  {user?.username || "未登录"}
+                </span>
+                <span className="block truncate" style={{ fontSize: 10.5, color: isDark ? "#5c5c60" : "#a0a0a4" }}>
+                  个人中心
+                </span>
+              </span>
+              <ChevronRight size={13} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.55 }} />
+            </button>
+
+            {/* 积分 + 升级 */}
+            <div
+              className="flex items-center gap-2 rounded-lg px-1.5 py-1.5"
+              style={{ background: isDark ? "rgba(255,255,255,0.04)" : "rgba(22,22,22,0.035)" }}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1" style={{ color: isDark ? "#5c5c60" : "#a0a0a4" }}>
+                  <Zap size={10} strokeWidth={2} />
+                  <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: "0.02em" }}>积分</span>
+                </div>
+                <div
+                  className="truncate"
+                  style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em", color: isDark ? "#f1f1f3" : "#161616", lineHeight: "18px" }}
+                  title={creditBalance === null ? "正在读取积分余额" : `当前积分 ${creditBalance}`}
+                >
+                  {creditBalance === null ? "--" : creditBalance.toLocaleString("zh-CN")}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={openUpgrade}
+                className="flex-shrink-0 rounded-full px-2.5 py-1 transition-all"
+                style={{ background: "#161616", color: "#ffffff", fontSize: 11, fontWeight: 560, letterSpacing: "0.01em" }}
+                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "#333333")}
+                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "#161616")}
+              >
+                升级
+              </button>
+            </div>
           </div>
         </div>
       </div>

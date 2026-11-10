@@ -13795,12 +13795,24 @@ function CanvasEmptyStateOverlay({
 }) {
   const [hovered, setHovered] = useState<"upload" | "generate" | "model3d" | null>(null);
 
-  // 暗纹配色：描边和文字都压到很低的对比度。
-  const idleBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
-  const hoverBorder = isDark ? "rgba(255,255,255,0.26)" : "rgba(0,0,0,0.20)";
-  const idleText = isDark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.26)";
-  const hoverText = isDark ? "rgba(255,255,255,0.68)" : "rgba(0,0,0,0.62)";
-  const hoverFill = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+  /*
+   * 2026-11-10：从「暗纹水印」改成实体白卡。
+   * 暗纹那版在浅色画布上几乎看不见，用户会以为空画布没有任何入口。
+   * 现在：白底 + 深灰文字/图标，hover 时抬一层柔和阴影（不是描边加粗，
+   * 描边加粗会让三个卡片的边缘同时跳一下）。
+   */
+  const idleBorder = isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.09)";
+  const hoverBorder = isDark ? "rgba(255,255,255,0.20)" : "rgba(22,22,22,0.16)";
+  const idleText = isDark ? "#a8a8ad" : "#5f5f63";
+  const hoverText = isDark ? "#f1f1f3" : "#161616";
+  const idleFill = isDark ? "#1b1b1d" : "#ffffff";
+  const hoverFill = isDark ? "#242427" : "#ffffff";
+  const hoverShadow = isDark
+    ? "0 10px 28px rgba(0,0,0,0.45)"
+    : "0 10px 26px rgba(22,22,22,0.10)";
+  const idleShadow = isDark
+    ? "0 1px 2px rgba(0,0,0,0.30)"
+    : "0 1px 2px rgba(22,22,22,0.04)";
 
   const renderButton = (
     key: "upload" | "generate" | "model3d",
@@ -13828,12 +13840,15 @@ function CanvasEmptyStateOverlay({
           width: 188,
           height: 148,
           borderRadius: "var(--radius-lg-design)",
-          // 虚线描边强化「缺省占位」的语义，和实体按钮区分开
-          border: `1.5px dashed ${active ? hoverBorder : idleBorder}`,
-          background: active ? hoverFill : "transparent",
+          // 实体卡片：实线描边 + 实底，不再是「虚线占位」
+          border: `1px solid ${active ? hoverBorder : idleBorder}`,
+          background: active ? hoverFill : idleFill,
           color: active ? hoverText : idleText,
+          boxShadow: active ? hoverShadow : idleShadow,
+          transform: active ? "translateY(-1px)" : "translateY(0)",
           cursor: "pointer",
-          transition: "color 160ms ease, border-color 160ms ease, background 160ms ease",
+          transition:
+            "color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 200ms ease, transform 200ms ease",
         }}
       >
         {icon}
@@ -18740,101 +18755,53 @@ function ZoomControlBar({
 }
 
 // ── Back Button ───────────────────────────────────────────────
+/**
+ * 画布左上角「返回」。
+ *
+ * ⚠️ 2026-11-10 改动：不再有二级下拉菜单。原来点一下弹出「返回首页 / 返回工作台」，
+ *   用户还得再选一次 —— 但画布的上一层永远是确定的（所属项目 → 工作台），
+ *   多一层选择只是多一次点击，不是多一种能力。
+ * ⚠️ 也不能用 history.back()：从分享链接直接进来时栈里没有站内上一页，
+ *   会把人送出站外。
+ */
 function BackButton({ isDark }: { isDark: boolean }) {
-  const [, navigate] = useLocation();
-  const [open, setOpen] = useState(false);
-  const backButtonRef = useRef<HTMLDivElement>(null);
-  const bg = isDark ? "#262627" : "#161616";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "#bbbbbb" : "#262627";
-  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const [location, navigate] = useLocation();
+  const surface = isDark ? "#1c1c1e" : "#ffffff";
+  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(22,22,22,0.12)";
+  const text = isDark ? "#f1f1f3" : "#161616";
+  const hoverSurface = isDark ? "#26262a" : "#f4f4f4";
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: PointerEvent) => {
-      const target = e.target;
-      if (
-        target instanceof globalThis.Node &&
-        backButtonRef.current?.contains(target)
-      )
-        return;
-      setOpen(false);
-    };
-    const t = setTimeout(
-      () => document.addEventListener("pointerdown", handler, true),
-      50
-    );
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener("pointerdown", handler, true);
-    };
-  }, [open]);
+  const goUp = useCallback(() => {
+    // 路径形如 /project/<id>：上一级是它所属的项目（若已归类），否则是工作台
+    const projectId = location.split("?")[0].split("/")[2] || "";
+    const project = projectId
+      ? readWorkspaceProjectHistory().find(item => item.id === projectId)
+      : undefined;
+    const folderId = project?.folderId;
+    navigate(folderId ? `/workspace?p=${folderId}` : "/workspace");
+  }, [location, navigate]);
 
   return (
-    <div
-      ref={backButtonRef}
-      className="absolute"
-      style={{ top: 12, left: 12, zIndex: 101 }}
-    >
+    <div className="absolute" style={{ top: 12, left: 12, zIndex: 101 }}>
       <button
+        type="button"
         onClick={e => {
           e.stopPropagation();
-          setOpen(o => !o);
+          goUp();
         }}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-[var(--radius-lg-design)] type-caption shadow-lg transition-all hover:opacity-90 active:scale-95"
+        className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-3 py-2 type-caption transition-all active:scale-95"
         style={{
-          background: bg,
+          background: surface,
           border: `1px solid ${border}`,
           color: text,
-          backdropFilter: "blur(12px)",
+          boxShadow: isDark ? "0 2px 10px rgba(0,0,0,0.32)" : "0 2px 10px rgba(0,0,0,0.08)",
         }}
+        onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverSurface)}
+        onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = surface)}
       >
         <ChevronLeft size={14} />
         返回
       </button>
-      {open && (
-        <div
-          className="absolute top-full mt-1.5 left-0 rounded-[var(--radius-lg-design)] overflow-hidden shadow-2xl"
-          style={{
-            background: bg,
-            border: `1px solid ${border}`,
-            minWidth: 148,
-            backdropFilter: "blur(16px)",
-          }}
-          onMouseDown={e => e.stopPropagation()}
-        >
-          <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
-            style={{ color: text }}
-            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-            onMouseLeave={e =>
-              (e.currentTarget.style.background = "transparent")
-            }
-            onClick={() => {
-              navigate("/");
-              setOpen(false);
-            }}
-          >
-            <Home size={13} />
-            返回首页
-          </button>
-          <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 text-left type-caption transition-colors"
-            style={{ color: text }}
-            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-            onMouseLeave={e =>
-              (e.currentTarget.style.background = "transparent")
-            }
-            onClick={() => {
-              navigate("/workspace");
-              setOpen(false);
-            }}
-          >
-            <LayoutGrid size={13} />
-            返回工作台
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -25647,7 +25614,7 @@ function CanvasAssistantPanel({
         onImport={handleInspirationImport}
       />
       <aside
-        className="absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
+        className="artx-canvas-composer absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
         data-tour-id={TOUR_ANCHORS.canvasAssistantPanel}
         style={{
           width: panelWidth,
@@ -36639,7 +36606,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   );
 
   const canvasBg = isDark ? "#0a0a0b" : "var(--design-surface-soft)";
-  const dotColor = isDark ? "rgba(180,180,184,0.14)" : "rgba(0,0,0,0.32)";
+  /*
+   * 点阵：2026-11-10 按参考截图调小并降对比。
+   * 旧值 gap 30 / size 2.6 在 100% 缩放下颗粒感太重，一进画布像铺了层网格纸；
+   * 现在 gap 24 / size 1.5，透明度在原基础上再降 20%（0.32→0.26、0.14→0.11）。
+   */
+  const dotColor = isDark ? "rgba(180,180,184,0.11)" : "rgba(0,0,0,0.26)";
 
   // ── Compute group containers for overlay rendering ──
   const groupOverlayData: GroupInfo[] = useMemo(() => {
@@ -39265,8 +39237,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={30}
-          size={2.6}
+          gap={24}
+          size={1.5}
           color={dotColor}
         />
         <MiniMap
@@ -39276,8 +39248,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             left: 16,
             bottom: 8,
             right: "auto",
-            opacity: 0.6,
-            background: getMinimapSurfaceBackground(isDark),
+            /*
+             * 2026-11-10：原来整块 opacity 0.6 + 白色遮罩 0.5，
+             * 叠出来是一块「几乎全白的小方块」，里面的画板形状看不出来。
+             * 现在实底不透、遮罩只留一点点：白底 + 灰色模块。
+             */
+            opacity: 1,
+            background: isDark ? "rgba(20,20,22,0.94)" : "#ffffff",
             backdropFilter: "blur(12px)",
             border: `1px solid ${getMinimapSurfaceBorder(isDark)}`,
             borderRadius: "var(--radius-md-design)",
@@ -39285,8 +39262,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ? "0 8px 32px rgba(0,0,0,0.45)"
               : "0 4px 20px rgba(0,0,0,0.12)",
           }}
-          maskColor={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)"}
-          nodeColor={isDark ? "#444444" : "#161616"}
+          maskColor={isDark ? "rgba(0,0,0,0.28)" : "rgba(22,22,22,0.06)"}
+          nodeColor={isDark ? "#7c7c82" : "#a8a8ad"}
+          nodeStrokeColor={isDark ? "rgba(255,255,255,0.14)" : "rgba(22,22,22,0.10)"}
+          nodeBorderRadius={3}
           zoomable
           pannable={!isCanvasLocked}
         />
