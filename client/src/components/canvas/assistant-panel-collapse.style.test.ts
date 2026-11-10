@@ -164,14 +164,17 @@ describe("需求 2：去掉「展开」文案，并连带回收为它而加的�
     expect(styleBlock).not.toContain("height:");
   });
 
-  it("旧的「胶囊壳」装饰已移除（描边 + 投影一律不留）", () => {
+  it("旧的「胶囊壳」装饰已移除（chipBg 底 + 重投影一律不留）", () => {
     // 收起态过去有 chipBg 底 + border 描边 + 投影，是一枚和旁边完全两副长相的胶囊。
     expect(toggleButton).not.toContain("background: collapsed ? chipBg");
-    expect(toggleButton).not.toContain("border: collapsed ?");
     expect(toggleButton).not.toContain('boxShadow: collapsed ? "0 8px 20px');
-    // 正向：描边和投影两态都没有（2026-09-20 加的底托是纯色块，不带边框/投影）
-    expect(toggleButton).toContain('border: "none"');
-    expect(toggleButton).toContain('boxShadow: "none"');
+    /**
+     * ⚠️ 2026-11-10 起收起态**有**描边和投影了（用户要求与左上「返回」同款），
+     * 所以这里不能再断言 `border: "none"` / `boxShadow: "none"` 是按钮的唯一取值 ——
+     * 只能断言**展开态**那一支仍然是无装饰的。
+     */
+    expect(toggleButton).toContain('border: collapsed ? surfaceTokens.border : "none"');
+    expect(toggleButton).toContain('boxShadow: collapsed ? surfaceTokens.shadow : "none"');
   });
 
   it("⭐ 展开态必须仍与旁边 icon 同款：透明底、颜色取 sub", () => {
@@ -180,10 +183,12 @@ describe("需求 2：去掉「展开」文案，并连带回收为它而加的�
      * 2026-09-20 给收起态加了底托，但展开态背后本来就有面板实底，
      * 不需要也不能有底托 —— 否则又退回三个 icon 长相不一致。
      */
-    expect(toggleButton).toContain('background: collapsed ? "rgba(0,0,0,0.7)" : "transparent"');
-    expect(toggleButton).toContain("color: collapsed ? \"#FFFFFF\" : sub");
+    expect(toggleButton).toContain(
+      'background: collapsed ? surfaceTokens.surface : "transparent"'
+    );
+    expect(toggleButton).toContain("color: collapsed ? surfaceTokens.text : sub");
     // 反向：退回「两态都铺底」就变红。
-    expect(toggleButton).not.toContain('background: "rgba(0,0,0,0.7)"');
+    expect(toggleButton).not.toContain("background: surfaceTokens.surface,");
   });
 });
 
@@ -195,15 +200,67 @@ describe("需求 2：去掉「展开」文案，并连带回收为它而加的�
  * ⚠️ 背景：需求 3 把收起态的面板背景做成了 transparent，这颗按钮因此
  * **直接浮在画布图像上**。浅色图片一拖到右上角，细线图标就完全看不清。
  * 这不是需求 2 的回退 —— 需求 2 约束的是**展开态**要和旁边 icon 一致。
+ *
+ * 【2026-11-10 需求原文】
+ * 「右上角的收起按钮，改为与左侧返回 icon 一样的颜色和质感。
+ *   icon 颜色与画布中的 icon 颜色保持一致」
+ *
+ * 覆盖的是上一版的「黑托 70% + 白图标」：那套解决了对比度，却让这颗按钮
+ * 和左上角「返回」变成了两种卡片（一颗像系统按钮、一颗像浮在图片上的播放键）。
+ * 现在底托 = `canvasSurfaceTokens`（白面 + 极淡描边 + 柔和投影），
+ * 与返回按钮同源；图标回落到画布 icon 的正文色。
  */
-describe("需求 4：收起态必须有底托，否则和画布糊在一起", () => {
-  it("底托是 30×30 圆角方形、黑色 70% 不透明", () => {
+describe("需求 4：收起态底托与左上「返回」同源", () => {
+  it("底托取自 canvasSurfaceTokens，不在这里另写数值", () => {
     // 正向锚点：先证明确实抠到了这颗按钮，否则下面全是空转。
     expect(toggleButton).toContain("onClick={item.onClick}");
     expect(toggleButton).toContain("{item.icon}");
 
-    // 尺寸：收起态 30×30（用户指定），展开态维持 32（与旁边 icon 同尺寸）
-    expect(toggleButton).toContain("h-[30px] w-[30px]");
+    expect(toggleButton).toContain(
+      'background: collapsed ? surfaceTokens.surface : "transparent"'
+    );
+    expect(toggleButton).toContain(
+      'border: collapsed ? surfaceTokens.border : "none"'
+    );
+    expect(toggleButton).toContain(
+      'boxShadow: collapsed ? surfaceTokens.shadow : "none"'
+    );
+  });
+
+  it("⭐ icon 颜色回落到画布 icon 的正文色，不再写死白色", () => {
+    /**
+     * ⚠️ 这是最容易漏的一条。底托换成白面后，如果图标还留着 `#FFFFFF`，
+     * 就是**白底白字** —— 完全看不见，而且零报错。
+     * 底和字必须成对改，这条锁的就是「成对」。
+     */
+    expect(toggleButton).toContain("color: collapsed ? surfaceTokens.text : sub");
+    // 反向：白字回来就变红
+    expect(toggleButton).not.toContain('collapsed ? "#FFFFFF"');
+  });
+
+  it("黑托与白字必须彻底消失，不能两态并存", () => {
+    // 只停止使用、把旧值留在代码里，下一个人会顺手接回去。
+    expect(toggleButton).not.toContain("rgba(0,0,0,0.7)");
+    expect(toggleButton).not.toContain('"#FFFFFF"');
+  });
+
+  it("token 是唯一来源：返回按钮也必须用它", () => {
+    /**
+     * 📌⭐⭐ 用户说的「和左侧返回一样」，本质是**同一份规格只能有一个出口**。
+     * 要是两边各写一份 #ffffff / rgba(22,22,22,0.12)，下次改一边就分叉，
+     * 而且两边各自看起来都"对"。
+     */
+    const definitions = source.split("function canvasSurfaceTokens(").length - 1;
+    expect(definitions, "canvasSurfaceTokens 必须只定义一次").toBe(1);
+
+    const consumers = source.split("canvasSurfaceTokens(isDark)").length - 1;
+    expect(
+      consumers,
+      "两处消费点：左上「返回」+ 右上收起按钮"
+    ).toBe(2);
+  });
+
+  it("尺寸与圆角不变（用户只要求换配色和质感）", () => {
     /**
      * 圆角方形：沿用设计令牌的中号圆角，不写死像素。
      *
@@ -215,42 +272,23 @@ describe("需求 4：收起态必须有底托，否则和画布糊在一起", ()
     expect(toggleButton).toContain(
       "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)]"
     );
-    // 反向：改成全圆 / 直角就变红
-    expect(toggleButton).not.toContain("h-[30px] w-[30px] flex items-center justify-center rounded-full");
-    expect(toggleButton).not.toContain("h-[30px] w-[30px] flex items-center justify-center rounded-none");
-    // 底色：纯黑 70%
-    expect(toggleButton).toContain('"rgba(0,0,0,0.7)"');
+    expect(toggleButton).not.toContain(
+      "h-[30px] w-[30px] flex items-center justify-center rounded-full"
+    );
+    expect(toggleButton).not.toContain(
+      "h-[30px] w-[30px] flex items-center justify-center rounded-none"
+    );
   });
 
-  it("底托只在收起态出现，展开态不能有", () => {
+  it("hover 反馈与返回按钮同款：换底色，不是整颗调透明度", () => {
     /**
-     * 展开态背后是面板自己的实底，再叠一层黑托就成了「按钮上贴按钮」，
-     * 而且会和左边两个透明 icon 长相脱节。
+     * 白底 + `hover:opacity-85` = 悬停时半透明，画布从按钮里透出来，
+     * 和返回按钮（底色变 #f4f4f4）是两种反馈。
      */
-    expect(toggleButton).toContain('collapsed ? "rgba(0,0,0,0.7)" : "transparent"');
-    // 反向：写成无条件铺底就变红
-    expect(toggleButton).not.toContain('background: "rgba(0,0,0,0.7)",');
-  });
-
-  it("⭐ 图标在黑托上必须转成白色，否则等于没加底托", () => {
-    /**
-     * ⚠️ 这是最容易漏的一条。只加黑底、图标仍用 `sub`（深灰），
-     * 深灰压在纯黑上依然看不清 —— 加了底托却没解决"看不清楚"，
-     * 而且完全不报错，视觉上还像是做完了。
-     */
-    expect(toggleButton).toContain('collapsed ? "#FFFFFF" : sub');
-    // 反向：退回两态同色就变红
-    expect(toggleButton).not.toContain("color: sub,");
-  });
-
-  it("底托不带描边和投影（用户只要一个纯色块）", () => {
-    const styleStart = toggleButton.indexOf("style={{");
-    const styleBlock = toggleButton.slice(styleStart);
-    expect(styleBlock).toContain('border: "none"');
-    expect(styleBlock).toContain('boxShadow: "none"');
-    // 反向：偷偷加回描边/投影就变红
-    expect(styleBlock).not.toContain("border: collapsed");
-    expect(styleBlock).not.toContain("boxShadow: collapsed");
+    expect(toggleButton).toContain("surfaceTokens.hoverSurface");
+    expect(toggleButton).not.toContain(
+      "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+    );
   });
 });
 

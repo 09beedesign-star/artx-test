@@ -18782,6 +18782,38 @@ function ZoomControlBar({
   );
 }
 
+// ── Canvas Floating Surface ───────────────────────────────────
+/**
+ * 画布浮层上「有形按钮」的唯一事实源（白面 + 极淡描边 + 柔和投影）。
+ *
+ * 【2026-11-10 用户点名】右上角收起按钮「改为与左侧返回 icon 一样的颜色和质感」，
+ *   并且「icon 颜色与画布中的 icon 保持一致」。
+ *
+ * 改之前：左上返回是白面 + 极淡描边 + 柔和投影，右上收起态却是
+ * `rgba(0,0,0,0.7)` 黑托 + 白图标 —— 同一块画布上并存两套表面语言，
+ * 一颗像「系统按钮」，一颗像「浮在图片上的播放键」。
+ *
+ * ⚠️⚠️ 不要在两个组件里各抄一份数值。同一份视觉规格有第二个出口 = 改一处不生效，
+ *    且零报错（本项目已踩过十余次）。要调就调这里。
+ */
+function canvasSurfaceTokens(isDark: boolean) {
+  return isDark
+    ? {
+        surface: "#1c1c1e",
+        border: "1px solid rgba(255,255,255,0.14)",
+        text: "#f1f1f3",
+        hoverSurface: "#26262a",
+        shadow: "0 2px 10px rgba(0,0,0,0.32)",
+      }
+    : {
+        surface: "#ffffff",
+        border: "1px solid rgba(22,22,22,0.12)",
+        text: "#161616",
+        hoverSurface: "#f4f4f4",
+        shadow: "0 2px 10px rgba(0,0,0,0.08)",
+      };
+}
+
 // ── Back Button ───────────────────────────────────────────────
 /**
  * 画布左上角「返回」。
@@ -18794,10 +18826,7 @@ function ZoomControlBar({
  */
 function BackButton({ isDark }: { isDark: boolean }) {
   const [location, navigate] = useLocation();
-  const surface = isDark ? "#1c1c1e" : "#ffffff";
-  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(22,22,22,0.12)";
-  const text = isDark ? "#f1f1f3" : "#161616";
-  const hoverSurface = isDark ? "#26262a" : "#f4f4f4";
+  const { surface, border, text, hoverSurface, shadow } = canvasSurfaceTokens(isDark);
 
   const goUp = useCallback(() => {
     // 路径形如 /project/<id>：上一级是它所属的项目（若已归类），否则是工作台
@@ -18820,9 +18849,9 @@ function BackButton({ isDark }: { isDark: boolean }) {
         className="flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-3 py-2 type-caption transition-all active:scale-95"
         style={{
           background: surface,
-          border: `1px solid ${border}`,
+          border,
           color: text,
-          boxShadow: isDark ? "0 2px 10px rgba(0,0,0,0.32)" : "0 2px 10px rgba(0,0,0,0.08)",
+          boxShadow: shadow,
         }}
         onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = hoverSurface)}
         onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = surface)}
@@ -22147,6 +22176,11 @@ function CanvasAssistantPanel({
     return stored.length > 0 ? stored : [createCanvasAssistantSeedMessage()];
   });
   const pendingHomePromptHandledRef = useRef(false);
+  /**
+   * 浮层「有形按钮」的表面 token —— 与左上角「返回」同源。
+   * ⚠️ 不在这里另写一套数值，见 `canvasSurfaceTokens` 的注释。
+   */
+  const surfaceTokens = canvasSurfaceTokens(isDark);
   const bg = isDark ? "#171718" : "rgba(245,246,248,0.98)";
   const border = isDark ? "rgba(42,42,45,0.72)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "#b4b4b8" : "#262627";
@@ -25697,8 +25731,8 @@ function CanvasAssistantPanel({
            * 展开态要靠满高撑起消息区 + 输入框；动高度会让展开/收起的过渡跳变。
            * 透明化背景既去掉了灰条，又不动布局。
            *
-           * 📌 收起态按钮自己不需要底色（见下方按钮样式注释），
-           * 所以背景透明后不会出现「按钮悬空看不清」的问题。
+           * 📌 面板背景透明后，收起态那颗按钮**自带白面底托**（见下方按钮样式），
+           * 所以不会出现「按钮悬空、和画布糊在一起」的问题。
            */
           background: collapsed ? "transparent" : bg,
           border: collapsed ? "none" : `1px solid ${border}`,
@@ -25786,7 +25820,7 @@ function CanvasAssistantPanel({
           <button
             className={
               collapsed
-                ? "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
+                ? "h-[30px] w-[30px] flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors"
                 : "h-8 w-8 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors hover:opacity-85"
             }
             /**
@@ -25803,8 +25837,21 @@ function CanvasAssistantPanel({
              * 展开态背后是面板自己的实底，没有这个问题 —— 所以底托只加在收起态，
              * 不能退回「两态共用一套样式」，那会把展开态又变成一枚突兀的胶囊。
              *
-             * 底托规格（用户指定）：30×30 圆角方形、纯黑 70% 不透明度。
-             * ⚠️ 尺寸由 className 的 `h-[30px] w-[30px]` 表达，不在 style 里重复写，
+             * 【2026-11-10 改】底托不再是「纯黑 70%」，改成与左上角「返回」同源的
+             * **白面 + 极淡描边 + 柔和投影**（`canvasSurfaceTokens`）。
+             * 用户原话：「右上角的收起按钮，改为与左侧返回 icon 一样的颜色和质感，
+             * icon 颜色与画布中的 icon 颜色保持一致」。
+             * 黑托 + 白图标的问题不在对比度，而在**语言**：它像一颗浮在图片上的
+             * 播放键，而不是画布自己的按钮。白面版本既保住了对比度
+             *（白底压着深色图标，浅色图片上也看得清），又和返回按钮成了同一套。
+             *
+             * ⚠️ 图标颜色不再写白：白底上必须回落到 `surfaceTokens.text`
+             *（浅色 #161616 / 深色 #f1f1f3）—— 那正是画布里其它 icon 的颜色。
+             * ❌ 不要在这里写死 "#FFFFFF"：换了白底，"白字"就成了看不见——
+             *    这正是 2026-09-20 那条「加底托就转白字」的反向教训，
+             *    底和字必须成对改，只改一个 = 静默消失。
+             *
+             * ⚠️ 尺寸仍由 className 的 `h-[30px] w-[30px]` 表达，不在 style 里重复写，
              * 否则两处各说一套、改一处不生效。
              *
              * ⚠️ 删文案时必须连带删掉「为文案而加的那些样式」：
@@ -25812,10 +25859,24 @@ function CanvasAssistantPanel({
              * 只删 <span> 不删这些，会剩一个空荡荡的胶囊壳，看着像没做完。
              */
             style={{
-              background: collapsed ? "rgba(0,0,0,0.7)" : "transparent",
-              color: collapsed ? "#FFFFFF" : sub,
-              border: "none",
-              boxShadow: "none",
+              background: collapsed ? surfaceTokens.surface : "transparent",
+              color: collapsed ? surfaceTokens.text : sub,
+              border: collapsed ? surfaceTokens.border : "none",
+              boxShadow: collapsed ? surfaceTokens.shadow : "none",
+            }}
+            /**
+             * hover：与返回按钮同款「底色变浅灰」，而不是整颗按钮调透明度。
+             * 只在收起态生效 —— 展开态是透明底，调透明度才是它该有的反馈。
+             */
+            onMouseEnter={e => {
+              if (collapsed) {
+                (e.currentTarget as HTMLElement).style.background = surfaceTokens.hoverSurface;
+              }
+            }}
+            onMouseLeave={e => {
+              if (collapsed) {
+                (e.currentTarget as HTMLElement).style.background = surfaceTokens.surface;
+              }
             }}
             title={item.label}
             aria-label={item.label}
