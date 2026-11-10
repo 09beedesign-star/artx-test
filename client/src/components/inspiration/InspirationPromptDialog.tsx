@@ -121,7 +121,7 @@ export function InspirationPromptDialog({
       })
       .catch(error => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        toast("灵感推荐加载失败", { description: "请稍后重试" });
+        toast("灵感模板加载失败", { description: "请稍后重试" });
       });
     return () => controller.abort();
   }, [isOpen]);
@@ -167,9 +167,9 @@ export function InspirationPromptDialog({
         <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: `1px solid ${border}` }}>
           <div className="flex min-w-0 items-center gap-2">
             <Sparkles size={16} style={{ color: brandGreenText }} />
-            <h2 className="type-body-sm truncate" style={{ color: text, fontWeight: 750 }}>灵感推荐</h2>
+            <h2 className="type-body-sm truncate" style={{ color: text, fontWeight: 750 }}>灵感模板</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="关闭灵感推荐" className="rounded-[var(--radius-pill)] p-2" style={{ color: sub, border: `1px solid ${border}` }}>
+          <button type="button" onClick={onClose} aria-label="关闭灵感模板" className="rounded-[var(--radius-pill)] p-2" style={{ color: sub, border: `1px solid ${border}` }}>
             <X size={16} />
           </button>
         </div>

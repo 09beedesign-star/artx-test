@@ -1,5 +1,5 @@
 /**
- * Switch — 图叙 AI 风格：激活色 #161616，thumb 白色，高度 18px
+ * Switch — 图叙 AI 风格：激活色 #161616，thumb 白色，高度 20px
  */
 import * as React from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";

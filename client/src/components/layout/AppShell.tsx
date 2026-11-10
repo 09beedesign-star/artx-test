@@ -23,6 +23,7 @@ import {
   Users, LayoutGrid, Layers,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 interface AppShellProps {
@@ -45,6 +46,8 @@ interface ApiKeyRecord {
   lastUsedAt?: string;
 }
 
+/** 左侧 icon 栏 hover 提示的延迟：0.2s（Radix 默认 300ms 偏慢，ericbi 2026-11-10 指定）。 */
+const SIDEBAR_TOOLTIP_DELAY = 200;
 const MAX_HELP_SCREENSHOTS = 4;
 const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 /*
@@ -706,26 +709,34 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       }
     };
     return (
-      <button
-        type="button"
-        onClick={handleClick}
-        data-tour-id={tourId}
-        title={label}
-        aria-label={label}
-        className="flex h-9 w-9 items-center justify-center rounded-lg transition-all"
-        style={{
-          background: active ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(22,22,22,0.10)") : "transparent",
-          color: active ? (isDark ? "#ffffff" : "#161616") : (isDark ? "#999999" : "#888888"),
-        }}
-        onMouseEnter={e => {
-          if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.06)";
-        }}
-        onMouseLeave={e => {
-          if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
-        }}
-      >
-        <Icon size={17} strokeWidth={active ? 1.9 : 1.5} />
-      </button>
+      <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={handleClick}
+            data-tour-id={tourId}
+            /*
+             * ⚠️ 这里刻意**不写 title**：原生 title 的延迟由系统决定（约 1s）且不可调，
+             * 会和下面的 Radix tooltip 叠成两个气泡。可访问性靠 aria-label 兜。
+             */
+            aria-label={label}
+            className="flex h-9 w-9 items-center justify-center rounded-lg transition-all"
+            style={{
+              background: active ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(22,22,22,0.10)") : "transparent",
+              color: active ? (isDark ? "#ffffff" : "#161616") : (isDark ? "#999999" : "#888888"),
+            }}
+            onMouseEnter={e => {
+              if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.06)";
+            }}
+            onMouseLeave={e => {
+              if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            <Icon size={17} strokeWidth={active ? 1.9 : 1.5} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>{label}</TooltipContent>
+      </Tooltip>
     );
   };
 
@@ -809,19 +820,23 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         }}
       >
         {/* Logo */}
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          className="mb-2 flex h-8 w-8 items-center justify-center"
-          aria-label="ArtXStudio 首页"
-          title="ArtXStudio 首页"
-        >
-          <img src={artxStudioMark} alt="ArtXStudio" className="h-7 w-7 object-contain" />
-        </button>
+        <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="mb-2 flex h-8 w-8 items-center justify-center"
+              aria-label="ArtXStudio 首页"
+            >
+              <img src={artxStudioMark} alt="ArtXStudio" className="h-7 w-7 object-contain" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>返回首页</TooltipContent>
+        </Tooltip>
 
         {/* Primary nav icons */}
         <IconRailBtn icon={Home}       label="首页"      path="/"                  tourId={TOUR_ANCHORS.navHome} />
-        <IconRailBtn icon={Sparkles}   label="创作模板"  path="/inspiration"        tourId={TOUR_ANCHORS.navInspiration} />
+        <IconRailBtn icon={Sparkles}   label="灵感模板"  path="/inspiration"        tourId={TOUR_ANCHORS.navInspiration} />
         <IconRailBtn icon={Users}      label="画布社区"   path="/community"          />
         <IconRailBtn icon={FolderOpen} label="工作台"    path="/workspace"           tourId={TOUR_ANCHORS.navWorkspace} />
         <IconRailBtn icon={Store}      label="电商画布"  path="/ecommerce-canvas"    />
@@ -847,21 +862,27 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         />
 
         {/* Panel toggle */}
-        <button
-          type="button"
-          onClick={() => setNavCollapsed(v => !v)}
-          title={navCollapsed ? "展开导航面板" : "收起导航面板"}
-          aria-label={navCollapsed ? "展开导航面板" : "收起导航面板"}
-          className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg transition-all"
-          style={{ color: isDark ? "#666" : "#aaa" }}
-          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#aaa")}
-        >
-          {navCollapsed
-            ? <PanelLeftOpen size={16} strokeWidth={1.5} />
-            : <PanelLeftClose size={16} strokeWidth={1.5} />
-          }
-        </button>
+        <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setNavCollapsed(v => !v)}
+              aria-label={navCollapsed ? "展开导航面板" : "收起导航面板"}
+              className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg transition-all"
+              style={{ color: isDark ? "#666" : "#aaa" }}
+              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
+              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#aaa")}
+            >
+              {navCollapsed
+                ? <PanelLeftOpen size={16} strokeWidth={1.5} />
+                : <PanelLeftClose size={16} strokeWidth={1.5} />
+              }
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            {navCollapsed ? "展开导航面板" : "收起导航面板"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* ── Column 2: Middle Nav Panel (220px, collapsible) ── */}
@@ -910,7 +931,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
 
           {/* Main nav items */}
           <div className="flex flex-col gap-0.5 mb-4">
-            <PanelNavItem icon={Sparkles}   label="创作模板"  path="/inspiration"   tourId={TOUR_ANCHORS.navInspiration} />
+            <PanelNavItem icon={Sparkles}   label="灵感模板"  path="/inspiration"   tourId={TOUR_ANCHORS.navInspiration} />
             <PanelNavItem icon={Users}      label="画布社区"  path="/community"     />
           </div>
 

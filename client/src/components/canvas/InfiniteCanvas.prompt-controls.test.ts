@@ -651,7 +651,7 @@ describe("InfiniteCanvas prompt controls", () => {
   it("opens the verified inspiration picker from the assistant action and injects copied prompts into chat", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain('label: "灵感推荐"');
+    expect(source).toContain('label: "灵感模板"');
     expect(source).toContain("InspirationPromptDialog");
     expect(source).toContain('setInspirationDialogOpen(true)');
     expect(source).toContain('用户已引用「${item.title}」');
@@ -695,9 +695,10 @@ describe("InfiniteCanvas prompt controls", () => {
     const switchSource = readFileSync(resolve(__dirname, "../ui/switch.tsx"), "utf-8");
     const canvasSource = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(switchSource).toContain("h-[18px] w-[34px]");
+    // 2026-11 全站 UI 统一时 Switch 从 18×34/14 改成 20×36/16，几何仍由组件统一提供
+    expect(switchSource).toContain("h-[20px] w-[36px]");
     expect(switchSource).toContain("p-[2px]");
-    expect(switchSource).toContain("size-[14px]");
+    expect(switchSource).toContain("size-[16px]");
     expect(switchSource).toContain("data-[state=checked]:translate-x-4");
     expect(switchSource).toContain("thumbStyle");
     expect(canvasSource).toContain('import { Switch } from "@/components/ui/switch";');

@@ -27,6 +27,11 @@ interface CenteredPromptPanelProps {
   borderColor: string;
   suggestions: string[];
   onSuggestionClick: (suggestion: string) => void;
+  /**
+   * 新手引导锚点。挂在面板根节点上（不是外层 min-h-screen 的 section）：
+   * 拿满屏容器当挖孔目标 = 把整个视口挖空 = 遮罩视觉上完全消失。
+   */
+  tourId?: string;
 }
 
 // 打字机示例文案
@@ -82,6 +87,7 @@ export function CenteredPromptPanel({
   borderColor,
   suggestions,
   onSuggestionClick,
+  tourId,
 }: CenteredPromptPanelProps) {
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -209,7 +215,7 @@ export function CenteredPromptPanel({
   };
 
   return (
-    <div className="flex w-full max-w-[800px] flex-col items-center" style={{ paddingTop: "140px" }}>
+    <div className="flex w-full max-w-[800px] flex-col items-center" data-tour-id={tourId} style={{ paddingTop: "140px" }}>
       {/* 主标题和副标题 */}
       <div className="mb-8 flex flex-col items-center text-center">
         <div className="relative mb-3 flex justify-center">

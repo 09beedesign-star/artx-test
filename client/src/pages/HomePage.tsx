@@ -77,7 +77,7 @@ type HomeInspirationItem = InspirationFeedItem & {
   likeCount: number;
 };
 
-/** 首页灵感推荐最多展示的条数。远程有 900 条，首页只需要一屏量。 */
+/** 首页灵感模板最多展示的条数。远程有 900 条，首页只需要一屏量。 */
 const HOME_INSPIRATION_LIMIT = 50;
 
 const PROMPT_SUGGESTIONS = [
@@ -662,10 +662,14 @@ export default function HomePage() {
           首页顶栏刻意不放 logo（ericbi 2026-11-10 要求）：
           首页是给人看内容的，不是给自己贴品牌名的地方；导航里的「首页」已经能回顶。
         */}
+        {/*
+          ⚠️ 导航里的「灵感模板」直接 navigate("/inspiration")，不再只是滚动到本页下方
+          （ericbi 2026-11-10 要求）。页面内的向下箭头按钮仍保留滚动行为 —— 那是浏览动线，不是导航。
+        */}
         <LandingTopNav
           activeTab={activeTab}
           onHome={scrollToHome}
-          onInspiration={scrollToInspiration}
+          onInspiration={openInspirationPage}
           onSkills={() => {
             setCurrentLandingTab("skills");
             navigate("/skills");
@@ -726,6 +730,7 @@ export default function HomePage() {
           borderColor={borderColor}
           suggestions={PROMPT_SUGGESTIONS}
           onSuggestionClick={setPrompt}
+          tourId={TOUR_ANCHORS.homePromptPanel}
         />
 
         <button
@@ -738,7 +743,7 @@ export default function HomePage() {
             color: isDark ? "rgba(255,255,255,0.70)" : "rgba(0,0,0,0.60)",
             backdropFilter: "blur(12px)",
           }}
-          aria-label="滚动到灵感推荐"
+          aria-label="向下滚动到灵感模板"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = isDark
               ? "rgba(255,255,255,0.45)"
@@ -768,7 +773,7 @@ export default function HomePage() {
           <div data-tour-id={TOUR_ANCHORS.homeInspirationSection} className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="mb-3 text-sm font-medium" style={{ color: textAccent }}>Inspiration Picks</p>
-              <h2 className="text-[34px] font-black leading-tight sm:text-[44px]" style={{ color: textPrimary }}>灵感推荐</h2>
+              <h2 className="text-[34px] font-black leading-tight sm:text-[44px]" style={{ color: textPrimary }}>灵感模板</h2>
             </div>
           </div>
 
@@ -855,7 +860,7 @@ export default function HomePage() {
               className="artx-green-text text-sm font-semibold underline decoration-[var(--color-brand-green)]/60 underline-offset-4 transition-colors hover:opacity-80"
               style={{ color: 'var(--color-brand-green-text)' }}
             >
-              查看全部灵感推荐
+              查看全部灵感模板
             </button>
           </div>
         </div>
@@ -1025,7 +1030,7 @@ function LandingTopNav({
 }) {
   const navItems = [
     { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感推荐", onClick: onInspiration },
+    { key: "inspiration" as const, label: "灵感模板", onClick: onInspiration },
     { key: "skills" as const, label: "技能商店", onClick: onSkills },
     { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
     // 电商画布紧跟在「工作台」右侧（ericbi 2026-10-17 指定位置）。

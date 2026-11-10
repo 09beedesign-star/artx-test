@@ -18,9 +18,19 @@ function TooltipProvider({
   );
 }
 
-function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+/**
+ * Tooltip 根组件。
+ *
+ * ⚠️ 每个 Tooltip 自带一层 Provider（这样组件可以单独设置延迟），
+ * 所以 delayDuration 必须显式透传给 Provider —— 直接放到 Root 上会被 Radix 忽略，
+ * 表现是「传了 0.2s 却还是 0.3s」，而且不报任何错。
+ */
+function Tooltip({
+  delayDuration,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Root> & { delayDuration?: number }) {
   return (
-    <TooltipProvider>
+    <TooltipProvider delayDuration={delayDuration}>
       <TooltipPrimitive.Root data-slot="tooltip" {...props} />
     </TooltipProvider>
   );

@@ -22473,7 +22473,7 @@ function CanvasAssistantPanel({
 
   const actionButtons = [
     {
-      label: "灵感推荐",
+      label: "灵感模板",
       icon: <Sparkles size={16} />,
       onClick: () => setInspirationDialogOpen(true),
     },

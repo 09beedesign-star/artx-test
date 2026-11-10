@@ -332,7 +332,7 @@ export default function InspirationPage() {
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="搜索创作模板、提示词..."
+                  placeholder="搜索灵感模板、提示词..."
                   className="w-full rounded-[var(--radius-pill)] py-2.5 pl-10 pr-4 text-[13px] outline-none transition-all"
                   style={{
                     background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
@@ -359,7 +359,7 @@ export default function InspirationPage() {
             <div
               className="flex items-center gap-1 overflow-x-auto pb-1"
               role="tablist"
-              aria-label="创作模板分类"
+              aria-label="灵感模板分类"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               {/* 主分类 tab */}

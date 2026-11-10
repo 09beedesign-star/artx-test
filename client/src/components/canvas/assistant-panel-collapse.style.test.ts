@@ -91,7 +91,7 @@ describe("需求 1：收起/展开 icon 换成面板轮廓图标", () => {
     // 正向锚点：先证明我确实抠到了 actionButtons 这块，
     // 否则下面的 not.toContain 会在「读空了」的情况下集体恒绿。
     expect(actionButtonsBlock).toContain("onClick: onToggleCollapsed");
-    expect(actionButtonsBlock).toContain("灵感推荐");
+    expect(actionButtonsBlock).toContain("灵感模板");
 
     // 展开态（面板开着，点它收起）→ 竖线在右
     expect(actionButtonsBlock).toContain("<PanelRight size={16} />");

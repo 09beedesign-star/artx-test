@@ -440,7 +440,7 @@ export default function ProfilePage() {
                   {reactionTab === "like" ? "还没有赞过的灵感" : "还没有收藏的灵感"}
                 </p>
                 <p className="type-caption mt-2" style={{ color: textSecondary, letterSpacing: 0, textTransform: "none" }}>
-                  去灵感推荐里点亮{reactionTab === "like" ? "爱心" : "星标"}，内容会自动沉淀到这里。
+                  去灵感模板里点亮{reactionTab === "like" ? "爱心" : "星标"}，内容会自动沉淀到这里。
                 </p>
                 <button
                   type="button"
@@ -448,7 +448,7 @@ export default function ProfilePage() {
                   className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                   style={{ background: "#C5ED47", color: "#111", letterSpacing: 0, textTransform: "none" }}
                 >
-                  去逛灵感推荐
+                  去逛灵感模板
                 </button>
               </div>
             ) : (

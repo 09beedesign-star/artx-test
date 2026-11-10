@@ -122,7 +122,7 @@ const homeSegment: TourSegment = {
     {
       id: "home-inspiration",
       anchor: A.homeInspirationSection,
-      title: "灵感推荐：不知道写什么就看这里",
+      title: "灵感模板：不知道写什么就看这里",
       body:
         "这是全站精选的优秀作品流。每张图都带着完整的提示词配方，看到喜欢的直接取用，省去从零写提示词的过程。",
       placement: "auto",
