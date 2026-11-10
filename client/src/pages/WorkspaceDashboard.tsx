@@ -12,7 +12,8 @@
  * ⚠️ 新建入口：根层放「新建项目」，项目内放「新建画布 / 导入文件」。
  *    侧边栏「新创作」是全局入口，创建画板时若已在某个项目内则直接落在该项目。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useSearch } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { toast } from "sonner";
@@ -95,14 +96,70 @@ interface MenuItem {
   danger?: boolean;
 }
 
+/**
+ * 卡片「…」菜单 —— 挂到 document.body，浮在容器上层。
+ *
+ * ⚠️⚠️ 原来菜单是卡片内的 `absolute` + `bottom: calc(100% + 6px)`：
+ * 画板卡片、封面缩略图、外层滚动区全都带 `overflow:hidden/auto`，
+ * 菜单一往上展开就被最近那层裁掉顶部（截图里「重命名」只剩半行）。
+ * 单纯的 z-index 救不了裁剪 —— **overflow 裁剪不看 z-index**。
+ * ✅ portal 到 body + `position: fixed` 按触发按钮的视口坐标定位。
+ *
+ * ⚠️ 换 portal 后必须一起处理三件事，否则会静默坏掉：
+ *   1. 点外部关闭要同时认「触发按钮」和「菜单本体」（DOM 上已不是父子）；
+ *   2. 滚动 / resize 时重新定位（fixed 不跟随滚动）；
+ *   3. 菜单里每项 stopPropagation —— portal 的事件沿 **React 树**冒泡，
+ *      仍会冒到画板卡片的 onClick 上，不拦就会「点删除顺带打开了画板」。
+ */
+const CARD_MENU_WIDTH = 156;
+const CARD_MENU_GAP = 6;
+const CARD_MENU_VIEWPORT_PADDING = 8;
+
 function CardMenu({ t, items, align = "right" }: { t: Tokens; items: MenuItem[]; align?: "left" | "right" }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const height = menuRef.current?.offsetHeight || items.length * 36 + 8;
+    // 上方放得下就往上弹（原行为），放不下就翻到按钮下方，再夹进视口。
+    const fitsAbove = rect.top - height - CARD_MENU_GAP >= CARD_MENU_VIEWPORT_PADDING;
+    const top = fitsAbove
+      ? rect.top - height - CARD_MENU_GAP
+      : Math.min(
+          rect.bottom + CARD_MENU_GAP,
+          window.innerHeight - height - CARD_MENU_VIEWPORT_PADDING
+        );
+    const rawLeft = align === "right" ? rect.right - CARD_MENU_WIDTH : rect.left;
+    const left = Math.max(
+      CARD_MENU_VIEWPORT_PADDING,
+      Math.min(rawLeft, window.innerWidth - CARD_MENU_WIDTH - CARD_MENU_VIEWPORT_PADDING)
+    );
+    setPosition({ top: Math.max(CARD_MENU_VIEWPORT_PADDING, top), left });
+  }, [align, items.length]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+    // capture=true：卡片列表在内部滚动容器里，冒泡监听收不到 scroll。
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     // 延迟挂载：否则触发菜单的那一次点击会立刻被判定为「点在外面」
     const timer = window.setTimeout(() => document.addEventListener("mousedown", handler), 0);
@@ -112,9 +169,47 @@ function CardMenu({ t, items, align = "right" }: { t: Tokens; items: MenuItem[];
     };
   }, [open]);
 
+  const menu = open && typeof document !== "undefined" ? (
+    <div
+      ref={menuRef}
+      data-card-menu=""
+      className="overflow-hidden rounded-xl py-1"
+      style={{
+        position: "fixed",
+        top: position?.top ?? 0,
+        left: position?.left ?? 0,
+        minWidth: CARD_MENU_WIDTH,
+        // 首帧还没量到高度，先藏起来，避免菜单从 (0,0) 闪一下
+        visibility: position ? "visible" : "hidden",
+        zIndex: 9999,
+        background: t.popover,
+        border: `1px solid ${t.border}`,
+        boxShadow: "0 18px 48px rgba(0,0,0,0.28)",
+      }}
+      onClick={event => event.stopPropagation()}
+      onMouseDown={event => event.stopPropagation()}
+    >
+      {items.map(item => (
+        <button
+          key={item.label}
+          type="button"
+          onClick={event => { event.stopPropagation(); item.onSelect(); setOpen(false); }}
+          className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
+          style={{ color: item.danger ? t.danger : t.text, fontSize: 12.5 }}
+          onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+          onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+        >
+          <item.icon size={13.5} strokeWidth={1.6} />
+          {item.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   return (
-    <div ref={ref} className="relative" onClick={event => event.stopPropagation()}>
+    <div className="relative" onClick={event => event.stopPropagation()}>
       <button
+        ref={triggerRef}
         type="button"
         aria-label="更多操作"
         onClick={event => { event.stopPropagation(); setOpen(value => !value); }}
@@ -126,35 +221,7 @@ function CardMenu({ t, items, align = "right" }: { t: Tokens; items: MenuItem[];
       >
         <MoreHorizontal size={15} />
       </button>
-      {open && (
-        <div
-          className="absolute z-[60] overflow-hidden rounded-xl py-1"
-          style={{
-            minWidth: 156,
-            right: align === "right" ? 0 : undefined,
-            left: align === "left" ? 0 : undefined,
-            bottom: "calc(100% + 6px)",
-            background: t.popover,
-            border: `1px solid ${t.border}`,
-            boxShadow: "0 18px 48px rgba(0,0,0,0.28)",
-          }}
-        >
-          {items.map(item => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={event => { event.stopPropagation(); item.onSelect(); setOpen(false); }}
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
-              style={{ color: item.danger ? t.danger : t.text, fontSize: 12.5 }}
-              onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
-              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
-            >
-              <item.icon size={13.5} strokeWidth={1.6} />
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {menu ? createPortal(menu, document.body) : null}
     </div>
   );
 }

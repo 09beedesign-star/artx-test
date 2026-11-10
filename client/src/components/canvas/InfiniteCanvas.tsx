@@ -1545,6 +1545,24 @@ function ImageCountSelector({
   );
 }
 
+/**
+ * 助手面板收起 / 展开的**唯一动画口径**（2026-11-10 用户点名：太慢一点、不要回弹）。
+ *
+ * ⚠️⚠️ 面板是 `translateX` 滑出去的（360ms），但画布里所有「给面板让位」的浮层
+ *     用的是 `right: inset` 布局属性，**默认 0ms 瞬跳**。
+ *     两者不同步 = 面板还在滑、中间那组卡片已经瞬移 130px → 用户看到的「画布抖一下」。
+ *     ✅ 中间那组引导卡片改为**恒定 inset、完全不动**（画布内容不该因为浮层收起搬家）；
+ *        下面这条曲线只给面板自己用，确保它慢下来且不回弹。
+ *
+ * ⚠️ 曲线末端不得超过 1：`cubic-bezier(0.32, 0.72, 0, 1)` 是纯减速、无 overshoot。
+ *     原来 Tailwind 的 `ease-out` 也不回弹，但 `transition-transform` 会顺带把
+ *     `scale / rotate / translate` 都挂上过渡，按钮的 `active:scale` 叠上来就有「弹一下」感；
+ *     现在改成 inline 只过渡 transform 本身，并把背景 / 描边 / 阴影 / 毛玻璃一起纳入过渡。
+ */
+export const ASSISTANT_PANEL_DURATION_MS = 360;
+export const ASSISTANT_PANEL_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
+export const ASSISTANT_PANEL_TRANSITION = `transform ${ASSISTANT_PANEL_DURATION_MS}ms ${ASSISTANT_PANEL_EASING}`;
+
 const CANVAS_ASSISTANT_IMAGE_RATIOS = [
   "auto",
   "1:1",
@@ -13793,6 +13811,7 @@ function CanvasEmptyStateOverlay({
   onCreate3D,
 }: {
   isDark: boolean;
+  /** 展开态的面板宽度，恒定不变 —— 布局不随面板收起而重排。 */
   rightInset: number;
   onUpload: () => void;
   onGenerate: () => void;
@@ -13878,8 +13897,20 @@ function CanvasEmptyStateOverlay({
       style={{
         position: "absolute",
         inset: 0,
-        // 右侧要给助手面板让位，否则「居中」会偏到面板底下
+        // 右侧给助手面板让位，否则「居中」会偏到面板底下
         right: rightInset,
+        /**
+         * ⚠️⚠️⚠️ 这个 inset 必须**恒定**，不随收起状态变化。
+         *
+         * 第一版 `rightInset={isAssistantCollapsed ? 112 : panelWidth}`，
+         * 收起时三张卡中心一帧瞬移 130px → 用户说的「中间画布明显抖动」。
+         * 第二版给 `right` 加 360ms 过渡、第三版改成 transform 平移：
+         * 实测**展开方向**在 ~80ms 处仍会出现一次 50px 的非单调跳变再退回
+         * （逐帧改尺寸/合成层都会触发重排或 rect 异常），用户要的「取消回弹」做不到。
+         *
+         * ✅ 画布内容本来就不该因为一个浮层收起而搬家：
+         *    卡片固定居中在展开态的可用区，收起后只是右侧多出空白，全程零位移。
+         */
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -25675,11 +25706,23 @@ function CanvasAssistantPanel({
         onImport={handleInspirationImport}
       />
       <aside
-        className="artx-canvas-composer absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)] transition-transform duration-200 ease-out"
+        className="artx-canvas-composer absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)]"
         data-tour-id={TOUR_ANCHORS.canvasAssistantPanel}
         style={{
           width: panelWidth,
           maxWidth: "calc(100vw - 48px)",
+          /**
+           * ⚠️ 背景 / 描边 / 阴影 / 毛玻璃必须和 transform 一起过渡。
+           * 只过渡 transform 的话，收起第一帧背景就瞬间变 transparent、
+           * 阴影瞬间消失 → 面板还没滑走，右侧先露出一大块底色（深色下就是黑边）。
+           */
+          transition: [
+            ASSISTANT_PANEL_TRANSITION,
+            `background ${ASSISTANT_PANEL_DURATION_MS}ms ${ASSISTANT_PANEL_EASING}`,
+            `border-color ${ASSISTANT_PANEL_DURATION_MS}ms ${ASSISTANT_PANEL_EASING}`,
+            `box-shadow ${ASSISTANT_PANEL_DURATION_MS}ms ${ASSISTANT_PANEL_EASING}`,
+            `backdrop-filter ${ASSISTANT_PANEL_DURATION_MS}ms ${ASSISTANT_PANEL_EASING}`,
+          ].join(", "),
           /**
            * 【2026-09-18 改】收起后背景必须透明。
            *
@@ -39088,10 +39131,31 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     <div
       ref={containerRef}
       data-artx-canvas-root=""
-      className="flex-1 relative overflow-hidden"
+      className="flex-1 relative"
       style={{
         height: "100%",
-        background: "#222222",
+        /**
+         * ⚠️⚠️⚠️ 必须是 `clip`，不能是 `hidden` —— 这是「收起/展开抖动 + 回弹」的真凶。
+         *
+         * 面板收起时是 `translateX(calc(100% - 72px))` 滑出右边界的，
+         * 溢出的那部分会让这个容器变成**可滚动容器**（实测 scrollWidth 1482 > 1440）。
+         * 展开时按钮获得焦点 / 浏览器自动 scrollIntoView，容器就被横向滚了
+         * 42px：`scrollLeft=42`，整块画布（含中间三张卡）左移，随后又滚回 0
+         * —— 用户看到的「画布抖一下、还带个回弹」。computed `left:0` 但
+         * `getBoundingClientRect().x=-42` 就是这么来的，零报错，极难定位。
+         *
+         * ✅ `overflow:clip` 会裁掉溢出但**不产生滚动容器**，程序也滚不动它。
+         *    画布平移靠 ReactFlow 自己的 viewport transform，本来就不靠 DOM 滚动。
+         */
+        overflow: "clip",
+        /**
+         * ⚠️⚠️ 这里原来写死 `#222222`，与 <ReactFlow> 的画布底色不是同一个值：
+         * 浅色下画布是 #f7f7f5、深色下是 #0a0a0b，中间夹一层 #222222。
+         * 只要有一帧画布层没铺满（收起/展开 relayout、面板滑出、窗口 resize），
+         * 露出来的就是这条深灰 —— 用户说的「画布边缘一大块黑边」。
+         * ✅ 容器与画布共用同一个 canvasBg，缝隙再大也看不出色差。
+         */
+        background: canvasBg,
         cursor:
           activeToolMode === "smart-canvas" ||
           activeToolMode.startsWith("shape-draw:") ||
@@ -39296,9 +39360,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         connectionLineType={"bezier" as any}
         style={{
           background: canvasBg,
-          width: isAssistantCollapsed
-            ? "calc(100% - 112px)"
-            : `calc(100% - ${assistantPanelWidth}px)`,
+          /**
+           * ⚠️ 不要在这里写 `width: calc(100% - inset)`：
+           * ReactFlow 内部会把自己的 `width:100%; height:100%` 排在后面覆盖掉，
+           * 实测 DOM 里永远是 `width: 100%` —— 这条属性是**假的**。
+           * 留着它只会让人误以为「画布宽度跟着面板缩」，从而漏掉真正
+           * 跟着动的那些 `right: inset` 浮层（多出口事故的老套路）。
+           * 画布本来就是满宽的浮层，让位靠各浮层自己的 inset 完成。
+           */
         }}
         proOptions={{ hideAttribution: true }}
         selectionOnDrag
@@ -39374,7 +39443,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       {isCanvasEmpty(displayNodes) && (
         <CanvasEmptyStateOverlay
           isDark={isDark}
-          rightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
+          rightInset={assistantPanelWidth}
           onUpload={handleEmptyStateUpload}
           onGenerate={handleEmptyStateGenerate}
           onCreate3D={handleEmptyStateCreate3D}
