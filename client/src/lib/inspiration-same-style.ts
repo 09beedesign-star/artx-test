@@ -56,14 +56,38 @@ export type SameStyleResult =
  * 固化时的长边上限。
  *
  * 模板图在画布上只是「参考图」，不需要原图分辨率；缩到 1536 长边
- * 既看得清，又能让 dataURL 稳稳落进 sessionStorage 配额。
+ * 既看得清，又让画布节点的体积保持在正常量级。
  */
 const SAME_STYLE_MAX_EDGE = 1536;
 /**
- * 固化后的体积上限。取交接通道的单张预算而不是自己另定一个数 ——
- * 两个值一旦分叉，就会出现「这里觉得没问题、那边写不进去」。
+ * 压缩目标体积。
+ *
+ * ⚠️ 这个值现在**不是** sessionStorage 的限制 —— 那份限制由
+ * `home-prompt-handoff` 的字符水位负责，超了会把图挪到内存通道。
+ * 这里管的是另一件事：dataURL 最终要落进画布节点并参与后续请求，
+ * 参考图没必要背 2MB 以上。
+ *
+ * 📌 2026-11-10 之前它被当成「交接通道的单张预算」，于是出现
+ *    一张 1.5MB 的图在两边都被判「合法」、写进 sessionStorage 却必炸
+ *    的口径错配。现在两条约束各管各的，不再互相冒充。
  */
 const SAME_STYLE_MAX_BYTES = HOME_REFERENCE_SINGLE_BUDGET_BYTES;
+
+/**
+ * 压缩档位，从好到差依次试。
+ *
+ * ⚠️ 必须多档：只试 0.9 / 0.72 两档时，一张细节密集的照片两档都超预算，
+ * 函数就返回 null —— 于是「一键同款」退化成「只带一个远程链接」，
+ * 画布侧再赌一次网络，失败就弹「未能载入」。
+ * 多一档就能救回来的图，没必要让用户手忙脚乱地自己再传一次。
+ */
+const SAME_STYLE_ATTEMPTS: ReadonlyArray<{ quality: number; maxEdge: number }> = [
+  { quality: 0.9, maxEdge: SAME_STYLE_MAX_EDGE },
+  { quality: 0.78, maxEdge: SAME_STYLE_MAX_EDGE },
+  { quality: 0.64, maxEdge: SAME_STYLE_MAX_EDGE },
+  { quality: 0.52, maxEdge: 1280 },
+  { quality: 0.44, maxEdge: 1024 },
+];
 
 /** 把相对路径按**当前页面**解析成绝对地址。跨页面之后它才有确定含义。 */
 function toAbsoluteUrl(src: string) {
@@ -102,12 +126,16 @@ function loadHtmlImage(src: string) {
  * ⚠️ 先铺白底：模板图里可能有透明区域，直接画到 canvas 上会变成黑色，
  * 而用户看不出这是「透明被压掉」，只会觉得同款参考图色不对。
  */
-function renderImageDataUrl(image: HTMLImageElement, quality: number) {
+function renderImageDataUrl(
+  image: HTMLImageElement,
+  quality: number,
+  maxEdge: number = SAME_STYLE_MAX_EDGE
+) {
   try {
     const width = image.naturalWidth || image.width;
     const height = image.naturalHeight || image.height;
     if (!width || !height) return null;
-    const scale = Math.min(1, SAME_STYLE_MAX_EDGE / Math.max(width, height));
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(width * scale));
     canvas.height = Math.max(1, Math.round(height * scale));
@@ -144,13 +172,12 @@ async function fetchImageDataUrl(url: string) {
     const objectUrl = URL.createObjectURL(blob);
     try {
       const image = await loadHtmlImage(objectUrl);
-      // 先按 0.9 出一版；超预算再降质量重画，而不是直接放弃这张图。
-      const first = renderImageDataUrl(image, 0.9);
-      if (!first) return null;
-      if (estimateDataUrlBytes(first) <= SAME_STYLE_MAX_BYTES) return first;
-      const second = renderImageDataUrl(image, 0.72);
-      if (second && estimateDataUrlBytes(second) <= SAME_STYLE_MAX_BYTES) {
-        return second;
+      // 从好到差逐档试，第一档落进预算就收工；全都不行才算这张图没救。
+      for (const attempt of SAME_STYLE_ATTEMPTS) {
+        const candidate = renderImageDataUrl(image, attempt.quality, attempt.maxEdge);
+        if (candidate && estimateDataUrlBytes(candidate) <= SAME_STYLE_MAX_BYTES) {
+          return candidate;
+        }
       }
       return null;
     } finally {
@@ -237,12 +264,16 @@ export async function applyInspirationSameStyle(
     }
 
     /*
-     * ⚠️ droppedReferences = 交接载荷超配额，写入方为了保住提示词把图丢了。
-     *    这里没有提示词，所以丢图等于「进画布啥也没有」——必须说出来，
-     *    否则用户会以为是自己点错了。
+     * ⚠️ 走到这里只剩一种可能：**sessionStorage 整个写不进去**
+     *    （隐私模式的极端情况，或配额被同源的其它 key 吃干净）。
+     *
+     *    图片超体积已经不会再走这条路 —— 超水位时 `writeHomePromptHandoff`
+     *    会把图挪到内存通道，payload 本身只剩几十字节。
+     *    原先这里写的是「图片体积超出浏览器限制」，那句话把一次
+     *    **存储配额错配**说成了用户的图太大，归因是错的，用户照做也没用。
      */
     if (written.droppedReferences) {
-      toast("参考图未能带入画布", { description: "图片体积超出浏览器限制，请手动添加" });
+      toast("导入未完成", { description: "浏览器存储不可用，请清理站点数据后重试" });
       return { ok: false, reason: "handoff-failed" };
     }
 

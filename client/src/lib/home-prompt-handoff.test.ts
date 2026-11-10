@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  HANDOFF_IMAGE_TOKEN_PREFIX,
+  HOME_HANDOFF_MAX_CHARS,
   HOME_PROMPT_HANDOFF_KEY,
   HOME_REFERENCE_MAX_COUNT,
   HOME_REFERENCE_SINGLE_BUDGET_BYTES,
@@ -182,6 +184,106 @@ describe("交接载荷读写", () => {
 
   it("存储 key 必须收口成常量，不得在调用方写裸字符串", () => {
     expect(HOME_PROMPT_HANDOFF_KEY).toBe("artx:pending-home-prompt");
+  });
+
+  /*
+   * ────────────────────────────────────────────────────────────────
+   * 2026-11-10 二次事故：「图片体积超出浏览器限制，请手动添加」
+   *
+   * 点「一键同款」被这条提示拦住。根因不是图太大，而是**闸门算错了单位**：
+   * 上面那两条字节预算按「dataURL 解码后的字节」算，而 sessionStorage
+   * 的配额按 UTF-16 字符数计（每字符 2 字节），dataURL 还带 base64 的 4/3 膨胀。
+   * 两者差 8/3 倍 —— 一张 1.2MB 的图（远低于 2MB 单张上限）真写进去要占 3.2MB，
+   * 一张 1.9MB 的图要占 5.07MB，**比 5MB 配额本身还大**。
+   * 也就是说旧闸门放行的每一张「接近上限」的图，setItem 都必然抛。
+   * ────────────────────────────────────────────────────────────────
+   */
+  it("⚠️ 超过字符水位的图被挪进内存通道，而不是判「写不进去」把用户拦住", () => {
+    // 1.2MB 解码字节：旧逻辑判 1.2MB < 2MB 单张上限 → 放行 → 真写时炸。
+    const big = makeReference("big", 1.2 * 1024 * 1024);
+    const result = writeHomePromptHandoff({
+      projectId: "p1",
+      prompt: "画只猫",
+      model: "auto",
+      references: [big],
+    });
+
+    expect(result.ok).toBe(true);
+    // 关键：不是「降级丢图」，图必须还在。
+    expect(result.droppedReferences).toBe(false);
+
+    const raw = storage.get(HOME_PROMPT_HANDOFF_KEY) ?? "";
+    // 载荷本身要小到安稳落进配额，而不是「刚刚好塞进去」。
+    expect(raw.length).toBeLessThan(HOME_HANDOFF_MAX_CHARS);
+
+    const parsed = parseHomePromptHandoff(raw);
+    // 提示词一个字节都不能少 —— 它才是用户的真实意图。
+    expect(parsed?.prompt).toBe("画只猫");
+    expect(parsed?.references?.[0]?.src?.startsWith(HANDOFF_IMAGE_TOKEN_PREFIX)).toBe(true);
+
+    /*
+     * ⚠️ 最关键的一步：读回来必须还原成**完整原图**。
+     * 写入方外置了、读取方没还原，就是「写得进去、读出来零张图」——
+     * 比直接报错更难查：连 toast 都不会有。
+     */
+    const resolved = readHandoffReferences(parsed);
+    expect(resolved.length).toBe(1);
+    expect(resolved[0].src).toBe(big.src);
+  });
+
+  it("同一份载荷被重复写入时不丢图（先清后救 = 静默丢图）", () => {
+    /*
+     * 外置图存在模块级 Map 里，写入前要清掉上一批（否则纯内存泄漏）。
+     * 但如果「先 clear 再处理」——而这次 payload 的 src 已经是 token，
+     * 处理时无脑跳过 —— 上一次刚存进去的图就被清没了，
+     * 结果是「写入 ok、读出来零张图」，连 toast 都没有。
+     * 📌 凡是「清理 + 复用」写在一起的代码，都要问一句：清掉的东西这一次还要不要。
+     */
+    const big = makeReference("big", 1.2 * 1024 * 1024);
+    writeHomePromptHandoff({ projectId: "p1", prompt: "x", references: [big] });
+
+    const first = parseHomePromptHandoff(storage.get(HOME_PROMPT_HANDOFF_KEY) ?? null);
+    expect(readHandoffReferences(first)[0]?.src).toBe(big.src);
+
+    // 第二次拿着「已经是 token」的载荷再写一遍。
+    writeHomePromptHandoff(first as never);
+
+    const second = parseHomePromptHandoff(storage.get(HOME_PROMPT_HANDOFF_KEY) ?? null);
+    expect(readHandoffReferences(second)[0]?.src).toBe(big.src);
+  });
+
+  it("小图仍然内联，不无谓地占用内存通道", () => {
+    // 外置是有代价的（硬刷新就丢），能内联就别外置。
+    const small = makeReference("small", 64 * 1024);
+    writeHomePromptHandoff({ projectId: "p1", prompt: "x", references: [small] });
+
+    const parsed = parseHomePromptHandoff(storage.get(HOME_PROMPT_HANDOFF_KEY) ?? null);
+    expect(parsed?.references?.[0]?.src).toBe(small.src);
+    expect(readHandoffReferences(parsed)[0]?.src).toBe(small.src);
+  });
+
+  it("内存通道里取不到的 token 必须被跳过，不能当 URL 交给画布", () => {
+    /*
+     * 硬刷新 / 换标签页后内存 Map 就没了。此时若把 `artx-handoff:xxx`
+     * 原样交出去，画布会把它当相对地址发一次请求，
+     * 报出来的错和真正原因（图在跳转中丢了）毫无关系。
+     */
+    const parsed = parseHomePromptHandoff(
+      JSON.stringify({
+        prompt: "x",
+        references: [
+          { id: "gone", title: "gone", src: `${HANDOFF_IMAGE_TOKEN_PREFIX}不存在的id` },
+        ],
+      })
+    );
+    expect(readHandoffReferences(parsed)).toEqual([]);
+  });
+
+  it("字符水位本身必须真的装得进 UTF-16 配额（否则闸门自己就是那个会炸的值）", () => {
+    // 5MB ÷ 2 字节/字符 = 2.6M 字符是理论天花板，必须留足余量给同源其它 key。
+    expect(HOME_HANDOFF_MAX_CHARS).toBeLessThan(2 * 1024 * 1024);
+    // 反向锚点：也不能小到把正常参考图（几百 KB）也赶去内存通道。
+    expect(HOME_HANDOFF_MAX_CHARS).toBeGreaterThan(200_000);
   });
 });
 

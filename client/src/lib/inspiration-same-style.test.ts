@@ -66,11 +66,19 @@ describe("一键同款 载荷", () => {
     );
   });
 
-  it("固化后的体积受交接通道预算约束", () => {
-    // 不设上限的话，一张原图就能把 sessionStorage 顶爆，
-    // 结果是整个载荷写不进去（连图带提示词一起丢）。
+  it("固化后的体积受画布侧预算约束，且多档降质而不是一次放弃", () => {
+    // 不设上限的话，一张原图就能把交接通道顶爆。
     expect(sameStyleLib).toContain("HOME_REFERENCE_SINGLE_BUDGET_BYTES");
     expect(sameStyleLib).toContain("estimateDataUrlBytes");
+    /*
+     * ⚠️ 档位数必须 ≥ 3。
+     * 只有 0.9 / 0.72 两档时，细节密集的照片（噪点、文字截图）两档都超预算，
+     * 函数返回 null → 「一键同款」退化成「只带一个远程链接」→
+     * 画布侧再赌一次网络，失败就弹「未能载入」。多一档就能救回来的图，
+     * 不该让用户自己再传一遍。
+     */
+    const qualitySteps = sameStyleLib.match(/quality:\s*0\.\d+/g) ?? [];
+    expect(qualitySteps.length).toBeGreaterThanOrEqual(3);
   });
 
   it("绝不自动出图（一次生成要扣积分，必须用户自己点）", () => {
