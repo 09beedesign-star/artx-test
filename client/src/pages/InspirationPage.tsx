@@ -272,7 +272,12 @@ export default function InspirationPage() {
    * 「我赞过的 / 我的收藏」用的是同一个动作，两处必须是同一份代码。
    */
   const applySameStyle = (item: PromptItem) => {
-    applyInspirationSameStyle({ title: item.title, imageUrl: item.imageUrl }, navigate);
+    // 取图 + 建画板是异步的（图要先固化进载荷），这里不 await：
+    // 函数内部自己兜住异常并 toast，页面不需要为它挂 loading 态。
+    void applyInspirationSameStyle(
+      { title: item.title, imageUrl: item.imageUrl },
+      navigate
+    );
   };
 
   const scrollFeatured = (dir: "left" | "right") => {

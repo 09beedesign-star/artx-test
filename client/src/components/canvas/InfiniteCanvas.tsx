@@ -4343,6 +4343,17 @@ async function fetchImageProxyDataUrl(src: string) {
       credentials: "omit",
     });
     if (!response.ok) return null;
+    /*
+     * ⚠️⚠️ 必须校验 content-type，不能只看 response.ok。
+     * 本地 dev 没有后端时 `/api/images/proxy` 会被 SPA fallback 接走，
+     * 返回 **200 + text/html**（整页 index.html）。旧代码把这段 HTML
+     * 也当成图片字节转成 `data:text/html;base64,...`，再喂给 new Image()，
+     * 于是报出来的错是「剪贴板图片加载失败」/「同款参考图未能载入」——
+     * 现象离真正的原因（代理没生效）隔了三层。
+     * 📌 「请求成功」不等于「拿到的是我要的东西」。
+     */
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) return null;
     const blob = await response.blob();
     return blob.size > 0 ? await blobToDataUrl(blob) : null;
   } catch {
@@ -35188,11 +35199,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           y: (rect?.top || 0) + (rect?.height || window.innerHeight) / 2,
         });
       try {
-        const nodesToPaste = await Promise.all(
+        /*
+         * ⚠️ 用 allSettled 而不是 all：一张图拉不到不该让整批都进不来。
+         * 旧写法下一张相对路径解析失败（或远程图 404）就会让
+         * `Promise.all` 整体 reject，用户看到的是「一张都没进来」，
+         * 而其余几张本来是好的。
+         */
+        const settled = await Promise.allSettled(
           uniqueSources.map((src, index) =>
             createClipboardImageSourceNode(src, index, origin)
           )
         );
+        const nodesToPaste: Node[] = settled
+          .filter(result => result.status === "fulfilled")
+          .map(result => (result as PromiseFulfilledResult<Node>).value);
         if (nodesToPaste.length === 0) return [];
         pushHistory();
         setNodes(nds =>

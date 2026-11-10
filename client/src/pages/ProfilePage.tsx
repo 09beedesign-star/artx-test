@@ -143,7 +143,7 @@ export default function ProfilePage() {
    * 改了一边另一边就静默失效。
    */
   const applyReactionSameStyle = (item: InspirationReactionItem) => {
-    applyInspirationSameStyle(
+    void applyInspirationSameStyle(
       { title: item.title, imageUrl: item.imageUrl },
       navigate
     );
