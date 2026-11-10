@@ -199,8 +199,8 @@ import {
 } from "./ModelSelector";
 import { Model3DNode } from "./Model3DNode";
 import {
-  HOME_PROMPT_HANDOFF_KEY,
-  parseHomePromptHandoff,
+  clearHomePromptHandoff,
+  peekHomePromptHandoff,
   readHandoffReferences,
   type HomePromptReference,
 } from "@/lib/home-prompt-handoff";
@@ -24688,15 +24688,14 @@ function CanvasAssistantPanel({
 
   useEffect(() => {
     if (pendingHomePromptHandledRef.current || collapsed) return;
-    const raw = sessionStorage.getItem(HOME_PROMPT_HANDOFF_KEY);
-    if (!raw) return;
+    /*
+     * ⚠️ 不能再直接 `sessionStorage.getItem`。
+     * 交接有两条通道（sessionStorage + 内存槽），只读一条就等于
+     * 「用户存储满了就永远进不来图」；而隐私模式下 getItem 本身还会抛。
+     */
+    const payload = peekHomePromptHandoff(projectId);
+    if (!payload) return;
     try {
-      const payload = parseHomePromptHandoff(raw);
-      if (!payload) {
-        sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
-        return;
-      }
-      if (payload.projectId !== projectId) return;
       const handoffReferences = readHandoffReferences(payload);
       const submittedText = payload.prompt?.trim() || "";
       /*
@@ -24707,7 +24706,7 @@ function CanvasAssistantPanel({
        */
       if (!submittedText && handoffReferences.length === 0) return;
       pendingHomePromptHandledRef.current = true;
-      sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
+      clearHomePromptHandoff();
 
       if (!payload.shouldAutoRun) {
         /*
@@ -24913,7 +24912,7 @@ function CanvasAssistantPanel({
         }
       }, 360);
     } catch {
-      sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
+      clearHomePromptHandoff();
     }
   }, [
     assistantImageModel.id,

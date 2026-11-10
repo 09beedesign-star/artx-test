@@ -9,6 +9,8 @@ import {
   estimateDataUrlBytes,
   fitReferencesToBudget,
   parseHomePromptHandoff,
+  clearHomePromptHandoff,
+  peekHomePromptHandoff,
   readHandoffReferences,
   writeHomePromptHandoff,
   type HomePromptReference,
@@ -118,18 +120,24 @@ describe("参考图预算闸门", () => {
 
 describe("交接载荷读写", () => {
   const storage = new Map<string, string>();
-  let failNextWrite = false;
+  /**
+   * 模拟浏览器的写入拒绝。
+   *  - `none`：正常；
+   *  - `reject-inline`：只拒「带内联 dataURL」的载荷 —— 模拟配额只剩几百字节，
+   *    外置成 token 的小载荷能过。这一档专门用来证明「第二次尝试」不是摆设；
+   *  - `reject-all`：全部拒绝 —— 模拟隐私模式 / 配额被同源其它 key 吃满。
+   */
+  let quotaMode: "none" | "reject-inline" | "reject-all" = "none";
 
   beforeEach(() => {
     storage.clear();
-    failNextWrite = false;
+    quotaMode = "none";
     vi.stubGlobal("window", {
       sessionStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => {
-          // 模拟 QuotaExceededError：只对「带 references 的那次」抛，
-          // 降级重试（不带图）必须能成功，否则测不出降级行为。
-          if (failNextWrite && value.includes("\"references\"")) {
+          if (quotaMode === "reject-all") throw new Error("QuotaExceededError");
+          if (quotaMode === "reject-inline" && value.includes("data:image")) {
             throw new Error("QuotaExceededError");
           }
           storage.set(key, value);
@@ -137,6 +145,8 @@ describe("交接载荷读写", () => {
         removeItem: (key: string) => storage.delete(key),
       },
     });
+    // memoryHandoff 是模块级单例，不清会串到下一个用例。
+    clearHomePromptHandoff();
   });
 
   afterEach(() => {
@@ -154,32 +164,130 @@ describe("交接载荷读写", () => {
 
     expect(result.ok).toBe(true);
     expect(result.droppedReferences).toBe(false);
+    expect(result.memoryOnly).toBeFalsy();
 
     const parsed = parseHomePromptHandoff(storage.get(HOME_PROMPT_HANDOFF_KEY) ?? null);
     expect(parsed?.prompt).toBe("画只猫");
     expect(readHandoffReferences(parsed).length).toBe(1);
   });
 
-  it("⚠️ 写入超配额时降级保住提示词，而不是整份丢掉", () => {
-    failNextWrite = true;
+  /*
+   * ────────────────────────────────────────────────────────────────
+   * 2026-11-10 三次事故：「导入未完成，浏览器存储不可用，请清理站点数据后重试」
+   *
+   * 前两次修的是「单位算错」，这一次是**把 sessionStorage 当成了唯一通路**。
+   * 一键同款的图约几百 KB，低于字符水位 → 走内联写入；用户的站点数据一旦
+   * 把配额吃满，这一写就抛，于是降级丢图、再抛就报「存储不可用」。
+   *
+   * 可交接本来就是同一标签页内的一次性软跳转 —— 内存通道（`externalImageStore`
+   * 就在同一进程里）完全够用。把**可选的持久化层**设成功能成立的必要条件，
+   * 等于给功能装了个随机断路器，还让用户去「清理站点数据」背锅。
+   * ────────────────────────────────────────────────────────────────
+   */
+  it("⚠️ sessionStorage 全写不进时走内存槽：图和字都必须在，且不能判失败", () => {
+    quotaMode = "reject-all";
+    const reference = makeReference("r1", 1024);
 
     const result = writeHomePromptHandoff({
       projectId: "p1",
       prompt: "画只猫",
       model: "vod-gem",
       shouldAutoRun: true,
-      references: [makeReference("r1", 1024)],
+      references: [reference],
     });
 
-    // 图没了，但字还在 —— 这正是降级的意义。
+    // 关键：ok 必须是 true —— 否则调用方会弹「导入失败」。
     expect(result.ok).toBe(true);
-    expect(result.droppedReferences).toBe(true);
+    expect(result.memoryOnly).toBe(true);
+    // 图一张都不能丢。旧实现这里 droppedReferences 是 true。
+    expect(result.droppedReferences).toBe(false);
+    expect(storage.has(HOME_PROMPT_HANDOFF_KEY)).toBe(false);
 
-    const parsed = parseHomePromptHandoff(storage.get(HOME_PROMPT_HANDOFF_KEY) ?? null);
-    expect(parsed?.prompt).toBe("画只猫");
-    // ⚠️ 模型也必须一起保住：降级只该丢图，不该顺手把用户选的模型也丢了。
-    expect(parsed?.model).toBe("vod-gem");
-    expect(readHandoffReferences(parsed)).toEqual([]);
+    const payload = peekHomePromptHandoff();
+    expect(payload?.prompt).toBe("画只猫");
+    expect(payload?.model).toBe("vod-gem");
+    expect(readHandoffReferences(payload)[0]?.src).toBe(reference.src);
+  });
+
+  it("配额只剩几百字节时，第二次尝试会强制外置图片，而不是直接判失败", () => {
+    quotaMode = "reject-inline";
+    const reference = makeReference("r1", 300 * 1024);
+
+    const result = writeHomePromptHandoff({
+      projectId: "p1",
+      prompt: "画只猫",
+      references: [reference],
+    });
+
+    expect(result.ok).toBe(true);
+    /*
+     * ⚠️ 这条是「第二次尝试真的被用上」的判据。
+     * 少了它，实现退化成「一失败就直接投内存槽」也能全绿 ——
+     * 那就白丢掉了「载荷能跨刷新存活」这个能力。
+     */
+    expect(result.memoryOnly).toBeFalsy();
+
+    const raw = storage.get(HOME_PROMPT_HANDOFF_KEY) ?? "";
+    expect(raw).not.toContain("data:image");
+    expect(raw.length).toBeLessThan(2000);
+    expect(readHandoffReferences(parseHomePromptHandoff(raw))[0]?.src).toBe(reference.src);
+  });
+
+  it("sessionStorage 里残留别的项目的载荷时，不能挡住内存槽里那一份", () => {
+    /*
+     * 真实形态：上一次的载荷没被消费干净（画布还没挂载用户就跳走了），
+     * 它躺在会话存储里；这一次存储已满，图只能进内存槽。
+     *
+     * 如果读取只看 sessionStorage、或者拿到了再让调用方判断，
+     * 内存那份就永远读不到 —— 图进不来，而且**连 toast 都没有**
+     * （调用方以为「这次没有载荷」）。
+     */
+    writeHomePromptHandoff({ projectId: "other", prompt: "旧的" });
+    expect(storage.has(HOME_PROMPT_HANDOFF_KEY)).toBe(true);
+
+    quotaMode = "reject-all";
+    const reference = makeReference("r1", 1024);
+    writeHomePromptHandoff({
+      projectId: "p1",
+      prompt: "画只猫",
+      references: [reference],
+    });
+
+    // 不带目标 id 时拿到的是会话存储里那份 —— 这是「谁先写谁占槽」的既有语义。
+    expect(peekHomePromptHandoff()?.projectId).toBe("other");
+    // 带上目标 id 必须穿过遮挡，拿到内存里那份。
+    const payload = peekHomePromptHandoff("p1");
+    expect(payload?.projectId).toBe("p1");
+    expect(readHandoffReferences(payload)[0]?.src).toBe(reference.src);
+  });
+
+  it("消费后两条通道一起清，不会二次导入", () => {
+    quotaMode = "reject-all";
+    writeHomePromptHandoff({
+      projectId: "p1",
+      prompt: "x",
+      references: [makeReference("r1", 1024)],
+    });
+    expect(peekHomePromptHandoff()).not.toBeNull();
+
+    clearHomePromptHandoff();
+
+    expect(peekHomePromptHandoff()).toBeNull();
+    expect(storage.has(HOME_PROMPT_HANDOFF_KEY)).toBe(false);
+  });
+
+  it("内存载荷会过期，不会在几分钟后突然把上次的图带进来", () => {
+    quotaMode = "reject-all";
+    writeHomePromptHandoff({ projectId: "p1", prompt: "x" });
+    expect(peekHomePromptHandoff()?.prompt).toBe("x");
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 6 * 60 * 1000;
+    try {
+      expect(peekHomePromptHandoff()).toBeNull();
+    } finally {
+      Date.now = realNow;
+    }
   });
 
   it("存储 key 必须收口成常量，不得在调用方写裸字符串", () => {

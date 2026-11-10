@@ -259,23 +259,21 @@ export async function applyInspirationSameStyle(
     });
 
     if (!written.ok) {
-      toast("导入失败", { description: "浏览器存储空间不足，请清理后重试" });
+      toast("导入失败", { description: "请稍后重试，或手动把这张图拖进画布" });
       return { ok: false, reason: "handoff-failed" };
     }
 
     /*
-     * ⚠️ 走到这里只剩一种可能：**sessionStorage 整个写不进去**
-     *    （隐私模式的极端情况，或配额被同源的其它 key 吃干净）。
+     * 【2026-11-10 三次事故：这里曾经会弹「导入未完成，浏览器存储不可用」】
      *
-     *    图片超体积已经不会再走这条路 —— 超水位时 `writeHomePromptHandoff`
-     *    会把图挪到内存通道，payload 本身只剩几十字节。
-     *    原先这里写的是「图片体积超出浏览器限制」，那句话把一次
-     *    **存储配额错配**说成了用户的图太大，归因是错的，用户照做也没用。
+     * 那时 `writeHomePromptHandoff` 把 sessionStorage 当成唯一通路：
+     * 写不进去就降级丢图、再写不进去就返回失败。可交接本来就是
+     * **同一标签页内的一次性软跳转**，内存通道完全够用。
+     *
+     * 现在写入分三级，且**每一级都保住图**；sessionStorage 彻底不可用时
+     * 走内存槽，返回 ok。所以这里不再有「存储不可用」这种归因 ——
+     * 让用户去「清理站点数据」是把内部实现选择说成了用户的错。
      */
-    if (written.droppedReferences) {
-      toast("导入未完成", { description: "浏览器存储不可用，请清理站点数据后重试" });
-      return { ok: false, reason: "handoff-failed" };
-    }
 
     toast("已导入同款参考图", {
       description: resolved.inlined

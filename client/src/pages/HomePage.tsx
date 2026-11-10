@@ -507,9 +507,14 @@ export default function HomePage() {
       references: homeReferences.length > 0 ? homeReferences : undefined,
       skill: homeActiveSkill ? { id: homeActiveSkill.id, name: homeActiveSkill.name } : undefined,
     });
+    /*
+     * ⚠️ 这里「丢图」只剩 SSR 一种可能：浏览器里写入分三级，
+     * 图最多是从 sessionStorage 挪进内存槽，不会再被丢掉。
+     * 所以文案不能说「浏览器存储空间不足」—— 那会把内部实现选择说成用户的错。
+     */
     if (handoffResult.droppedReferences && homeReferences.length > 0) {
       toast("参考图未能带入画布", {
-        description: "浏览器存储空间不足，请进入画布后重新上传",
+        description: "进入画布后可以重新添加这张图",
       });
     }
     toast("已创建新画布", { description: text.slice(0, 80) });

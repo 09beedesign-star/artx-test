@@ -90,6 +90,35 @@ export const HOME_REFERENCE_MAX_COUNT = 4;
 export const HOME_HANDOFF_MAX_CHARS = 1_200_000;
 
 /**
+ * 整份载荷的第二通道：内存槽。
+ *
+ * 【2026-11-10 三次事故：「导入未完成，浏览器存储不可用」】
+ *
+ * 前两次修的是「单位算错」，这一次是**把 sessionStorage 当成了唯一通路**。
+ * 只要这个 key 写不进去（隐私模式、同源其它 key 把配额吃满、
+ * 用户清不掉的历史数据），整条「一键同款」就判死 —— 图明明已经在内存里了
+ * （`externalImageStore` 就在同一个进程里，软跳转完全读得到），
+ * 却因为一个**可选的持久化层**失败而告诉用户「请清理站点数据」。
+ *
+ * 📌 判据：**交接是同一标签页内的一次性软跳转，内存通道就足够。**
+ *    sessionStorage 只是让载荷多活过一次刷新的「加分项」，
+ *    不是功能成立的前提。把加分项设成必要条件，等于给功能装了个随机断路器。
+ *
+ * 📌 这条也踩中「同一份数据的多个出口」的反向版本：**多个入口，只认一个出口**。
+ *    明明有两条可用的传递路径，代码只认会失败的那条。
+ */
+let memoryHandoff: { payload: HomePromptHandoff; at: number } | null = null;
+
+/**
+ * 内存载荷的存活时间。
+ *
+ * 它是一次性交接，正常在 1 秒内就被画布消费掉。留 5 分钟只是为了让
+ * 「跳转 → 懒加载画布 → 渲染」这条慢路径不出问题；
+ * 再长就开始变成「用户没点，画布却莫名带入上次的图」的脏数据。
+ */
+const MEMORY_HANDOFF_TTL_MS = 5 * 60 * 1000;
+
+/**
  * 超水位图片的二次通道：内存 Map。
  *
  * 【为什么不再走 sessionStorage / 也不上 IndexedDB】
@@ -110,13 +139,19 @@ const externalImageStore = new Map<string, string>();
 export const HANDOFF_IMAGE_TOKEN_PREFIX = "artx-handoff:";
 
 /**
- * 载荷超字符水位时，把图片的 src 从 payload 里挪到内存通道，
- * 只留一个 token 占位。
+ * 把图片的 src 从 payload 里挪到内存通道，只留一个 token 占位。
+ *
+ * @param force 无条件外置（不看水位）。用于「按水位算出来的载荷写进
+ *   sessionStorage 却被拒」之后的第二次尝试：此时唯一还可能写进去的
+ *   形态就是「只剩 token」的版本。
  *
  * ⚠️ 只外置图、不动其它字段：提示词 / 模型 / 技巧这些**都不能丢** ——
  * 它们才是用户的真实意图，图只是附加信息。
  */
-function externalizeOversizedImages(payload: HomePromptHandoff): HomePromptHandoff {
+function compactPayloadImages(
+  payload: HomePromptHandoff,
+  force: boolean
+): HomePromptHandoff {
   const references = payload.references;
 
   /*
@@ -137,9 +172,10 @@ function externalizeOversizedImages(payload: HomePromptHandoff): HomePromptHando
     )
   );
   const oversized =
-    Boolean(references?.length) &&
-    (referencesExternalized ||
-      JSON.stringify(payload).length > HOME_HANDOFF_MAX_CHARS);
+    force ||
+    (Boolean(references?.length) &&
+      (referencesExternalized ||
+        JSON.stringify(payload).length > HOME_HANDOFF_MAX_CHARS));
 
   /*
    * 不需要外置 = 这份载荷完全自洽（图都内联在里面，没有任何 token 引用）。
@@ -222,40 +258,129 @@ export function fitReferencesToBudget(references: HomePromptReference[]) {
   return { accepted, droppedCount };
 }
 
+export type WriteHandoffResult = {
+  ok: boolean;
+  /** 参考图被丢掉了（当前实现只有 SSR 才会出现）。 */
+  droppedReferences: boolean;
+  /** 只写进了内存通道：sessionStorage 不可用，但这次交接依然完整。 */
+  memoryOnly?: boolean;
+};
+
 /**
  * 写入交接载荷。
  *
- * 三级保险，从「什么都不丢」到「至少保住意图」：
+ * 三级保险，**每一级都保住图**：
  *   1. 总量在字符水位内 → 原样写；
  *   2. 超水位 → 把图挪到内存通道（同一标签页软跳转仍能取回），提示词照常写；
- *   3. 连第 2 步都写不进去（隐私模式 / 配额被别的 key 吃干净）
- *      → 降级成「不带参考图」的版本，保住提示词与模型。
+ *   3. 写不进 sessionStorage（隐私模式 / 配额被别的 key 吃干净）
+ *      → **强制外置重试**；还不行就走内存槽整份承载。
  *
- * ⚠️ 第 3 步是最后手段：图彻底没了，但用户至少不会「点了发送进到一个空画布」。
+ * ⚠️ 第 3 步以前是「降级成不带参考图的版本」—— 那是把两个通道的可用性
+ *    混为一谈：sessionStorage 满了不等于内存满了。结果是一张图明明
+ *    已经躺在内存里，却因为持久化层写不进被判成「导入失败」，
+ *    还让用户去「清理站点数据」。见上面 `memoryHandoff` 的注释。
  */
-export function writeHomePromptHandoff(payload: HomePromptHandoff) {
+export function writeHomePromptHandoff(payload: HomePromptHandoff): WriteHandoffResult {
   if (typeof window === "undefined") return { ok: false, droppedReferences: false };
 
+  const commit = (candidate: HomePromptHandoff) => {
+    try {
+      window.sessionStorage.setItem(HOME_PROMPT_HANDOFF_KEY, JSON.stringify(candidate));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   /*
-   * ⚠️ 不要在这里直接 `externalImageStore.clear()`。
-   * 清理的时机在 `externalizeOversizedImages` 内部：它必须先把
+   * ⚠️ 不要在写入前无脑 `externalImageStore.clear()`。
+   * 清理的时机在 `compactPayloadImages` 内部：它必须先把
    * 「本批 payload 里已经引用到的 token」抢救出来再清，
    * 否则重复写入同一份载荷时会把图删掉（先清后救 = 静默丢图）。
    */
-  const effective = externalizeOversizedImages(payload);
-
-  try {
-    window.sessionStorage.setItem(HOME_PROMPT_HANDOFF_KEY, JSON.stringify(effective));
+  const staged = compactPayloadImages(payload, false);
+  if (commit(staged)) {
+    // 常规通道成功，内存兜底留着只会污染下一次读取。
+    memoryHandoff = null;
     return { ok: true, droppedReferences: false };
-  } catch {
+  }
+
+  /*
+   * 第 2 次尝试：这次不看水位，无条件把图挪出去。
+   * 配额紧张时，唯一还塞得进的形态就是「几百字节的 token 载荷」。
+   * ⚠️ 必须基于**原始 payload** 重新算 —— `staged` 里的图可能还是内联的。
+   */
+  const compact = compactPayloadImages(payload, true);
+  if (commit(compact)) {
+    memoryHandoff = null;
+    return { ok: true, droppedReferences: false };
+  }
+
+  /*
+   * 第 3 次：sessionStorage 彻底不可用。整份载荷（含图）放进内存槽。
+   * 软跳转是同一个模块实例，读侧一定拿得到 —— 这次交接照样完整。
+   */
+  memoryHandoff = { payload: compact, at: Date.now() };
+  return { ok: true, droppedReferences: false, memoryOnly: true };
+}
+
+/**
+ * 读取交接载荷但不消费（调用方确认要消费时才调 `clearHomePromptHandoff`）。
+ *
+ * 顺序：sessionStorage（可跨刷新）→ 内存槽（sessionStorage 不可用时的通路）。
+ *
+ * @param expectedProjectId 目标画布 id。给了就**只认这一份**：
+ *   两条通道里各可能躺着一份载荷，若 sessionStorage 那份是上一次
+ *   没消费干净的（别的项目），它会把内存里那份正确的挡在后面 ——
+ *   表现是「点了没反应、连 toast 都没有」。所以匹配判断必须在这里做，
+ *   而不是让调用方拿到一个再自己判（那就退回「多个入口只认一个出口」）。
+ *
+ * ⚠️ 返回的一定是**未还原 token** 的原始载荷 —— 还原由
+ *    `readHandoffReferences` 负责。两处都还原就会各写一套逻辑，
+ *    迟早对不上（本项目「同一份数据多个出口」的经典形态）。
+ */
+export function peekHomePromptHandoff(
+  expectedProjectId?: string
+): HomePromptHandoff | null {
+  const matches = (candidate: HomePromptHandoff | null): candidate is HomePromptHandoff => {
+    if (!candidate) return false;
+    if (!expectedProjectId) return true;
+    return candidate.projectId === expectedProjectId;
+  };
+
+  if (typeof window !== "undefined") {
     try {
-      const { references, ...rest } = effective;
-      void references;
-      window.sessionStorage.setItem(HOME_PROMPT_HANDOFF_KEY, JSON.stringify(rest));
-      return { ok: true, droppedReferences: true };
+      const stored = parseHomePromptHandoff(
+        window.sessionStorage.getItem(HOME_PROMPT_HANDOFF_KEY)
+      );
+      if (matches(stored)) return stored;
     } catch {
-      return { ok: false, droppedReferences: true };
+      /*
+       * 隐私模式下**读**也可能抛（不是只有写会抛）。
+       * 这里不吞异常的话，画布那个 effect 会整块挂掉 ——
+       * 而它挂掉的表现是「首页发的东西永远不被消费」，零报错。
+       */
     }
+  }
+
+  if (memoryHandoff) {
+    if (Date.now() - memoryHandoff.at > MEMORY_HANDOFF_TTL_MS) {
+      memoryHandoff = null;
+      return null;
+    }
+    if (matches(memoryHandoff.payload)) return memoryHandoff.payload;
+  }
+  return null;
+}
+
+/** 消费掉交接载荷：两条通道一起清。 */
+export function clearHomePromptHandoff() {
+  memoryHandoff = null;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
+  } catch {
+    // 清不掉也只是多占一点配额，不该让跳转流程在这里中断。
   }
 }
 

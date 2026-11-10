@@ -42,8 +42,12 @@ function readStripped(path: string) {
 /**
  * 截取首页消费 effect 的正文。
  *
- * 用 readHandoffReferences(payload) 作为起锚（全文件唯一，已实测），
+ * 用 peekHomePromptHandoff(projectId) 作为起锚（全文件唯一，已实测），
  * 用 effect 的收尾 `}, 360);` 作为止锚。
+ *
+ * ⚠️ 起锚为什么不再用 readHandoffReferences(payload)：读取通道那几行
+ * （peek / clear）就在它上方几行，锚点落在它之后会把这些行切掉 ——
+ * 「消费侧不得直连 sessionStorage」这条断言就变成空转。
  *
  * ⚠️ 不能对整个 InfiniteCanvas.tsx 做断言：文件里有 30+ 处 referencesEnabled，
  * 其中好几处是合法的 `referencesEnabled: false`（比如单纯的文生图入口）。
@@ -56,8 +60,8 @@ function readStripped(path: string) {
  */
 function readHomeHandoffEffect() {
   const source = readStripped(INFINITE_CANVAS_PATH);
-  const start = source.indexOf("readHandoffReferences(payload)");
-  expect(start, "起锚 readHandoffReferences(payload) 没找到，测试范围失效").toBeGreaterThan(0);
+  const start = source.indexOf("peekHomePromptHandoff(projectId)");
+  expect(start, "起锚 peekHomePromptHandoff(projectId) 没找到，测试范围失效").toBeGreaterThan(0);
   const end = source.indexOf("}, 360);", start);
   expect(end, "止锚 }, 360); 没找到，测试范围失效").toBeGreaterThan(start);
   const body = source.slice(start, end);
@@ -114,6 +118,17 @@ describe("首页模型选择器必须真正接上（2026-09-13 回归锁）", ()
     expect(effect).not.toContain("artx:pending-home-prompt");
     // 起锚本身就证明了消费侧走的是收口后的解析函数。
     expect(effect).toMatch(/readHandoffReferences\(payload\)/);
+
+    /**
+     * ⚠️ 消费侧不得直连 sessionStorage。
+     *
+     * 交接有两条通道（sessionStorage + 内存槽），只读一条等于
+     * 「用户存储满了就永远进不来图」，而且隐私模式下 getItem 本身还会抛，
+     * 会把整个 effect 干掉 —— 表现是「首页发的东西永远不被消费」，零报错。
+     * 2026-11-10 的「导入未完成，浏览器存储不可用」就是这么来的。
+     */
+    expect(effect).toMatch(/peekHomePromptHandoff\(projectId\)/);
+    expect(effect).not.toMatch(/sessionStorage\.(get|set|remove)Item/);
   });
 });
 
