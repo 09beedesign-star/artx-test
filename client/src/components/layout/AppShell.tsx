@@ -14,8 +14,7 @@ import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import { TOUR_ANCHORS, type TourAnchor } from "@shared/onboarding-steps";
 import InviteDialog from "@/components/workspace/InviteDialog";
-import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
-import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, upsertWorkspaceProjectHistory } from "@/lib/project-history";
+import { createWorkspaceHistoryProject, readWorkspaceProjectHistory } from "@/lib/project-history";
 import {
   createWorkspaceFolder,
   listWorkspaceFolders,
@@ -120,9 +119,6 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     setInviteOpen(true);
     onboarding.start("invite", { onlyIfUnseen: true });
   };
-
-  /** 新建画布弹窗：由左侧「新创作」按钮与 ⌘N / Ctrl+N 共同触发。 */
-  const [createOpen, setCreateOpen] = useState(false);
 
   /*
    * 中间面板的「项目 / 最近」：真实数据。
@@ -231,19 +227,20 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   }, [isAuthenticated, openLoginModal, openBilling]);
 
   /*
-   * 「新创作」的唯一入口。
+   * 「开始创作」的唯一入口 —— 一键进画布。
+   *
+   * ⚠️ 这里刻意**不弹「新建画布」表单**：用户点这个名字时想要的是「让我开始画」，
+   *    多一次填名称 / 选封面的确认，等于把入口变成路障。画板名先给默认值，
+   *    要改在工作台卡片上重命名即可（那条路早就有了）。
    * ⚠️ 不要改成 navigate("/") —— 那只是回首页，用户点了并不会真的拿到一块新画板。
+   * ⚠️ ⌘N / Ctrl+N 走同一个函数，两条路径必须是同一行为，否则又是一个「多出口」。
    * 未登录先弹登录：没登录建出来的项目存不进云端，等于白建。
    */
-  const openCreateProject = useCallback(() => {
+  const startCreating = useCallback(() => {
     if (!isAuthenticated) {
       openLoginModal();
       return;
     }
-    setCreateOpen(true);
-  }, [isAuthenticated, openLoginModal]);
-
-  const handleCreateProject = useCallback((payload: CreateProjectPayload) => {
     /*
      * 当前正待在某个项目里（/workspace?p=xxx）时，新画板直接落在该项目下；
      * 否则进「未归类」，用户可以在工作台里再移动。
@@ -253,14 +250,10 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     const folder = activeFolder
       ? { id: activeFolder.id, name: activeFolder.name }
       : null;
-    const project = createWorkspaceHistoryProject(payload.name, undefined, folder);
-    // createWorkspaceHistoryProject 内部已 upsert 一次，这里补上封面后按 id 覆盖。
-    upsertWorkspaceProjectHistory({ ...project, cover: payload.cover });
-    setCreateOpen(false);
+    const project = createWorkspaceHistoryProject(undefined, undefined, folder);
     refreshPanel();
-    toast("画板已创建", { description: payload.name });
     navigate(`/project/${project.id}`);
-  }, [navigate, activeFolder, refreshPanel]);
+  }, [isAuthenticated, openLoginModal, activeFolder, refreshPanel, navigate]);
 
   /**
    * 侧栏「项目 +」= 新建项目并直接进去。
@@ -294,11 +287,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
       // 拦掉浏览器默认的「新建窗口 / 新建标签页」。
       event.preventDefault();
-      openCreateProject();
+      startCreating();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openCreateProject]);
+  }, [startCreating]);
 
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyValue, setApiKeyValue] = useState("");
@@ -1040,11 +1033,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         }}
       >
         <div className="flex flex-col h-full overflow-y-auto px-2.5 py-4" style={{ scrollbarWidth: "none" }}>
-          {/* New creation button —— 直接新建画板，不再跳首页 */}
+          {/* New creation button —— 一键建画板并直接进画布，不弹表单 */}
           <button
             type="button"
-            onClick={openCreateProject}
-            title={`新创作（${IS_APPLE_PLATFORM ? "⌘N" : "Ctrl+N"}）`}
+            onClick={startCreating}
+            title={`开始创作（${IS_APPLE_PLATFORM ? "⌘N" : "Ctrl+N"}）`}
             className="mb-4 flex h-9 w-full items-center justify-between gap-2 rounded-full px-4 transition-all"
             style={{
               background: "#161616",
@@ -1055,7 +1048,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           >
             <div className="flex items-center gap-2">
               <Plus size={14} strokeWidth={2} />
-              <span style={{ fontSize: 13, fontWeight: 520, letterSpacing: "-0.01em" }}>新创作</span>
+              <span style={{ fontSize: 13, fontWeight: 520, letterSpacing: "-0.01em" }}>开始创作</span>
             </div>
             <kbd
               className="flex items-center gap-0.5 rounded px-1 py-0.5"
@@ -1297,12 +1290,6 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {helpDialog}
       {apiKeyDialog}
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
-      <CreateProjectDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreate={handleCreateProject}
-        title="新建画布"
-      />
     </div>
   );
 }

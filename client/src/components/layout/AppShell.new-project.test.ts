@@ -8,25 +8,64 @@ const appShellSource = readFileSync(resolve(currentDir, "AppShell.tsx"), "utf8")
 const dashboardSource = readFileSync(resolve(currentDir, "../../pages/WorkspaceDashboard.tsx"), "utf8");
 const folderStoreSource = readFileSync(resolve(currentDir, "../../lib/project-folders.ts"), "utf8");
 
-describe("AppShell 新创作入口", () => {
-  it("opens the create-project dialog instead of navigating back to the homepage", () => {
+describe("AppShell 开始创作入口", () => {
+  /*
+   * 入口按钮的源码切片。
+   * ⚠️ 用「New creation button / Main nav items」两个锚点切片，别用行号：
+   *    行号会因为上面任何一处改动而失效，切出来的块可能恰好不包含按钮。
+   */
+  const createButtonBlock = (() => {
     const start = appShellSource.indexOf("New creation button");
     const end = appShellSource.indexOf("Main nav items");
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    const newCreateBlock = appShellSource.slice(start, end);
+    return appShellSource.slice(start, end);
+  })();
 
-    expect(newCreateBlock).toContain("onClick={openCreateProject}");
-    // 曾经的实现是 navigate("/")：点「新创作」只回首页，用户拿不到新画板。
-    expect(newCreateBlock).not.toContain('navigate("/")');
-    expect(appShellSource).toContain("<CreateProjectDialog");
+  const startCreatingBody = (() => {
+    const start = appShellSource.indexOf("const startCreating");
+    const end = appShellSource.indexOf("const handleCreateFolder");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return appShellSource.slice(start, end);
+  })();
+
+  it("按钮文案是「开始创作」，不再是「新创作」", () => {
+    expect(createButtonBlock).toContain("开始创作");
+    expect(createButtonBlock).not.toContain("新创作");
   });
 
-  it("uses ⌘N / Ctrl+N and no longer advertises ⌘K", () => {
+  /*
+   * 2026-11-10 用户要求「点击之后一键进入画布」：
+   * 点这个按钮**不能**再弹「新建画布」表单 —— 填名称/封面/负责人那一步是路障。
+   */
+  it("点一下就直接进画布，不再弹「新建画布」表单", () => {
+    expect(createButtonBlock).toContain("onClick={startCreating}");
+    expect(createButtonBlock).not.toContain("setCreateOpen");
+    // 曾经的实现：点「新创作」只回首页（用户拿不到新画板）
+    expect(createButtonBlock).not.toContain('navigate("/")');
+    expect(appShellSource).not.toContain("<CreateProjectDialog");
+    expect(appShellSource).not.toContain("setCreateOpen(true)");
+  });
+
+  it("startCreating 建完画板立刻 navigate 进 /project/:id", () => {
+    expect(startCreatingBody).toContain("createWorkspaceHistoryProject(undefined, undefined, folder)");
+    expect(startCreatingBody).toContain("navigate(`/project/${project.id}`)");
+    // 顺序：先判登录 → 再建画板 → 最后跳转（反过来的话未登录也会建出一块孤儿画板）
+    expect(startCreatingBody.indexOf("openLoginModal")).toBeLessThan(
+      startCreatingBody.indexOf("createWorkspaceHistoryProject")
+    );
+    expect(startCreatingBody.indexOf("createWorkspaceHistoryProject")).toBeLessThan(
+      startCreatingBody.indexOf("navigate(")
+    );
+  });
+
+  it("⌘N / Ctrl+N 与按钮走同一个函数", () => {
     expect(appShellSource).not.toContain("⌘K");
     expect(appShellSource).toContain("⌘N");
     expect(appShellSource).toContain("event.metaKey : event.ctrlKey");
-    expect(appShellSource).toContain("navigate(`/project/${project.id}`)");
+    expect(appShellSource).toContain("startCreating();");
+    expect(appShellSource).not.toContain("openCreateProject");
   });
 
   /*
@@ -34,10 +73,7 @@ describe("AppShell 新创作入口", () => {
    * 否则用户「新建了但看不见」—— 新画板跑到项目外面去了。
    */
   it("creates the board inside the project the user is currently in", () => {
-    expect(appShellSource).toContain("const folder = activeFolder");
-    expect(appShellSource).toContain(
-      "createWorkspaceHistoryProject(payload.name, undefined, folder)"
-    );
+    expect(startCreatingBody).toContain("const folder = activeFolder");
     expect(appShellSource).toContain('new URLSearchParams(search).get("p")');
   });
 
