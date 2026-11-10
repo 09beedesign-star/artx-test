@@ -2,7 +2,7 @@
  * AppShell — Three-Column Layout (图叙 AI 风格)
  * Left icon rail | Middle nav panel | Right content
  */
-import { useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,8 @@ import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import { TOUR_ANCHORS, type TourAnchor } from "@shared/onboarding-steps";
 import InviteDialog from "@/components/workspace/InviteDialog";
+import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
+import { createWorkspaceHistoryProject, upsertWorkspaceProjectHistory } from "@/lib/project-history";
 import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
@@ -46,6 +48,9 @@ interface ApiKeyRecord {
 const MAX_HELP_SCREENSHOTS = 4;
 const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+/** 快捷键文案与修饰键：macOS 用 ⌘，其他平台用 Ctrl。 */
+const IS_APPLE_PLATFORM =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 const EXTERNAL_AGENT_BASE_URL = "https://admin.artxsd.com";
 const OPENAI_COMPATIBLE_BASE_URL = `${EXTERNAL_AGENT_BASE_URL}/v1`;
 // 对外 OpenAI 兼容接口文档里展示的推荐模型，必须跟随全站默认模型，
@@ -98,6 +103,55 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     setInviteOpen(true);
     onboarding.start("invite", { onlyIfUnseen: true });
   };
+
+  /** 新建画布弹窗：由左侧「新创作」按钮与 ⌘N / Ctrl+N 共同触发。 */
+  const [createOpen, setCreateOpen] = useState(false);
+
+  /*
+   * 「新创作」的唯一入口。
+   * ⚠️ 不要改成 navigate("/") —— 那只是回首页，用户点了并不会真的拿到一块新画板。
+   * 未登录先弹登录：没登录建出来的项目存不进云端，等于白建。
+   */
+  const openCreateProject = useCallback(() => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    setCreateOpen(true);
+  }, [isAuthenticated, openLoginModal]);
+
+  const handleCreateProject = useCallback((payload: CreateProjectPayload) => {
+    const project = createWorkspaceHistoryProject(payload.name);
+    // createWorkspaceHistoryProject 内部已 upsert 一次，这里补上封面后按 id 覆盖。
+    upsertWorkspaceProjectHistory({ ...project, cover: payload.cover });
+    setCreateOpen(false);
+    toast("项目已创建", { description: payload.name });
+    navigate(`/project/${project.id}`);
+  }, [navigate]);
+
+  /*
+   * ⌘N（macOS）/ Ctrl+N（Windows、Linux）新建画布。
+   * ⚠️ 输入框、文本域、可编辑区里不拦截：N 是普通字符，别把用户打的字吃掉。
+   * ⚠️ Chrome / Safari 把 ⌘N、Ctrl+N 当成「新建窗口」的浏览器级快捷键，页面常常收不到 ——
+   *    所以额外接受一个不被浏览器占用的 Alt+N 作为等同入口。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.shiftKey) return;
+      const accelerator = IS_APPLE_PLATFORM ? event.metaKey : event.ctrlKey;
+      if (!accelerator && !event.altKey) return;
+      if (event.key.toLowerCase() !== "n") return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      // 拦掉浏览器默认的「新建窗口 / 新建标签页」。
+      event.preventDefault();
+      openCreateProject();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openCreateProject]);
+
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
@@ -820,10 +874,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         }}
       >
         <div className="flex flex-col h-full overflow-y-auto px-2.5 py-4" style={{ scrollbarWidth: "none" }}>
-          {/* New creation button */}
+          {/* New creation button —— 直接新建画板，不再跳首页 */}
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={openCreateProject}
+            title={`新创作（${IS_APPLE_PLATFORM ? "⌘N" : "Ctrl+N"}）`}
             className="mb-4 flex h-9 w-full items-center justify-between gap-2 rounded-full px-4 transition-all"
             style={{
               background: "#161616",
@@ -845,7 +900,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 fontFamily: "inherit",
               }}
             >
-              ⌘K
+              {IS_APPLE_PLATFORM ? "⌘N" : "Ctrl N"}
             </kbd>
           </button>
 
@@ -931,6 +986,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {helpDialog}
       {apiKeyDialog}
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      <CreateProjectDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreate={handleCreateProject}
+        title="新建画布"
+      />
     </div>
   );
 }

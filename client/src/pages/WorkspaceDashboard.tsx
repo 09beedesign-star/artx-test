@@ -11,9 +11,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import TopBar from "@/components/workspace/TopBar";
-import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
 import {
-  Plus, MoreHorizontal, Pencil, Copy, Trash2,
+  MoreHorizontal, Pencil, Copy, Trash2,
   FolderOpen, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -294,45 +293,6 @@ function ProjectCard({
   );
 }
 
-// ── Create Project Card ────────────────────────────────────────
-function CreateProjectCard({ isDark, onCreate }: { isDark: boolean; onCreate: () => void }) {
-  const bg = isDark ? "#222222" : "#161616";
-  const border = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
-  const shadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
-  const text = isDark ? "#99999e" : "#777472";
-  return (
-    <button
-      onClick={onCreate}
-      className="overflow-hidden transition-all group"
-      style={{
-        width: "100%",
-        background: bg,
-        border: `1px dashed ${border}`,
-        borderRadius: 6,
-        boxShadow: shadow,
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = isDark ? "#77777d" : "rgba(22,22,22,0.5)";
-        (e.currentTarget as HTMLElement).style.background = isDark ? "#1d1d1f" : "#161616";
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.borderColor = border;
-        (e.currentTarget as HTMLElement).style.background = bg;
-      }}
-    >
-      <div className="flex items-center justify-center" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
-        <div className="flex items-center justify-center transition-transform group-hover:scale-110"
-          style={{ color: isDark ? "#d8d8dc" : "#161616" }}>
-          <Plus size={24} strokeWidth={1.5} />
-        </div>
-      </div>
-      <div className="px-3 py-3" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
-        <span className="type-caption" style={{ color: text, fontSize: 13, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>新建画板</span>
-      </div>
-    </button>
-  );
-}
-
 // ── Main Page ──────────────────────────────────────────────────
 export default function WorkspaceDashboard() {
   const [, navigate] = useLocation();
@@ -341,7 +301,6 @@ export default function WorkspaceDashboard() {
 
   const [projects, setProjects] = useState<WsProject[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
   const bg = isDark ? "#222222" : "#ffffff";
@@ -356,34 +315,6 @@ export default function WorkspaceDashboard() {
     window.addEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
     return () => window.removeEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
   }, []);
-
-  const handleCreate = useCallback((payload: CreateProjectPayload) => {
-    const historyProject = createWorkspaceHistoryProject(payload.name);
-    const newP: WsProject = {
-      ...fromHistoryProject({
-        ...historyProject,
-        cover: payload.cover,
-      }),
-      deliveryAt: payload.deliveryAt,
-      owner: payload.owner,
-      note: payload.note,
-    };
-    upsertWorkspaceProjectHistory({
-      id: newP.id,
-      title: newP.title,
-      cover: newP.cover,
-      updatedAt: newP.updatedAt,
-      nodeCount: newP.nodeCount,
-      createdAt: newP.createdAt || newP.updatedAt,
-      socialPresetId: newP.socialPresetId,
-      canvasWidth: newP.canvasWidth,
-      canvasHeight: newP.canvasHeight,
-    });
-    setProjects(ps => [newP, ...ps]);
-    setShowCreate(false);
-    toast("项目已创建", { description: payload.name });
-    navigate(`/project/${newP.id}`);
-  }, [navigate]);
 
   const handleRename = useCallback((id: string, name: string) => {
     setProjects(ps => ps.map(p => p.id === id ? { ...p, title: name } : p));
@@ -442,7 +373,8 @@ export default function WorkspaceDashboard() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
-      <TopBar credits={0} onNewProjectClick={() => setShowCreate(true)} onCreateProject={handleCreate} glass />
+      {/* 新建入口已统一收口到左侧「新创作」（AppShell），工作台不再提供 */}
+      <TopBar credits={0} glass />
 
       <div className="flex-1 overflow-y-auto px-6 py-8 select-none" style={{ position: "relative" }}>
 
@@ -455,10 +387,17 @@ export default function WorkspaceDashboard() {
         </div>
 
         {/* Project Grid */}
-        <div className="grid gap-6" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
-          <div className="project-card">
-            <CreateProjectCard isDark={isDark} onCreate={() => setShowCreate(true)} />
+        {projects.length === 0 ? (
+          /* 空状态：入口已经不在本页，必须明确告诉用户去哪儿新建，否则会以为功能坏了 */
+          <div className="flex flex-col items-center justify-center gap-2 py-24">
+            <FolderOpen size={26} strokeWidth={1.2} style={{ color: isDark ? "#3a3a3a" : "#d5d5d5" }} />
+            <span style={{ fontSize: 13, color: sub, letterSpacing: 0 }}>还没有画板</span>
+            <span style={{ fontSize: 12, color: isDark ? "#66666b" : "#a8a8a8", letterSpacing: 0 }}>
+              点击左侧「新创作」开始，或用快捷键 ⌘N / Ctrl+N
+            </span>
           </div>
+        ) : (
+        <div className="grid gap-6" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
           {projects.map(project => (
             <div key={project.id} data-project-id={project.id} className="project-card">
               <ProjectCard
@@ -474,10 +413,10 @@ export default function WorkspaceDashboard() {
             </div>
           ))}
         </div>
+        )}
 
       </div>
 
-      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreate={handleCreate} title="新建画布" />
       {deleteConfirm && <DeleteConfirmDialog count={deleteConfirm.length} onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} isDark={isDark} />}
     </div>
   );

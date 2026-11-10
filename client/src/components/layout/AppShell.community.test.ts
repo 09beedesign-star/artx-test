@@ -8,7 +8,12 @@ const appShellSource = readFileSync(resolve(currentDir, "AppShell.tsx"), "utf8")
 
 describe("AppShell community entry", () => {
   it("places the join-community button above help and opens the QR dialog copy", () => {
-    const bottomSection = appShellSource.slice(appShellSource.indexOf("Bottom: Help"));
+    // 三段式布局后底部工具区在 icon 栏里，锚点随之改名。
+    const start = appShellSource.indexOf("Bottom utility icons");
+    const end = appShellSource.indexOf("Panel toggle");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const bottomSection = appShellSource.slice(start, end);
     const communityIndex = bottomSection.indexOf("加入社群");
     const helpIndex = bottomSection.indexOf("帮助");
 
@@ -25,7 +30,8 @@ describe("AppShell community entry", () => {
     const source = appShellSource;
 
     expect(source).toContain('const helpActive = isActive("/help");');
+    // 高亮改为把 active 传给 icon 按钮（原来是内联 background 三元），意图不变。
+    expect(source).toContain("active={helpActive}");
     expect(source).toContain("您当前已在帮助与反馈页面中，请提交你的建议吧。");
-    expect(source).toContain('background: helpActive ? activeBg : "transparent"');
   });
 });
