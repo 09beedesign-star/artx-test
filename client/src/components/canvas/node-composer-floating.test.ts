@@ -305,18 +305,23 @@ describe("需求 6（2026-09-21）：底部按钮区与全局提示词输入框�
     ).not.toContain("回车发送");
   });
 
-  it("发送按钮配色：紫色底 + 白色图标（2026-09-21 用户点名，替代原先对齐全局的绿）", () => {
-    expect(bottomBar, "发送按钮不是紫色底").toContain(
-      '"oklch(0.58 0.22 290)"'
-    );
-    expect(bottomBar, "发送按钮图标不是白色").toContain(
-      'color: canSendPrompt ? "#fff" : subtext'
-    );
-    expect(bottomBar, "紫色投影丢失").toContain(
-      '"0 12px 30px oklch(0.58 0.22 290 / 0.28)"'
-    );
-    // 反向：旧绿色不能留着
+  it("发送按钮统一为全站黑圆 + 白色纸飞机（2026-11-10 用户点名，替代 09-21 的紫色方钮）", () => {
+    expect(bottomBar, "发送按钮没有改用统一组件").toContain("<SendActionButton");
+    expect(bottomBar, "发送按钮图标尺寸丢失").toContain("iconSize={15}");
+    // 反向：紫色、旧绿色都不能继续出现在这一个按钮上
+    expect(bottomBar, "还在用紫色发送按钮").not.toContain("oklch(0.58 0.22 290)");
     expect(bottomBar, "还在用旧的绿色发送按钮").not.toContain('"#C5ED47"');
+    /*
+     * ⚠️ 「改成组件了」不等于「长得对」。颜色写在组件内部，
+     *    所以这里必须去读组件本体，否则把 SendActionButton 改成粉红这组断言照样全绿。
+     */
+    const button = readFileSync(
+      join(__dirname, "../ui/send-action-button.tsx"),
+      "utf8"
+    );
+    expect(button, "底不是黑色").toContain("background: \"#161616\"");
+    expect(button, "图标不是白色").toContain("color: \"#ffffff\"");
+    expect(button, "不是圆钮").toContain("rounded-full");
   });
 
   it("发送按钮的禁用条件必须与 handleSend 的放行条件同源", () => {

@@ -696,10 +696,14 @@ describe("InfiniteCanvas prompt controls", () => {
     const canvasSource = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     // 2026-11 全站 UI 统一时 Switch 从 18×34/14 改成 20×36/16，几何仍由组件统一提供
-    expect(switchSource).toContain("h-[20px] w-[36px]");
-    expect(switchSource).toContain("p-[2px]");
-    expect(switchSource).toContain("size-[16px]");
-    expect(switchSource).toContain("data-[state=checked]:translate-x-4");
+    // 2026-11-10 几何改成「尺寸组」常量（h-5 = 20px、w-9 = 36px、size-4 = 16px），
+    //            调用方只许传 size="sm"，不许再自己压轨道宽度（那样 thumb 会顶出去）。
+    expect(switchSource).toContain(
+      'default: { root: "h-5 w-9 p-[2px]", thumb: "size-4 data-[state=checked]:translate-x-4" }'
+    );
+    expect(switchSource).toContain(
+      'sm: { root: "h-4 w-7 p-[2px]", thumb: "size-3 data-[state=checked]:translate-x-3" }'
+    );
     expect(switchSource).toContain("thumbStyle");
     expect(canvasSource).toContain('import { Switch } from "@/components/ui/switch";');
     expect(canvasSource).toContain('aria-label="参考当前画布"');

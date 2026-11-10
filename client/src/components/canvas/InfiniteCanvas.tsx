@@ -116,7 +116,6 @@ import {
   Wand2,
   Sparkles,
   Trash2,
-  Send,
   Paperclip,
   ChevronDown,
   X,
@@ -231,6 +230,7 @@ import {
   type RegionSelectRect,
 } from "./region-select-mask";
 import { Switch } from "@/components/ui/switch";
+import { SendActionButton } from "@/components/ui/send-action-button";
 import {
   USER_MEMORY_CHANGED_EVENT,
   fetchUserMemory,
@@ -5882,9 +5882,10 @@ function AssetPromptPanel({
         <span className="type-caption" style={{ color: chipText }}>
           1×
         </span>
-        <button
-          className="w-7 h-7 rounded-[var(--radius-pill)] flex items-center justify-center transition-all hover:opacity-90"
-          style={{ background: "#161616", color: "white" }}
+        {/* 2026-11-10 全站发送键统一：黑圆 + 白色纸飞机 */}
+        <SendActionButton
+          size={28}
+          iconSize={12}
           onClick={e => {
             e.stopPropagation();
             if (prompt.trim()) {
@@ -5892,9 +5893,7 @@ function AssetPromptPanel({
               setPrompt("");
             } else toast("请先输入描述");
           }}
-        >
-          <Send size={12} />
-        </button>
+        />
       </div>
     </div>
   );
@@ -11359,12 +11358,7 @@ function ChatNodeComponent({
             placeholder="继续对话..."
             onClick={e => e.stopPropagation()}
           />
-          <button
-            className="p-1 rounded-[var(--radius-xs)]"
-            style={{ color: subtext }}
-          >
-            <Send size={11} />
-          </button>
+          <SendActionButton size={26} iconSize={11} aria-label="发送" />
         </div>
       </div>
     </NodeWrapper>
@@ -16910,33 +16904,15 @@ function BottomPromptBar({
               ? "AI 处理中"
               : `${hasRefs ? "Ctrl+单击 多选 · " : ""}回车发送`}
           </span>
-          <button
+          {/* 2026-11-10 全站发送键统一：黑圆 + 白色纸飞机；无内容时压暗但保持可点（点了会给提示） */}
+          <SendActionButton
+            size={28}
+            iconSize={13}
+            loading={isSending}
             onClick={() => void handleSend()}
-            disabled={isSending}
-            className="w-7 h-7 rounded-[var(--radius-md-design)] flex items-center justify-center hover:opacity-80"
-            style={{
-              background: hasContent
-                ? "#161616"
-                : isDark
-                  ? "#262627"
-                  : "#161616",
-            }}
-          >
-            {isSending ? (
-              <RefreshCw size={13} color="white" className="animate-spin" />
-            ) : (
-              <Send
-                size={13}
-                color={
-                  hasContent
-                    ? "white"
-                    : isDark
-                      ? "#555555"
-                      : "#99999e"
-                }
-              />
-            )}
-          </button>
+            aria-label="发送"
+            style={hasContent ? undefined : { opacity: 0.45 }}
+          />
         </div>
       </div>
       {referencePreview &&
@@ -18559,30 +18535,17 @@ function AssetEditPromptBar({
             color={iconRowButton.text}
             hoverColor={text}
           />
-          <button
-            type="button"
-            disabled={!canSendPrompt}
+          {/* 2026-11-10 全站发送键统一：黑圆 + 白色纸飞机 */}
+          <SendActionButton
+            size={32}
+            iconSize={15}
             data-artx-asset-send
             onClick={handleSend}
+            disabled={!canSendPrompt}
             title={sendButtonTitle}
             aria-label="发送"
             aria-busy={isTargetBusy || undefined}
-            className="h-8 w-8 shrink-0 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
-            style={{
-              // 2026-09-21 用户点名：紫色底 + 白色图标（原先对齐全局的绿）。
-              background: canSendPrompt
-                ? "#161616"
-                : isDark
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(0,0,0,0.08)",
-              color: canSendPrompt ? "#fff" : subtext,
-              boxShadow: canSendPrompt
-                ? "0 12px 30px rgba(22,22,22,0.28)"
-                : "none",
-            }}
-          >
-            <Send size={15} />
-          </button>
+          />
         </div>
       </div>
     </div>
@@ -21814,7 +21777,6 @@ function CanvasAssistantPanel({
    */
   const [memoryContextBusy, setMemoryContextBusy] = useState(false);
   const [memoryDoc, setMemoryDoc] = useState<UserMemoryDocument | null>(null);
-  const [memoryContextHovered, setMemoryContextHovered] = useState(false);
   const composerInputRefs = useRef<
     Record<string, HTMLInputElement | HTMLTextAreaElement | HTMLElement | null>
   >({});
@@ -26410,61 +26372,61 @@ function CanvasAssistantPanel({
                 ⚠️ 必须带 nodrag/nopan 并 stopPropagation：
                    这块浮在画布之上，不拦事件的话点击会穿透到画布，
                    表现是「点开关没反应，画布反而被拖动了」。
+
+                【2026-11-10 用户要求】去掉「上下文记忆」这行文字，只留图标 + 开关。
+                ⚠️ 之前文案是 `hover || 开启` 才出现 → 鼠标移上去 pill 会突然变宽，
+                   把开关整体顶偏，就是用户说的「布局动态伸缩」。
+                   📌 一个宽度由 hover 决定的绝对定位元素，等于每悬停一次就挪一次位。
+                ✅ 现在宽度恒定：icon 13 + gap 6 + switch 28 + padding 12 = 59px。
+                ⚠️ 语义不能跟着文字一起删：aria-label / title 仍然要能让人知道这是上下文记忆。
               */}
               <div
-                className="nodrag nopan absolute flex items-center gap-1.5 rounded-[var(--radius-pill)] px-2 py-1"
+                className="nodrag nopan absolute flex items-center gap-1.5 rounded-[var(--radius-pill)] px-1.5 py-1"
                 style={{
                   top: 6,
                   right: 8,
                   zIndex: 30,
                   background: memoryContextEnabled
-                    ? "rgba(197,237,71,0.16)"
+                    ? "#161616"
                     : isDark
                       ? "rgba(255,255,255,0.06)"
                       : "rgba(0,0,0,0.05)",
-                  border: `1px solid ${memoryContextEnabled ? "rgba(197,237,71,0.45)" : border}`,
+                  // 深色画布上黑药丸会糊进底色，留一条细边把它勾出来
+                  border: `1px solid ${
+                    memoryContextEnabled
+                      ? isDark
+                        ? "rgba(255,255,255,0.18)"
+                        : "#161616"
+                      : border
+                  }`,
                   opacity: memoryContextBusy ? 0.6 : 1,
                   transition: "background 160ms, border-color 160ms",
                 }}
+                role="group"
+                aria-label="上下文记忆开关"
                 title={
                   memoryContextEnabled
                     ? "上下文记忆已开启：会带上你的长期设计习惯、当前项目风格与最近用过的提示词"
                     : "开启上下文记忆：让模型记住你的设计习惯与项目风格"
                 }
-                onMouseEnter={() => setMemoryContextHovered(true)}
-                onMouseLeave={() => setMemoryContextHovered(false)}
                 onPointerDown={event => event.stopPropagation()}
                 onMouseDown={event => event.stopPropagation()}
               >
                 <Brain
                   size={13}
+                  aria-hidden="true"
                   style={{
-                    color: memoryContextEnabled
-                      ? "#C5ED47"
-                      : memoryContextHovered
-                        ? text
-                        : sub,
+                    color: memoryContextEnabled ? "#ffffff" : sub,
                     flexShrink: 0,
                   }}
                 />
-                {/*
-                  文案在 hover 或开启时才出现，收起时只留图标，
-                  避免常驻占掉输入框顶部宽度。
-                */}
-                {(memoryContextHovered || memoryContextEnabled) && (
-                  <span
-                    className="type-caption whitespace-nowrap"
-                    style={{ color: memoryContextEnabled ? "#C5ED47" : sub }}
-                  >
-                    上下文记忆
-                  </span>
-                )}
                 <Switch
                   checked={memoryContextEnabled}
                   disabled={memoryContextBusy}
+                  size="sm"
+                  tone="lime"
                   aria-label="上下文记忆开关"
                   data-testid="composer-memory-switch"
-                  className="h-[14px] w-[26px]"
                   onCheckedChange={next => {
                     void handleToggleMemoryContext(next);
                   }}
@@ -27570,32 +27532,17 @@ function CanvasAssistantPanel({
                     color={sub}
                     hoverColor={text}
                   />
-                  <button
+                  {/* 2026-11-10 全站发送键统一：黑圆 + 白色纸飞机（原来这里是荧光绿方钮） */}
+                  <SendActionButton
+                    size={32}
+                    iconSize={15}
                     disabled={!canSubmit}
-                    className="h-8 w-8 rounded-[var(--radius-lg-design)] flex items-center justify-center disabled:cursor-not-allowed transition-all hover:scale-[1.03] active:scale-95"
-                    style={{
-                      background:
-                        canSubmit || isSubmitting
-                          ? "#C5ED47"
-                          : isDark
-                            ? "rgba(255,255,255,0.08)"
-                            : "rgba(0,0,0,0.08)",
-                      color: canSubmit || isSubmitting ? "#000" : sub,
-                      opacity: isAuthenticated ? 1 : 0.65,
-                      boxShadow: canSubmit
-                        ? "0 12px 30px rgba(197,237,71,0.24)"
-                        : "none",
-                    }}
+                    loading={isSubmitting}
                     onClick={handleSubmit}
                     title={isSubmitting ? "处理中" : "发送"}
                     aria-label={isSubmitting ? "处理中" : "发送"}
-                  >
-                    {isSubmitting ? (
-                      <RefreshCw size={14} className="animate-spin" />
-                    ) : (
-                      <Send size={15} />
-                    )}
-                  </button>
+                    style={{ opacity: isAuthenticated ? undefined : 0.65 }}
+                  />
                 </div>
               </div>
               {isSubmitting && (

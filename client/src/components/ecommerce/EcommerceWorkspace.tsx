@@ -34,6 +34,7 @@ import { ModelSelector } from "@/components/canvas/ModelSelector";
 import { PicwishBackgroundSelector } from "@/components/canvas/PicwishBackgroundSelector";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Switch as UISwitch } from "@/components/ui/switch";
+import { SendActionButton } from "@/components/ui/send-action-button";
 import {
   ECOMMERCE_TPL_CATEGORIES,
   ECOMMERCE_TEMPLATES,
@@ -307,21 +308,16 @@ export function EcommerceWorkspace({
             <div className="min-w-0 flex-1">
               <ModelSelector model={draft.model} onChange={model => updateDraft({ model })} isDark={isDark} placement="down" />
             </div>
-            <button
-              type="button"
+            {/* 2026-11-10：全站生成按钮统一为黑底白图标（原来这里是品牌绿方块） */}
+            <SendActionButton
               data-testid="ecommerce-generate"
-              disabled={generating}
+              label={generating ? "生成中…" : "生成"}
+              loading={generating}
+              size={36}
+              iconSize={14}
               onClick={onGenerate}
               title={`融合上传图、生成设置、卖点${mode === "post" ? "、模板" : "、背景模板"}与所选模型生成`}
-              className="flex shrink-0 items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-55"
-              style={{ 
-                background: isDark ? lime : "#4EC61D", 
-                color: "#ffffff" 
-              }}
-            >
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {generating ? "生成中…" : "生成"}
-            </button>
+            />
           </div>
           <div className="mt-1.5 text-[11px] leading-relaxed" style={{ color: palette.sub }}>
             {mode === "product" ? (

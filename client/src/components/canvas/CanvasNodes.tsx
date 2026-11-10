@@ -5,9 +5,10 @@
  */
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { SendActionButton } from "@/components/ui/send-action-button";
 import { toast } from "sonner";
 import {
-  X, Download, Maximize2, Sparkles, Send, Loader2,
+  X, Download, Maximize2, Sparkles, Loader2,
   Check, GripVertical, MessageSquare, Type, MoreHorizontal,
   Paperclip, Wand2, Cpu, ChevronDown,
 } from "lucide-react";
@@ -420,11 +421,14 @@ export function ChatNode({ node, isSelected, onDragStart, onSelect, onRemove }: 
               placeholder="继续对话…" rows={1}
               className="flex-1 bg-transparent outline-none resize-none text-[12px]"
               style={{ color: "#161616", lineHeight: 1.5 }} />
-            <button onClick={(e) => { e.stopPropagation(); handleSend(); }} disabled={!input.trim() || isGenerating}
-              className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 disabled:opacity-40 transition-all"
-              style={{ background: "linear-gradient(135deg, #161616, #333333)" }}>
-              <Send size={10} className="text-white" />
-            </button>
+            {/* 2026-11-10 全站发送键统一：黑圆 + 白色纸飞机（原来是渐变方钮） */}
+            <SendActionButton
+              size={24}
+              iconSize={10}
+              onClick={(e) => { e.stopPropagation(); handleSend(); }}
+              disabled={!input.trim() || isGenerating}
+              aria-label="发送"
+            />
           </div>
         </div>
 

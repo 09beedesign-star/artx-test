@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from "react";
-import { ImagePlus, Send, X } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
 import { ModelSelector } from "@/components/canvas/ModelSelector";
 import { SkillSelector } from "@/components/canvas/SkillSelector";
 import { SkillCarousel } from "@/components/home/SkillCarousel";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
+import { SendActionButton } from "@/components/ui/send-action-button";
 import type { AiModelOption } from "@/lib/workspace-data";
 import type { HomePromptReference } from "@/lib/home-prompt-handoff";
 import type { PendingSkillLoad } from "@/lib/skill-store";
@@ -496,14 +497,13 @@ export function CenteredPromptPanel({
               color={textMuted}
               hoverColor={textPrimary}
             />
-            <button
-              type="button"
+            {/* 2026-11-10：全站发送/生成按钮统一为黑圆 + 白色纸飞机（原来这里是紫色方钮） */}
+            <SendActionButton
               onClick={onSend}
-              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#936CFF] text-white shadow-[0_8px_22px_rgba(147,108,255,0.28)] transition-all hover:bg-[#A384FF] active:scale-95"
+              size={44}
+              iconSize={18}
               aria-label="生成图片"
-            >
-              <Send size={18} />
-            </button>
+            />
           </div>
         </div>
         </div>
