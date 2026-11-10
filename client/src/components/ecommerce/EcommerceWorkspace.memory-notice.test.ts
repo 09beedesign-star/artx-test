@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
+import { stripSourceComments } from "@shared/strip-source-comments";
 
 const source = readFileSync(
   "client/src/components/ecommerce/EcommerceWorkspace.tsx",
@@ -65,18 +66,44 @@ describe("电商画布长期记忆提示条结构", () => {
   });
 });
 
-describe("提示条样式约束（防止与其他板块风格不一致）", () => {
-  it("背景与边框：lime 半透明（与平台其他记忆 UI 同色系）", () => {
-    const match = source.match(
-      /background:\s*"rgba\(197,237,71,[\d.]+\)"/,
+describe("提示条样式约束（2026-11-10 改为画布上下文记忆同款黑药丸）", () => {
+  /**
+   * ⚠️ 只切提示条这一块再剥注释：整文件里别处仍有 lime（上传区、生成按钮、
+   *    结果区），拿全文件做 not.toContain("color: lime") 会一直误报。
+   *    📌 反向断言的范围必须和意图一致，不然不是恒绿就是恒红。
+   */
+  const notice = (() => {
+    const start = source.indexOf('data-testid="ecommerce-memory-notice"');
+    const end = source.indexOf(
+      "</div>",
+      source.indexOf('data-testid="ecommerce-memory-switch"'),
     );
-    expect(match).toBeTruthy();
-    expect(source).toMatch(
-      /border:\s*"1px solid rgba\(197,237,71,[\d.]+\)"/,
-    );
+    return start === -1 || end === -1
+      ? ""
+      : stripSourceComments(source.slice(start, end));
+  })();
+
+  it("切片有效（空切片会让本组断言全部恒绿）", () => {
+    expect(notice.length).toBeGreaterThan(400);
   });
 
-  it("文字颜色 = LIME（定义在 shared.ts，电商画布统一用）", () => {
-    expect(source).toMatch(/color:\s*LIME/);
+  it("底色与描边走记忆开关事实源，不再是 lime 半透明 + 绿描边", () => {
+    expect(notice).toContain("background: MEMORY_SWITCH_SURFACE.background");
+    expect(notice).toContain("MEMORY_SWITCH_SURFACE.borderDark");
+    expect(notice).toContain("MEMORY_SWITCH_SURFACE.borderLight");
+    expect(notice).not.toContain("brand-green-light");
+    expect(notice).not.toContain("#B2ED9A");
+    expect(notice).not.toContain("color: lime");
+  });
+
+  it("说明文字与 Brain 图标都是白色（用户明确要求白字）", () => {
+    expect(notice).toContain("MEMORY_SWITCH_SURFACE.textColor");
+    expect(notice).toContain("MEMORY_SWITCH_SURFACE.iconColor");
+  });
+
+  it("开关走同尺寸同色调的常量，不用 className 压轨道", () => {
+    expect(notice).toContain("size={MEMORY_SWITCH_SIZE}");
+    expect(notice).toContain("tone={MEMORY_SWITCH_TONE}");
+    expect(notice).not.toMatch(/className="h-\[14px\] w-\[26px\]"/);
   });
 });

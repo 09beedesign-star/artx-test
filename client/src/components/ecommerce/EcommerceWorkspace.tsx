@@ -36,6 +36,11 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Switch as UISwitch } from "@/components/ui/switch";
 import { SendActionButton } from "@/components/ui/send-action-button";
 import {
+  MEMORY_SWITCH_SURFACE,
+  MEMORY_SWITCH_SIZE,
+  MEMORY_SWITCH_TONE,
+} from "@/lib/memory-switch-tokens";
+import {
   ECOMMERCE_TPL_CATEGORIES,
   ECOMMERCE_TEMPLATES,
   ECOMMERCE_PLATFORMS,
@@ -344,19 +349,23 @@ export function EcommerceWorkspace({
             2026-10-17：加入「电商画布记忆」专属开关（与画布对话记忆、长期记忆彼此独立）。
             ⚠️ 开关行必须**始终可见**：若跟着 memoryActive 一起隐藏，
                没写长期记忆的用户永远看不到开关、也就永远打不开 ——「开」在 A「关」在 B 必卡死。
+            2026-11-10 用户要求：整条改成与画布提示词输入框「上下文记忆」同款黑药丸，
+               图标与文字都用白色，开关走 size=sm / tone=lime。
+               ⚠️ 底色恒黑，不能跟着开关状态切成浅底：白字在浅底上会直接消失。
+               状态差异只由开关轨道 + 文案表达，够了。
           */}
           <div
             data-testid="ecommerce-memory-notice"
-            className="mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px]"
-            style={
-              memoryActive
-                ? {
-                    background: "var(--color-brand-green-light)",
-                    border: isDark ? "1px solid rgba(178,237,154,0.35)" : "1px solid #B2ED9A",
-                    color: lime,
-                  }
-                : { border: `1px solid ${palette.border}`, color: palette.sub }
-            }
+            className="mt-2 flex items-center gap-1.5 rounded-[var(--radius-pill)] px-3 py-1.5 text-[11px]"
+            style={{
+              background: MEMORY_SWITCH_SURFACE.background,
+              border: `1px solid ${
+                isDark
+                  ? MEMORY_SWITCH_SURFACE.borderDark
+                  : MEMORY_SWITCH_SURFACE.borderLight
+              }`,
+              color: MEMORY_SWITCH_SURFACE.textColor,
+            }}
           >
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
@@ -366,7 +375,7 @@ export function EcommerceWorkspace({
                     data-testid="ecommerce-memory-icon"
                     className="flex shrink-0 cursor-help items-center"
                   >
-                    <Brain size={13} />
+                    <Brain size={13} style={{ color: MEMORY_SWITCH_SURFACE.iconColor }} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6} className="max-w-[240px] leading-relaxed">
@@ -377,7 +386,7 @@ export function EcommerceWorkspace({
                   中编辑。
                 </TooltipContent>
               </Tooltip>
-              <span className="flex-1">
+              <span className="flex-1" style={{ color: MEMORY_SWITCH_SURFACE.textColor }}>
                 {ecommerceMemoryEnabled
                   ? "您已开启电商画布记忆"
                   : memoryActive
@@ -389,6 +398,8 @@ export function EcommerceWorkspace({
                 onCheckedChange={onToggleEcommerceMemory}
                 aria-label="电商画布记忆开关"
                 data-testid="ecommerce-memory-switch"
+                size={MEMORY_SWITCH_SIZE}
+                tone={MEMORY_SWITCH_TONE}
               />
           </div>
         </div>
