@@ -26,7 +26,6 @@ import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
-import artxStudioMark from "@/assets/brand/artxstudio-mark.png";
 import HomeFirstTopUpBanner, {
   dismissFirstTopUpBannerForToday,
   isFirstTopUpBannerDismissedToday,
@@ -78,8 +77,6 @@ type HomeInspirationItem = InspirationFeedItem & {
   likeCount: number;
 };
 
-/* 方形圆章徽标（黑底白 A），尺寸必须给成正方形；旧的横版字标是 20×109。 */
-const BRAND_LOGO_SIZE = "h-9 w-9";
 /** 首页灵感推荐最多展示的条数。远程有 900 条，首页只需要一屏量。 */
 const HOME_INSPIRATION_LIMIT = 50;
 
@@ -661,21 +658,10 @@ export default function HomePage() {
       )}
       <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth" style={{ background: bgMain, color: textPrimary }}>
       <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[80px]"} z-50 flex h-[64px] items-center gap-3 px-4 backdrop-blur-[18px] sm:gap-4`} style={{ background: isDark ? "rgba(34,34,34,0.20)" : "rgba(255,255,255,0.90)" }}>
-        <button
-          type="button"
-          onClick={() => {
-            setCurrentLandingTab("home");
-            navigate("/");
-          }}
-          className={`${BRAND_LOGO_SIZE} shrink-0 transition-opacity hover:opacity-85`}
-          aria-label="ArtXStudio 首页"
-        >
-          <img
-            src={artxStudioMark}
-            alt="ArtXStudio"
-            className="artx-logo block h-full w-full object-contain"
-          />
-        </button>
+        {/*
+          首页顶栏刻意不放 logo（ericbi 2026-11-10 要求）：
+          首页是给人看内容的，不是给自己贴品牌名的地方；导航里的「首页」已经能回顶。
+        */}
         <LandingTopNav
           activeTab={activeTab}
           onHome={scrollToHome}
