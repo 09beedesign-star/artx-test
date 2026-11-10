@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 
 const categoryOrder: SkillStoreCategory[] = [
@@ -69,6 +70,8 @@ export default function SkillsPage() {
   const isDark = resolvedTheme === "dark";
   const [activeCategory, setActiveCategory] = useState<SkillStoreCategory | "all">("all");
   const [query, setQuery] = useState("");
+  /** hover 中的技能卡 id。用 state 而不是 CSS group-hover：操作层要能判断「该不该接住点击」。 */
+  const [hoveredSkillId, setHoveredSkillId] = useState<string | null>(null);
 
   const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const panel = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)";
@@ -126,6 +129,25 @@ export default function SkillsPage() {
     }
     toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
     navigate("/project/__blank-workspace__");
+  };
+
+  /**
+   * 复制技能提示词。
+   * hover 操作层里与「快速加载」并列的第二枚按钮 ——
+   * 与灵感模板的「一键同款 / 复制提示词」保持同一套动作心智。
+   */
+  const copySkillPrompt = async (skill: (typeof skillStoreItems)[number]) => {
+    const prompt = (skill.capabilityPrompt || "").trim();
+    if (!prompt) {
+      toast("这个技能还没有可用提示词", { description: skill.name });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast("提示词已复制", { description: skill.name });
+    } catch {
+      toast("复制失败", { description: "请稍后重试" });
+    }
   };
 
   const skillIconColor = (id: string) => {
@@ -341,15 +363,28 @@ export default function SkillsPage() {
                   data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsCard : undefined}
                   className="flex h-full min-h-[220px] flex-col overflow-hidden rounded-[var(--radius-lg-design)] border p-4 transition-transform hover:-translate-y-0.5"
                   style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
+                  onMouseEnter={() => setHoveredSkillId(skill.id)}
+                  onMouseLeave={() =>
+                    setHoveredSkillId(current => (current === skill.id ? null : current))
+                  }
                 >
                   {/* 效果缩略图：-mx-4 -mt-4 抵消卡片 p-4，让图片贴边铺满卡片顶部。 */}
-                  <div className="-mx-4 -mt-4 mb-4 aspect-[2/1] shrink-0 overflow-hidden" style={{ background: panelStrong }}>
+                  <div className="relative -mx-4 -mt-4 mb-4 aspect-[2/1] shrink-0 overflow-hidden" style={{ background: panelStrong }}>
                     <img
                       src={`/skill-thumbs/${skill.id}.webp`}
                       alt={`${skill.name} 效果示例`}
                       loading="lazy"
                       decoding="async"
                       className="block h-full w-full object-cover"
+                    />
+                    {/* hover 操作层：与灵感模板同一份实现（压暗 + 居中两枚胶囊） */}
+                    <CardHoverOverlay
+                      visible={hoveredSkillId === skill.id}
+                      compact
+                      actions={[
+                        { label: "快速加载", onClick: () => handleQuickLoad(skill) },
+                        { label: "复制提示词", onClick: () => void copySkillPrompt(skill), variant: "ghost" },
+                      ]}
                     />
                   </div>
                   <div className="flex items-start gap-3">

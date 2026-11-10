@@ -11,8 +11,7 @@ import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
 import type { InspirationReactionItem } from "@/lib/inspiration-reactions";
-import { createWorkspaceHistoryProject } from "@/lib/project-history";
-import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
+import { applyInspirationSameStyle } from "@/lib/inspiration-same-style";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -140,23 +139,15 @@ export default function ProfilePage() {
   const inspirationShadow = isDark ? "0 18px 46px rgba(0,0,0,0.24)" : "0 14px 34px rgba(0,0,0,0.08)";
 
   /**
-   * 一键导入画布。与专题页**完全相同**的链路
-   * （`createWorkspaceHistoryProject` + `writeHomePromptHandoff`）。
-   * ⚠️ 同样刻意 `shouldAutoRun: false`：自动出图会扣积分，不替用户决定。
+   * 一键同款。与专题页**同一个实现**（`@/lib/inspiration-same-style`），
+   * 这里只负责把本页的数据结构喂进去 —— 两页各写一遍的话，
+   * 改了一边另一边就静默失效。
    */
-  const importReactionToCanvas = (item: InspirationReactionItem) => {
-    const text = item.prompt?.trim() || item.title;
-    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
-    const project = createWorkspaceHistoryProject(title || undefined, text);
-    writeHomePromptHandoff({
-      projectId: project.id,
-      prompt: text,
-      model: "auto",
-      shouldAutoRun: false,
-      createdAt: project.createdAt,
-    });
-    toast("已导入画布", { description: item.title });
-    navigate(`/project/${project.id}`);
+  const applyReactionSameStyle = (item: InspirationReactionItem) => {
+    applyInspirationSameStyle(
+      { title: item.title, imageUrl: item.imageUrl },
+      navigate
+    );
   };
 
   const copyReactionPrompt = async (prompt: string) => {
@@ -394,7 +385,7 @@ export default function ProfilePage() {
 
           {/*
             需求 2：「我赞过的 / 我的收藏」两个 tab。
-            卡片直接复用专题页的 `InspirationCard`（含右上角一键导入画布 icon），
+            卡片直接复用专题页的 `InspirationCard`（含右上角「一键同款」），
             ⚠️ 不复制一份 JSX 过来 —— 否则专题页改样式这里不会跟着改。
           */}
           <section className="mt-6" data-testid="profile-reaction-section">
@@ -469,7 +460,7 @@ export default function ProfilePage() {
                     onMouseEnter={() => setHoveredReactionId(item.id)}
                     onMouseLeave={() => setHoveredReactionId(null)}
                     onCopyPrompt={() => copyReactionPrompt(item.prompt)}
-                    onImportToCanvas={() => importReactionToCanvas(item)}
+                    onApplySameStyle={() => applyReactionSameStyle(item)}
                     reactionSlot={
                       /*
                         就地取消：用户在这里点掉，卡片立刻从本 tab 消失

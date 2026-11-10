@@ -5,12 +5,18 @@
  * - 封面图 16:10 比例，hover 时轻微放大
  * - hover 时卡片整体抬升投影 0px 4px 16px rgba(0,0,0,0.14)
  * - 底部仅展示标题 + 分类标签 + 操作按钮（参考截图2）
- * - 删除了原有的大块 prompt 展示区，改为精简的一行元信息
+ *
+ * 2026-11-10 两处改动（用户要求）：
+ * 1. 右上角 `Download` 图标 → 文字胶囊「一键同款」。
+ *    图标的问题是没有文案，用户不知道点下去是「下载图片」还是「进画布」；
+ *    实际动作是后者，所以文字必须写明。
+ * 2. hover 反馈统一为截图里的样式：整块压暗 + 居中两枚胶囊
+ *    （一键同款 / 复制提示词），复用 `CardHoverOverlay`。
  *
  * ⚠️ 不改变数据结构和 props 接口——个人中心复用无需改动。
  */
-import { Download } from "lucide-react";
 import type { ReactNode } from "react";
+import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
 
 export type InspirationCardItem = {
   title: string;
@@ -34,8 +40,8 @@ export type InspirationCardProps = {
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onCopyPrompt: () => void;
-  /** 右上角「一键导入画布」。个人中心与专题页都要有 */
-  onImportToCanvas?: () => void;
+  /** 「一键同款」：图片进画布 + 挂进提示词输入框，等用户写提示词。 */
+  onApplySameStyle?: () => void;
   /** 赞的位置上要渲染的内容（点赞按钮）。头像就贴在它旁边 */
   reactionSlot?: ReactNode;
 };
@@ -54,7 +60,7 @@ export function InspirationCard({
   onMouseEnter,
   onMouseLeave,
   onCopyPrompt,
-  onImportToCanvas,
+  onApplySameStyle,
   reactionSlot,
 }: InspirationCardProps) {
   return (
@@ -87,7 +93,7 @@ export function InspirationCard({
           src={item.imageUrl}
           alt={item.title}
           className="relative z-10 h-full w-full object-cover transition-transform duration-500 ease-out"
-          style={{ transform: hovered ? "scale(1.06)" : "scale(1)" }}
+          style={{ transform: hovered ? "scale(1.08)" : "scale(1)" }}
           loading="lazy"
           onError={event => {
             event.currentTarget.style.display = "none";
@@ -101,37 +107,43 @@ export function InspirationCard({
           <span style={{ color: "#555", fontSize: 11 }}>待加载</span>
         </div>
 
-        {/* hover 时显示操作覆盖层 */}
-        <div
-          className="absolute inset-0 z-20 flex items-end pb-3 px-3 gap-2 transition-opacity duration-200"
-          style={{ opacity: hovered ? 1 : 0, background: "linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 60%)" }}
-        >
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); onCopyPrompt(); }}
-            className="rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all hover:scale-105 active:scale-95"
-            style={{ background: "rgba(255,255,255,0.92)", color: "#161616" }}
-          >
-            复制提示词
-          </button>
-        </div>
-
-        {/* 右上角导入画布按钮 */}
-        {onImportToCanvas && (
+        {onApplySameStyle && (
+          /*
+           * 右上角常驻「一键同款」。
+           * ⚠️ hover 时淡出并交出命中区：此时同一动作由下面 hover 操作层里的
+           *    主按钮承担，两个都亮着会变成「同一屏三个一键同款」。
+           */
           <button
             type="button"
             onClick={event => {
               event.stopPropagation();
-              onImportToCanvas();
+              onApplySameStyle();
             }}
-            className="absolute right-2 top-2 z-30 rounded-full p-1.5 shadow-lg transition-all hover:scale-110 active:scale-95"
-            style={{ background: "#ffffff", opacity: hovered ? 1 : 0.7 }}
-            aria-label="一键导入画布"
-            title="一键导入画布"
+            className="absolute right-2 top-2 z-30 whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{
+              background: "#ffffff",
+              color: "#161616",
+              boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
+              opacity: hovered ? 0 : 1,
+              pointerEvents: hovered ? "none" : "auto",
+            }}
+            aria-label="一键同款"
+            title="一键同款"
           >
-            <Download size={13} style={{ color: "#161616" }} />
+            一键同款
           </button>
         )}
+
+        {/* hover 操作层：整块压暗 + 居中两枚胶囊（与截图一致） */}
+        <CardHoverOverlay
+          visible={hovered}
+          actions={[
+            ...(onApplySameStyle
+              ? [{ label: "一键同款", onClick: onApplySameStyle }]
+              : []),
+            { label: "复制提示词", onClick: onCopyPrompt, variant: "ghost" as const },
+          ]}
+        />
       </div>
 
       {/* ── 底部元信息区 ── */}

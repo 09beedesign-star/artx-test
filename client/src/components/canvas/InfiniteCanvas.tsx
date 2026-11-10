@@ -24685,17 +24685,52 @@ function CanvasAssistantPanel({
         sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
         return;
       }
-      if (payload.projectId !== projectId || !payload.prompt?.trim()) return;
+      if (payload.projectId !== projectId) return;
+      const handoffReferences = readHandoffReferences(payload);
+      const submittedText = payload.prompt?.trim() || "";
+      /*
+       * ⚠️ 允许「只有参考图、没有提示词」的载荷。
+       * 灵感模板的「一键同款」就是这种形态：图进画布 + 挂进提示词框，
+       * 提示词留给用户自己写。以前这里要求 `payload.prompt` 必须非空，
+       * 那种载荷会被直接忽略、且 key 也不删，等于点了没反应。
+       */
+      if (!submittedText && handoffReferences.length === 0) return;
       pendingHomePromptHandledRef.current = true;
       sessionStorage.removeItem(HOME_PROMPT_HANDOFF_KEY);
-      if (!payload.shouldAutoRun) return;
+
+      if (!payload.shouldAutoRun) {
+        /*
+         * 【2026-11-10】不自动跑 = 「一键同款」的落点。
+         *
+         * 之前这里是一行 `if (!payload.shouldAutoRun) return;`，
+         * 而 key 在上一行已经删掉了 —— 于是「导入画布」这个按钮
+         * 从上线起就是**彻底的死路**：进画布空空如也，连提示词都没有，
+         * 全程零报错。改成本分支后，同一个载荷终于有人消费：
+         *   1. onImportHomeReferences 走粘贴链路建节点 + 登记引用素材；
+         *   2. referencedAssets → composerSegments 的同步 effect 会把
+         *      图片标签插进输入框（与粘贴图片、选中引用完全一致）；
+         *   3. 聚焦输入框，光标停在标签后面，等用户写提示词。
+         * ⚠️ 到这里必须停：再往下就是扣积分的生成。
+         */
+        void (async () => {
+          const imported = await onImportHomeReferences(handoffReferences);
+          if (handoffReferences.length > 0 && imported.length === 0) {
+            toast("同款参考图未能载入", {
+              description: "你可以在画布上手动添加这张参考图",
+            });
+            return;
+          }
+          if (imported.length > 0) focusComposerSegment();
+        })();
+        return;
+      }
+
+      if (!submittedText) return;
       if (!isAuthenticated) {
         onLoginRequest();
         toast("请先登录", { description: "登录后即可使用 AI 能力" });
         return;
       }
-      const submittedText = payload.prompt.trim();
-      const handoffReferences = readHandoffReferences(payload);
       const userMessage = {
         id: `home-user-${Date.now()}`,
         role: "user" as const,
@@ -24873,6 +24908,7 @@ function CanvasAssistantPanel({
     assistantImageModel.id,
     assistantTextModel.id,
     collapsed,
+    focusComposerSegment,
     isAuthenticated,
     onImportHomeReferences,
     onLoginRequest,
@@ -35418,7 +35454,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const importedNodes = await pasteClipboardImageSources(
         references.map(reference => reference.src),
         undefined,
-        "首页参考图已同步到画布"
+        "参考图已同步到画布"
       );
       if (importedNodes.length === 0) return [] as ImageGeneratorReferenceAsset[];
 

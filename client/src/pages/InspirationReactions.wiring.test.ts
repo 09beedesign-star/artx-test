@@ -53,6 +53,20 @@ function readSource(relative: string, maxLossRatio?: number): string {
  */
 const IDENTITY_LIB_MAX_LOSS_RATIO = 0.72;
 
+/**
+ * `inspiration-same-style.ts` 的剥离损耗上限放宽到 0.40。
+ *
+ * 【取证，不是拍脑袋】（2026-11-10 新建时量过）
+ * 总 88 行 / 注释 27 行，剥离后剩 1556 / 2244 字符 → 损耗 **30.66%**，
+ * 略高于默认 30% 闸门。原因单纯是这段逻辑代码很短（建画布 + 写交接载荷），
+ * 而「为什么不能两页各写一份」「为什么 must not 自动跑」必须写在文件里。
+ * 剥离函数没有误吃代码 —— 下面断言的关键锚点（`shouldAutoRun: false`、
+ * `writeHomePromptHandoff(`）确实活在剥离结果里。
+ *
+ * ⚠️ 只在这一次调用放宽，不动 assertStripKeptSource 的默认值。
+ */
+const SAME_STYLE_LIB_MAX_LOSS_RATIO = 0.4;
+
 describe("home page inspiration wiring", () => {
   const source = readSource("HomePage.tsx");
 
@@ -156,7 +170,7 @@ describe("inspiration topic page wiring", () => {
 
   it("renders cards through the shared component instead of a local copy", () => {
     expect(source).toContain("<InspirationCard");
-    expect(source).toContain("onImportToCanvas={() => importToCanvas(item)}");
+    expect(source).toContain("onApplySameStyle={() => applySameStyle(item)}");
   });
 
   it("uses the title-normalized identity as the cross-page key", () => {
@@ -172,8 +186,21 @@ describe("inspiration topic page wiring", () => {
   });
 
   it("never auto-runs generation when importing to canvas", () => {
-    // 涉及花钱的动作不替用户做决定。
-    expect(source).toContain("shouldAutoRun: false");
+    /*
+     * 【2026-11-10 重锚】实现搬进了 `@/lib/inspiration-same-style`：
+     * 「一键同款」在专题页和「我赞过的 / 我的收藏」是两个入口，
+     * 早先各写一份 `writeHomePromptHandoff`，改一边另一边就静默失效。
+     * 现在只有一份实现，所以断言从「页面里有 shouldAutoRun: false」
+     * 改成「页面确实调用了那份共享实现，且共享实现里不自动跑」。
+     * 意图不变：涉及花钱的动作不替用户做决定。
+     */
+    const sameStyle = readSource(
+      "../lib/inspiration-same-style.ts",
+      SAME_STYLE_LIB_MAX_LOSS_RATIO
+    );
+    expect(source).toContain("applyInspirationSameStyle(");
+    expect(sameStyle).toContain("shouldAutoRun: false");
+    expect(sameStyle).toContain("writeHomePromptHandoff(");
   });
 });
 
@@ -190,9 +217,9 @@ describe("profile page reaction tabs", () => {
     expect(source).toContain('data-testid="profile-reaction-section"');
   });
 
-  it("reuses the topic page card including the import-to-canvas icon", () => {
+  it("reuses the topic page card including the same-style action", () => {
     expect(source).toContain("<InspirationCard");
-    expect(source).toContain("onImportToCanvas={() => importReactionToCanvas(item)}");
+    expect(source).toContain("onApplySameStyle={() => applyReactionSameStyle(item)}");
   });
 
   it("reads from the shared reaction source so cancellations sync in", () => {
@@ -207,9 +234,9 @@ describe("profile page reaction tabs", () => {
   });
 
   it("keeps the canvas import consistent with the topic page", () => {
-    expect(source).toContain("createWorkspaceHistoryProject(");
-    expect(source).toContain("writeHomePromptHandoff(");
-    expect(source).toContain("shouldAutoRun: false");
+    // 同一个动作、同一份实现 —— 不是「两页各抄一份、看起来一样」。
+    expect(source).toContain("applyInspirationSameStyle(");
+    expect(source).not.toContain("writeHomePromptHandoff(");
   });
 });
 
@@ -228,8 +255,14 @@ describe("shared inspiration card", () => {
     // `pt-7` 是给越过交界线的头像留的；`bottom: -14` 是头像的越界量。
     expect(source).not.toContain("pt-7");
     expect(source).not.toContain("bottom: -14");
-    // 正向锚点：信息区还在，排除「读到空文件」导致的恒绿
-    expect(source).toContain("flex min-h-[270px] flex-col p-4");
+    /*
+     * 【2026-11-10 重锚】原正向锚点是 `flex min-h-[270px] flex-col p-4`，
+     * 那是 2026-11-09 卡片改版前的结构（大块 prompt 区 + 头像行）。
+     * 改版后信息区变成 px-3 py-2.5，锚点早就作废 —— 属于「断言守旧契约」，
+     * 按现在的结构重落，意图仍是「排除读到空文件导致的恒绿」。
+     */
+    expect(source).toContain("px-3 py-2.5");
+    expect(source).toContain("{item.field}");
   });
 
   it("头像描边相关的死参数已从组件契约里删除", () => {
@@ -249,7 +282,10 @@ describe("shared inspiration card", () => {
     expect(source).toContain("onCopyPrompt");
   });
 
-  it("always exposes the import-to-canvas action", () => {
-    expect(source).toContain('aria-label="一键导入画布"');
+  it("always exposes the same-style action", () => {
+    // 2026-11-10：右上角由 Download 图标改为文字胶囊「一键同款」。
+    // 图标没有文案，用户分不清点下去是下载还是进画布。
+    expect(source).toContain('aria-label="一键同款"');
+    expect(source).not.toContain("Download");
   });
 });

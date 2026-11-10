@@ -26,8 +26,8 @@ import {
   type InspirationFeedItem,
 } from "@/lib/inspiration-feed";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
-import { createWorkspaceHistoryProject } from "@/lib/project-history";
-import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
+import { applyInspirationSameStyle } from "@/lib/inspiration-same-style";
+import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
 
 /**
  * ⚠️ 直接复用共享类型，**不要在这里另抄一份字段列表**。
@@ -264,38 +264,23 @@ export default function InspirationPage() {
   };
 
   /**
-   * 一键导入画布。
+   * 一键同款。
    *
-   * ⚠️ 复用首页「输入提示词 → 建画布」那条现成链路
-   * （`createWorkspaceHistoryProject` + `writeHomePromptHandoff`），
-   * 📌 不另起一套：交接载荷的字段一旦有第二个写入方，
-   * 消费侧（CanvasAssistantPanel）改了格式，这边就会静默失效。
+   * 只做一件事：把模板图带进新画布，并挂到提示词输入框的引用区，
+   * 然后停下来等用户写提示词（不自动出图 —— 一次生成要扣积分）。
    *
-   * ⚠️ 只带提示词、不带图片：灵感图是远程 URL，而交接通道要求 data:URL，
-   * 硬塞进去画布侧会拿到一个加载不出来的引用图（且不报错）。
+   * ⚠️ 具体实现收口在 `@/lib/inspiration-same-style`：个人中心的
+   * 「我赞过的 / 我的收藏」用的是同一个动作，两处必须是同一份代码。
    */
+  const applySameStyle = (item: PromptItem) => {
+    applyInspirationSameStyle({ title: item.title, imageUrl: item.imageUrl }, navigate);
+  };
+
   const scrollFeatured = (dir: "left" | "right") => {
     const el = featuredScrollRef.current;
     if (!el) return;
     const scrollAmount = 340;
     el.scrollBy({ left: dir === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
-  };
-
-  const importToCanvas = (item: PromptItem) => {
-    const text = item.prompt?.trim() || item.title;
-    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
-    const project = createWorkspaceHistoryProject(title || undefined, text);
-    writeHomePromptHandoff({
-      projectId: project.id,
-      prompt: text,
-      model: "auto",
-      // 刻意不自动跑：用户可能只是想把灵感提示词拿进画布再改，
-      // 自动出图会直接扣积分。涉及花钱的动作不替用户做决定。
-      shouldAutoRun: false,
-      createdAt: project.createdAt,
-    });
-    toast("已导入画布", { description: item.title });
-    navigate(`/project/${project.id}`);
   };
 
   const copyPrompt = async (prompt: string) => {
@@ -484,7 +469,7 @@ export default function InspirationPage() {
                       <img
                         src={item.imageUrl}
                         alt={item.title}
-                        className="h-full w-full object-cover transition-transform duration-500 ease-out"
+                        className="relative z-10 h-full w-full object-cover transition-transform duration-500 ease-out"
                         style={{
                           transform: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)",
                         }}
@@ -494,32 +479,14 @@ export default function InspirationPage() {
                       <div className="absolute inset-0 flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #2a2a2a)", zIndex: 0 }}>
                         <span className="text-[11px]" style={{ color: "#666" }}>待加载</span>
                       </div>
-                      {/* hover 时显示操作按钮 */}
-                      <div
-                        className="absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-200"
-                        style={{
-                          opacity: hoveredItemKey === `featured-${item.rank}-${item.title}` ? 1 : 0,
-                          background: "rgba(0,0,0,0.35)",
-                          zIndex: 10,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); importToCanvas(item); }}
-                          className="rounded-[var(--radius-pill)] px-3 py-1.5 text-[11px] font-medium transition-all hover:scale-105"
-                          style={{ background: "white", color: "#161616" }}
-                        >
-                          导入画布
-                        </button>
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); copyPrompt(item.prompt); }}
-                          className="rounded-[var(--radius-pill)] px-3 py-1.5 text-[11px] font-medium transition-all hover:scale-105"
-                          style={{ background: "rgba(255,255,255,0.18)", color: "white", border: "1px solid rgba(255,255,255,0.3)" }}
-                        >
-                          复制提示词
-                        </button>
-                      </div>
+                      {/* hover 操作层：与网格卡片同一份实现，避免两处样式走偏 */}
+                      <CardHoverOverlay
+                        visible={hoveredItemKey === `featured-${item.rank}-${item.title}`}
+                        actions={[
+                          { label: "一键同款", onClick: () => applySameStyle(item) },
+                          { label: "复制提示词", onClick: () => copyPrompt(item.prompt), variant: "ghost" },
+                        ]}
+                      />
                     </div>
                     {/* 底部元信息 */}
                     <div className="flex items-center justify-between px-3 py-2.5">
@@ -570,7 +537,7 @@ export default function InspirationPage() {
                     onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
                     onMouseLeave={handleInspirationCardMouseLeave}
                     onCopyPrompt={() => copyPrompt(item.prompt)}
-                    onImportToCanvas={() => importToCanvas(item)}
+                    onApplySameStyle={() => applySameStyle(item)}
                     reactionSlot={
                       <InspirationReactionButton
                         kind="like"
