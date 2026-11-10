@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { toast } from "sonner";
-import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
+import artxStudioMark from "@/assets/brand/artxstudio-mark.png";
 import defaultWechatGroupQr from "@/assets/community/wechat-group-qr.jpg";
 import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import { TOUR_ANCHORS, type TourAnchor } from "@shared/onboarding-steps";
@@ -47,7 +47,11 @@ interface ApiKeyRecord {
 
 const MAX_HELP_SCREENSHOTS = 4;
 const MAX_HELP_SCREENSHOT_BYTES = 4 * 1024 * 1024;
-const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+/*
+ * 品牌徽标是方形圆章（黑底白 A + ArtXStudio 字标），不是横版字标，
+ * 所以尺寸必须给成正方形 —— 沿用旧的 h-[20px] w-[109px] 会把它拉成细条。
+ */
+const BRAND_LOGO_SIZE = "h-9 w-9";
 /** 快捷键文案与修饰键：macOS 用 ⌘，其他平台用 Ctrl。 */
 const IS_APPLE_PLATFORM =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
@@ -779,9 +783,9 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             aria-label="返回 artx 首页"
           >
             <img
-              src={artxStudioLogo}
+              src={artxStudioMark}
               alt="ArtXStudio"
-              className={`block ${BRAND_LOGO_SIZE} object-contain object-left`}
+              className={`block ${BRAND_LOGO_SIZE} object-contain`}
             />
           </button>
         )}
@@ -812,7 +816,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           aria-label="ArtXStudio 首页"
           title="ArtXStudio 首页"
         >
-          <img src={artxStudioLogo} alt="ArtX" className="h-5 w-5 object-contain" />
+          <img src={artxStudioMark} alt="ArtXStudio" className="h-7 w-7 object-contain" />
         </button>
 
         {/* Primary nav icons */}

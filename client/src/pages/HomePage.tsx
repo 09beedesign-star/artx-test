@@ -26,7 +26,7 @@ import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
-import artxStudioLogo from "@/assets/brand/artxstudio-logo.png";
+import artxStudioMark from "@/assets/brand/artxstudio-mark.png";
 import HomeFirstTopUpBanner, {
   dismissFirstTopUpBannerForToday,
   isFirstTopUpBannerDismissedToday,
@@ -78,7 +78,8 @@ type HomeInspirationItem = InspirationFeedItem & {
   likeCount: number;
 };
 
-const BRAND_LOGO_SIZE = "h-[20px] w-[109px]";
+/* 方形圆章徽标（黑底白 A），尺寸必须给成正方形；旧的横版字标是 20×109。 */
+const BRAND_LOGO_SIZE = "h-9 w-9";
 /** 首页灵感推荐最多展示的条数。远程有 900 条，首页只需要一屏量。 */
 const HOME_INSPIRATION_LIMIT = 50;
 
@@ -670,12 +671,9 @@ export default function HomePage() {
           aria-label="ArtXStudio 首页"
         >
           <img
-            src={artxStudioLogo}
+            src={artxStudioMark}
             alt="ArtXStudio"
-            className="artx-logo block h-full w-full object-contain object-left"
-            style={{
-              filter: isDark ? "none" : "brightness(0)",
-            }}
+            className="artx-logo block h-full w-full object-contain"
           />
         </button>
         <LandingTopNav

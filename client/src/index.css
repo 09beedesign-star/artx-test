@@ -296,14 +296,13 @@ html.light, .light {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   Apple Light Mode - Logo 反色处理
-   
-   ArtXStudio logo 原图是白色文字透明底，在浅色背景下不可见。
-   使用 CSS filter 将白色 Logo 反转为深色：
-   - brightness(0) 将所有像素变为黑色（保留透明度）
-   - saturate(100%) 保持饱和度不变
-   
-   只在浅色模式下应用，深色模式保持原始白色 Logo
+   Apple Light Mode - 旧横版字标反色处理（仅 artxstudio-logo.png）
+
+   旧横版 Logo 是白色文字透明底，在浅色背景下不可见，所以浅色模式反成黑色。
+
+   ⚠️⚠️ 新徽标 artxstudio-mark.png 是「黑底白 A」的圆章，**绝对不能**被这条规则命中：
+   整张图（含黑圆盘）会被 brightness(0) 压成纯黑一团，白 A 也一起消失、零报错。
+   这就是新文件刻意不叫 *-logo 的原因 —— 改名等于踩雷。
    ══════════════════════════════════════════════════════════════════════════════ */
 html.light img[src*="artxstudio-logo"],
 .light img[src*="artxstudio-logo"] {
