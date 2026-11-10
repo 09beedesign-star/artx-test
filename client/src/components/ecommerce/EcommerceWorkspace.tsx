@@ -306,7 +306,14 @@ export function EcommerceWorkspace({
           */}
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <ModelSelector model={draft.model} onChange={model => updateDraft({ model })} isDark={isDark} placement="down" />
+              {/* 电商画布是浅色页面：下拉必须白底深字，深色玻璃面板只留给画布/首页 */}
+              <ModelSelector
+                model={draft.model}
+                onChange={model => updateDraft({ model })}
+                isDark={isDark}
+                placement="down"
+                popoverTheme={isDark ? "dark" : "light"}
+              />
             </div>
             {/* 2026-11-10：全站生成按钮统一为黑底白图标（原来这里是品牌绿方块） */}
             <SendActionButton

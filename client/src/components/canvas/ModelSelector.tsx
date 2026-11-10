@@ -18,6 +18,7 @@ import {
 import { getAiModelEntitlements, listAiModelCatalog } from "../../lib/ai";
 import { getStorageOwnerId } from "../../lib/owner-storage";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
+import { modelPopoverTokens, type ModelPopoverTheme } from "./model-popover-tokens";
 import {
   getAiImageModelCreditPolicy,
   HIGH_COST_IMAGE_CREDITS_THRESHOLD,
@@ -300,6 +301,12 @@ export function ModelSelector({
    * 当前选了什么模型由下拉面板与 title 表达。默认 false，既有调用零影响。
    */
   iconOnly = false,
+  /**
+   * 展开面板配色（2026-11-10 电商画布需求）。
+   * 默认 "dark" —— 画布/首页的深色面板口径原样保留；
+   * 浅色页面（电商画布）显式传 "light" 才是白底深字。
+   */
+  popoverTheme = "dark",
 }: {
   model: string;
   onChange: (m: string) => void;
@@ -309,6 +316,7 @@ export function ModelSelector({
   placement?: "up" | "down";
   triggerClassName?: string;
   iconOnly?: boolean;
+  popoverTheme?: ModelPopoverTheme;
 }) {
   const entitledModels = useImageModelOptions();
   const models = modelsProp ?? entitledModels;
@@ -347,8 +355,12 @@ export function ModelSelector({
    * 品牌图标是 CSS mask，需要一个真实色值填进 backgroundColor。
    */
   const triggerIconColor = open || buttonHover ? selectedText : text;
-  const popBg = isDark ? "#161616" : "#161616";
-  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  /**
+   * 下拉面板与触发按钮是两套配色：触发按钮可以被调用方的 surface 接管
+   * （首页传的是深色玻璃面板上的浅色文字），面板照抄 text 会白底白字。
+   * 所以整组色值统一由 modelPopoverTokens 给出，不再散落 isDark 三元。
+   */
+  const pop = modelPopoverTokens(popoverTheme, { text, border }, isDark);
   const rowHeight = 40;
   /**
    * 展开栏高度上限（2026-09-21 用户点名 220）。
@@ -479,8 +491,9 @@ export function ModelSelector({
             className="rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
             style={{
               ...(popoverStyle || {}),
-              background: popBg,
-              border: `1px solid ${border}`,
+              background: pop.background,
+              border: `1px solid ${pop.border}`,
+              ...(pop.shadow ? { boxShadow: pop.shadow } : {}),
               zIndex: 9999,
             }}
             onClick={e => e.stopPropagation()}
@@ -492,7 +505,7 @@ export function ModelSelector({
                 overflowY: "auto",
                 overscrollBehavior: "contain",
                 scrollbarWidth: "thin",
-                scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
+                scrollbarColor: `${pop.scrollbar} transparent`,
               }}
               onWheel={e => e.stopPropagation()}
             >
@@ -514,16 +527,17 @@ export function ModelSelector({
                 className="flex items-start gap-2 w-full px-3 text-left type-caption transition-colors"
                 style={{
                   height: rowHeight,
-                  color: text,
+                  color: pop.text,
+                  background: m.id === model ? pop.selectedBackground : "transparent",
                   opacity: m.disabled ? 0.46 : 1,
                   cursor: m.disabled ? "not-allowed" : "pointer",
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
+                onMouseEnter={e => (e.currentTarget.style.background = pop.hoverBackground)}
                 onMouseLeave={e =>
-                  (e.currentTarget.style.background = "transparent")
+                  (e.currentTarget.style.background = m.id === model ? pop.selectedBackground : "transparent")
                 }
               >
-                <AssistantModelIcon modelId={m.id} icon={m.icon} />
+                <AssistantModelIcon modelId={m.id} icon={m.icon} color={pop.icon} />
                 <span className="flex min-w-0 flex-col leading-tight">
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span

@@ -828,6 +828,7 @@ export default function EcommerceCanvasPage() {
           presetSlot={
             <EcommerceCanvasPresetPanel
               palette={palette}
+              isDark={isDark}
               draft={draft}
               updateDraft={updateDraft}
               accountId={accountId}

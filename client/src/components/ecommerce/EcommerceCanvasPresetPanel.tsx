@@ -36,10 +36,12 @@ import {
   type EcommerceCanvasPreset,
   type EcommerceCanvasPresetPayload,
 } from "@/lib/ecommerce-canvas-presets";
-import type { EcommerceDraft, EcommercePalette } from "./shared";
+import { ecommercePresetMenuTokens, type EcommerceDraft, type EcommercePalette } from "./shared";
 
 type Props = {
   palette: EcommercePalette;
+  /** 页面主题：浅色主题下上拉菜单必须是白底深字，不能再用深色毛玻璃 */
+  isDark: boolean;
   draft: EcommerceDraft;
   /** 更新草稿（套用预设时会用） */
   updateDraft: (
@@ -49,7 +51,9 @@ type Props = {
   accountId: string | null | undefined;
 };
 
-export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accountId }: Props) {
+export function EcommerceCanvasPresetPanel({ palette, isDark, draft, updateDraft, accountId }: Props) {
+  // 菜单底色 + 选中行 + 图标色是一整组，统一从事实源取，别在 JSX 里各写一半 isDark。
+  const menu = ecommercePresetMenuTokens(isDark, palette.border);
   /*
    * ⚠️ 初始值必须是空，不能在 useState 里直接读 localStorage：
    *    accountId 首帧可能还是 null（AuthContext 尚未 hydrate），
@@ -231,13 +235,16 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
           className="absolute bottom-full left-0 right-0 z-40 mb-2 overflow-hidden rounded-md"
           data-testid="ecommerce-preset-menu"
           style={{
-            // 2026-10-18 用户要求：改深灰毛玻璃质感，80% 不透明度（原 panelStrong 叠底色方案太淡）。
-            //    深灰 #2a2a2a + 80% 不透明 + backdrop-filter blur 实现毛玻璃。
-            background: "rgba(42, 42, 42, 0.8)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            border: `1px solid ${palette.border}`,
-            boxShadow: "0 -14px 36px rgba(0,0,0,0.36)",
+            // 深色主题沿用原来的毛玻璃质感；浅色主题改白底，避免深字压在深底上读不出来。
+            background: menu.background,
+            border: menu.border,
+            boxShadow: menu.boxShadow,
+            ...(menu.backdropFilter
+              ? {
+                  backdropFilter: menu.backdropFilter,
+                  WebkitBackdropFilter: menu.WebkitBackdropFilter,
+                }
+              : {}),
           }}
           role="menu"
           aria-label="预设参数列表"
@@ -267,7 +274,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                   <div
                     key={preset.id}
                     className="flex items-center gap-1 px-1.5 py-0.5"
-                    style={{ background: active ? "rgba(197,237,71,0.10)" : "transparent" }}
+                    style={{ background: active ? menu.activeBackground : "transparent" }}
                   >
                     {renaming ? (
                       <input
@@ -291,7 +298,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                         style={{
                           color: palette.text,
                           background: palette.field,
-                          border: `1px solid rgba(197,237,71,0.55)`,
+                          border: menu.fieldBorder,
                         }}
                       />
                     ) : (
@@ -303,7 +310,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                         title={`套用「${preset.name}」`}
                       >
                         {active ? (
-                          <Check size={11} style={{ color: "rgb(197,237,71)" }} />
+                          <Check size={11} style={{ color: menu.accentColor }} />
                         ) : (
                           <span className="inline-block w-[11px]" />
                         )}
@@ -313,7 +320,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                     <span className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
-                        className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
+                        className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${menu.rowHoverClass}`}
                         style={{ color: palette.sub }}
                         onClick={() => {
                           setRenamingPresetId(preset.id);
@@ -325,8 +332,8 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                       </button>
                       <button
                         type="button"
-                        className="flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold transition-colors hover:bg-white/10"
-                        style={{ color: "rgb(197,237,71)" }}
+                        className={`flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold transition-colors ${menu.rowHoverClass}`}
+                        style={{ color: menu.accentColor }}
                         onClick={() => handleUpdate(preset)}
                         title="用当前面板参数覆盖这组预设"
                       >
@@ -335,8 +342,8 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
                       </button>
                       <button
                         type="button"
-                        className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/10"
-                        style={{ color: "#F87171" }}
+                        className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${menu.rowHoverClass}`}
+                        style={{ color: menu.dangerColor }}
                         onClick={() => handleDelete(preset)}
                         title="删除这组预设"
                       >
@@ -351,7 +358,7 @@ export function EcommerceCanvasPresetPanel({ palette, draft, updateDraft, accoun
 
           <button
             type="button"
-            className="flex h-9 w-full items-center gap-1.5 px-3 text-left text-[10px] font-semibold transition-colors hover:bg-white/5"
+            className={`flex h-9 w-full items-center gap-1.5 px-3 text-left text-[10px] font-semibold transition-colors ${menu.rowHoverClass}`}
             style={{ color: palette.sub, borderTop: `1px solid ${palette.border}` }}
             onClick={handleResetToDefault}
             title="恢复面板出厂默认参数，并取消下次自动套用（不会删除已存预设）"

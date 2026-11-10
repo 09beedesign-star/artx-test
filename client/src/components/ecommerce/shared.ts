@@ -89,6 +89,57 @@ export function ecommercePalette(isDark: boolean): EcommercePalette {
   };
 }
 
+/**
+ * 「我的预设」上拉菜单的整组配色（2026-11-10）。
+ *
+ * ⚠️ 原来菜单底色写死 rgba(42,42,42,.8)，文字却跟着 palette 走：
+ *    浅色主题下 palette.text/sub 是深灰 → 深灰底 + 深灰字，
+ *    用户看到「展开菜单是黑的、看不清楚」。背景、毛玻璃、投影、
+ *    选中行、图标色是一组，必须一起切，只改 background 会留下
+ *    白底上的柠檬绿「更新」和看不见的选中勾。
+ *
+ * 深色主题保持原来的毛玻璃深色菜单（那里白字本来就是可读的）。
+ */
+export type EcommercePresetMenuTokens = {
+  background: string;
+  border: string;
+  boxShadow: string;
+  backdropFilter?: string;
+  WebkitBackdropFilter?: string;
+  activeBackground: string;
+  rowHoverClass: string;
+  accentColor: string;
+  dangerColor: string;
+  fieldBorder: string;
+};
+
+export function ecommercePresetMenuTokens(isDark: boolean, border: string): EcommercePresetMenuTokens {
+  if (isDark) {
+    return {
+      background: "rgba(42, 42, 42, 0.8)",
+      border: `1px solid ${border}`,
+      boxShadow: "0 -14px 36px rgba(0,0,0,0.36)",
+      backdropFilter: "blur(12px)",
+      WebkitBackdropFilter: "blur(12px)",
+      activeBackground: "rgba(197,237,71,0.10)",
+      rowHoverClass: "hover:bg-white/10",
+      accentColor: "rgb(197,237,71)",
+      dangerColor: "#F87171",
+      fieldBorder: "1px solid rgba(197,237,71,0.55)",
+    };
+  }
+  return {
+    background: "#ffffff",
+    border: `1px solid ${border}`,
+    boxShadow: "0 12px 32px rgba(20,20,36,0.12)",
+    activeBackground: "rgba(20,20,36,0.06)",
+    rowHoverClass: "hover:bg-black/5",
+    accentColor: "rgba(20,20,36,0.82)",
+    dangerColor: "#d64545",
+    fieldBorder: `1px solid ${border}`,
+  };
+}
+
 /** 按比例与分辨率档换算目标像素（short side 对齐 AI_IMAGE_RESOLUTION_POLICIES） */
 export function pixelSize(ratio: string, tier: AiImageResolutionTier) {
   const short = tier === "1k" ? 1088 : tier === "2k" ? 2048 : 4096;
