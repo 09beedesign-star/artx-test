@@ -4,16 +4,17 @@
  * 2026-11-09 UI 重构为创作模板风格：
  * - 封面图 16:10 比例，hover 时轻微放大
  * - hover 时卡片整体抬升投影 0px 4px 16px rgba(0,0,0,0.14)
- * - 底部仅展示标题 + 分类标签 + 操作按钮（参考截图2）
+ * - 底部仅展示标题 + 分类标签 + 点赞
  *
- * 2026-11-10 两处改动（用户要求）：
- * 1. 右上角 `Download` 图标 → 文字胶囊「一键同款」。
- *    图标的问题是没有文案，用户不知道点下去是「下载图片」还是「进画布」；
- *    实际动作是后者，所以文字必须写明。
- * 2. hover 反馈统一为截图里的样式：整块压暗 + 居中两枚胶囊
- *    （一键同款 / 复制提示词），复用 `CardHoverOverlay`。
+ * 2026-11-10 两轮改动（用户要求）：
+ * 1. 右上角 `Download` 图标 → 文字胶囊「一键同款」（没有文案用户不知道点下去是
+ *    下载图片还是进画布，实际动作是后者）。
+ * 2. 胶囊**只在 hover 时出现**，不再常驻；同时去掉 hover 时居中的两枚按钮
+ *    （与右上角入口重复）。hover 只剩「整块轻微压暗 + 胶囊淡入」。
  *
- * ⚠️ 不改变数据结构和 props 接口——个人中心复用无需改动。
+ * ⚠️ 不改变数据结构——个人中心复用无需改动。
+ * ⚠️ `onCopyPrompt` 已随居中按钮一并移除：复制提示词的入口在「点卡片打开的详情弹窗」里，
+ *    卡片上再放一个是同一动作的第二个出口。
  */
 import type { ReactNode } from "react";
 import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
@@ -39,7 +40,6 @@ export type InspirationCardProps = {
   onOpen: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  onCopyPrompt: () => void;
   /** 「一键同款」：图片进画布 + 挂进提示词输入框，等用户写提示词。 */
   onApplySameStyle?: () => void;
   /** 赞的位置上要渲染的内容（点赞按钮）。头像就贴在它旁边 */
@@ -51,7 +51,6 @@ export function InspirationCard({
   isDark,
   cardBg,
   border,
-  shadow,
   text,
   sub,
   activeBg,
@@ -59,7 +58,6 @@ export function InspirationCard({
   onOpen,
   onMouseEnter,
   onMouseLeave,
-  onCopyPrompt,
   onApplySameStyle,
   reactionSlot,
 }: InspirationCardProps) {
@@ -107,11 +105,14 @@ export function InspirationCard({
           <span style={{ color: "#555", fontSize: 11 }}>待加载</span>
         </div>
 
+        {/* hover 压暗层：不承载按钮，只负责「被选中」的反馈 */}
+        <CardHoverOverlay visible={hovered} dim={0.18} />
+
         {onApplySameStyle && (
           /*
-           * 右上角常驻「一键同款」。
-           * ⚠️ hover 时淡出并交出命中区：此时同一动作由下面 hover 操作层里的
-           *    主按钮承担，两个都亮着会变成「同一屏三个一键同款」。
+           * 右上角「一键同款」，**只在 hover 时出现**（用户要求）。
+           * ⚠️ 隐藏时必须连点击一起关掉：opacity:0 的元素照样接点击，
+           *    否则鼠标扫过卡片任意位置都可能误触「一键同款」。
            */
           <button
             type="button"
@@ -124,26 +125,17 @@ export function InspirationCard({
               background: "#ffffff",
               color: "#161616",
               boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
-              opacity: hovered ? 0 : 1,
-              pointerEvents: hovered ? "none" : "auto",
+              opacity: hovered ? 1 : 0,
+              pointerEvents: hovered ? "auto" : "none",
+              transform: hovered ? "translateY(0)" : "translateY(-2px)",
             }}
+            tabIndex={hovered ? 0 : -1}
             aria-label="一键同款"
             title="一键同款"
           >
             一键同款
           </button>
         )}
-
-        {/* hover 操作层：整块压暗 + 居中两枚胶囊（与截图一致） */}
-        <CardHoverOverlay
-          visible={hovered}
-          actions={[
-            ...(onApplySameStyle
-              ? [{ label: "一键同款", onClick: onApplySameStyle }]
-              : []),
-            { label: "复制提示词", onClick: onCopyPrompt, variant: "ghost" as const },
-          ]}
-        />
       </div>
 
       {/* ── 底部元信息区 ── */}

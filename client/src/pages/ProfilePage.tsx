@@ -6,7 +6,6 @@ import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
 import { useLocation } from "wouter";
-import TopBar from "@/components/workspace/TopBar";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
@@ -266,7 +265,6 @@ export default function ProfilePage() {
         color: textPrimary,
       }}
     >
-      <TopBar credits={0} />
       <main className="relative flex-1 overflow-y-auto px-8 py-8">
         <div className="pointer-events-none absolute inset-0 opacity-0" style={{ background: BG_GLOW }} />
         <div className="relative mx-auto max-w-5xl">
@@ -459,7 +457,6 @@ export default function ProfilePage() {
                     onOpen={() => copyReactionPrompt(item.prompt)}
                     onMouseEnter={() => setHoveredReactionId(item.id)}
                     onMouseLeave={() => setHoveredReactionId(null)}
-                    onCopyPrompt={() => copyReactionPrompt(item.prompt)}
                     onApplySameStyle={() => applyReactionSameStyle(item)}
                     reactionSlot={
                       /*

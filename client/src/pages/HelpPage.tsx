@@ -1,7 +1,6 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { ImagePlus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { fileToDataUrl, submitUserFeedback } from "@/lib/feedback-submit";
 import { BG_GLOW } from "@/lib/workspace-data";
@@ -134,10 +133,6 @@ export default function HelpPage() {
           style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.12, zIndex: 0 }}
         />
       )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} />
-      </div>
 
       <main className="flex-1 overflow-auto px-6 py-10" style={{ position: "relative", zIndex: 1 }}>
         <section className="mx-auto w-full max-w-3xl">

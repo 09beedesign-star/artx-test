@@ -2,7 +2,6 @@
  * SkillsPage — GitHub-sourced design skill store.
  */
 import { useMemo, useState } from "react";
-import TopBar from "@/components/workspace/TopBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
@@ -181,10 +180,6 @@ export default function SkillsPage() {
           style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0, zIndex: 0 }}
         />
       )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} glass />
-      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">

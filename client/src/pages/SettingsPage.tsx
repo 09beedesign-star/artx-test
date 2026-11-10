@@ -3,7 +3,6 @@
  * Keeps the existing artx visual language while the detailed settings modules are pending.
  */
 import { Settings, Sparkles } from "lucide-react";
-import TopBar from "@/components/workspace/TopBar";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -37,10 +36,6 @@ export default function SettingsPage() {
           }}
         />
       )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} />
-      </div>
 
       <main className="flex-1 overflow-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex min-h-full max-w-4xl items-center justify-center px-6 py-12">

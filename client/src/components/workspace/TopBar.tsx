@@ -1,6 +1,16 @@
 /**
  * TopBar — Neo-Studio Dark Design System
  * Global top navigation: search, theme switcher (Radix DropdownMenu), credits, user info
+ *
+ * 🚫 2026-11-10 起**没有任何页面再渲染这个组件**。用户要求把内容区顶部那条 bar
+ *    （右侧的积分 + 升级 + 头像菜单）整条去掉，让内容从窗口最顶端开始，
+ *    于是 12 个页面上的调用点全部移除。
+ *
+ *    文件先留着是因为 `components/billing/billing-dialog.test.ts` 会读它，
+ *    用来守「充值入口有多个出口时都必须开浮层」这条约束（历史事故的回归锁）。
+ *    ⚠️ 不要拿它去做新页面的顶栏 —— 那会直接把用户已经否掉的设计又装回去，
+ *       而且不会有任何测试变红（页面级断言只覆盖了现有页面）。
+ *    个人中心 / 积分入口现在只在侧栏底部（`components/layout/AppShell.tsx`）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Check, UserRound, LogOut, KeyRound, Copy, RefreshCw, Zap, Link2 } from "lucide-react";

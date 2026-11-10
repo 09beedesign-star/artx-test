@@ -1,21 +1,18 @@
 /**
  * Workspace — Project Canvas Page
  * Design: artx DESIGN.md token system
- * Layout: TopBar + InfiniteCanvas (full width, no side panel)
+ * Layout: InfiniteCanvas 满屏（2026-11-10 去掉顶部 bar，内容区从最顶端开始）
  * Note: No AppShell sidebar here — canvas has its own back button
+ *
+ * ⚠️ 顶栏去掉之后，画布标题的改名入口只剩工作台画板卡的「重命名」。
+ *    这不是能力丢失，而是收敛到唯一出口：同一块画板的名字本来就有两个入口，
+ *    在那条顶栏里双击改名会绕开工作台的列表刷新，反而不一致。
  */
 import { useState } from "react";
-import TopBar from "@/components/workspace/TopBar";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { readWorkspaceProjectHistory, updateWorkspaceProjectHistory } from "@/lib/project-history";
-import { toast } from "sonner";
-
-function formatProjectTimestamp(date = new Date()) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 function ensureProjectMeta(projectId: string) {
   const historyProject = readWorkspaceProjectHistory().find(project => project.id === projectId);
@@ -42,20 +39,17 @@ function ensureProjectMeta(projectId: string) {
 }
 
 export default function Workspace({ projectId = "__blank-workspace__" }: { projectId?: string }) {
-  const [activeProjectId] = useState(projectId);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const [currentProject, setCurrentProject] = useState(() => ensureProjectMeta(activeProjectId));
-  const projectCreatedAt = currentProject.createdAt || currentProject.updatedAt;
-
-  const handleProjectTitleChange = (title: string) => {
-    const nextTitle = title.trim();
-    if (!nextTitle || nextTitle === currentProject.title) return;
-    const updatedAt = formatProjectTimestamp();
-    updateWorkspaceProjectHistory(activeProjectId, { title: nextTitle, updatedAt });
-    setCurrentProject(project => ({ ...project, title: nextTitle, updatedAt }));
-    toast("画布名称已更新");
-  };
+  /*
+    进入画布即登记到工作台列表。
+    ⚠️ 这一步原先靠顶栏渲染时顺带触发；顶栏去掉后必须自己调，
+       否则新画布不会出现在「最近」里，而且零报错。
+  */
+  const [activeProjectId] = useState(() => {
+    ensureProjectMeta(projectId);
+    return projectId;
+  });
 
   return (
     <div
@@ -79,18 +73,6 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
           }}
         />
       )}
-
-      {/* Top bar */}
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar
-          credits={0}
-          projectTitle={currentProject.title}
-          projectTime={projectCreatedAt}
-          onProjectTitleChange={handleProjectTitleChange}
-          glass
-          solidLight
-        />
-      </div>
 
       {/* Full-width canvas */}
       <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1, background: "#0a0a0b" }}>

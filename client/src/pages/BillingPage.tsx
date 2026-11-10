@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ArrowUpRight, Crown, Rocket, ScrollText, WalletCards } from "lucide-react";
-import TopBar from "@/components/workspace/TopBar";
 import InviteDialog from "@/components/workspace/InviteDialog";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
@@ -10,7 +9,8 @@ import { BG_GLOW } from "@/lib/workspace-data";
 
   套餐卡、充值卡、支付方式、二维码与成功弹窗、下单与轮询逻辑，
   全部来自 components/billing/ 下的共享组件与 useBillingCenter()。
-  这里只负责「整页版式」：背景、TopBar、页头统计卡、左侧 tab 栏。
+  这里只负责「整页版式」：背景、页头统计卡、左侧 tab 栏。
+  （原先还有一条内容区顶栏，2026-11-10 按用户要求整条移除。）
 
   绝对不要因为「页面上想微调一下」就在本文件里复制一份卡片或一段下单逻辑 ——
   本项目已经因为「同一份数据的多个出口」踩过九次，表现永远是零报错、
@@ -65,10 +65,11 @@ export default function BillingPage() {
     theme;
 
   /*
-    URL 是这一页的事实源：左侧 tab 点击会 replace 掉 ?tab=，
-    而 TopBar 的积分/升级按钮在本页也走 navigate 改 URL（不开弹窗）。
+    URL 是这一页的事实源：左侧 tab 点击会 replace 掉 ?tab=。
+    （历史上顶栏的积分/升级按钮也走 navigate 改 URL，那条顶栏已于 2026-11-10 移除；
+      现在这两个动作统一走 openBilling 浮层，不再改地址栏。）
     这个 effect 负责把 URL 的变化同步回组件状态 —— 少了它，
-    在 /billing 页面上点右上角「升级」会改了地址栏但内容不动。
+    直接带 ?tab= 进站会改了地址栏但内容不动。
   */
   useEffect(() => {
     const nextTab = readInitialTab();
@@ -97,10 +98,6 @@ export default function BillingPage() {
           }}
         />
       )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={balance} glass />
-      </div>
 
       <main
         className="flex-1 overflow-auto"

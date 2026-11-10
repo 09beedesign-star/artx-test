@@ -5,7 +5,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Copy, Search, Sparkles, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
@@ -297,10 +296,6 @@ export default function InspirationPage() {
       {isDark && (
         <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0, zIndex: 0 }} />
       )}
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} glass />
-      </div>
-
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, background: isDark ? "#171717" : "var(--design-surface-soft)" }}>
         <main className="mx-auto px-5 py-6 sm:px-8" style={{ maxWidth: 1320 }}>
 
@@ -479,14 +474,32 @@ export default function InspirationPage() {
                       <div className="absolute inset-0 flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #2a2a2a)", zIndex: 0 }}>
                         <span className="text-[11px]" style={{ color: "#666" }}>待加载</span>
                       </div>
-                      {/* hover 操作层：与网格卡片同一份实现，避免两处样式走偏 */}
+                      {/* hover 压暗层：与网格卡片同一份实现（不承载按钮，见 InspirationCard 注释） */}
                       <CardHoverOverlay
                         visible={hoveredItemKey === `featured-${item.rank}-${item.title}`}
-                        actions={[
-                          { label: "一键同款", onClick: () => applySameStyle(item) },
-                          { label: "复制提示词", onClick: () => copyPrompt(item.prompt), variant: "ghost" },
-                        ]}
+                        dim={0.18}
                       />
+                      {/* 右上角「一键同款」：与网格卡片一致，只在 hover 时出现 */}
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          applySameStyle(item);
+                        }}
+                        className="absolute right-2 top-2 z-30 whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+                        style={{
+                          background: "#ffffff",
+                          color: "#161616",
+                          boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
+                          opacity: hoveredItemKey === `featured-${item.rank}-${item.title}` ? 1 : 0,
+                          pointerEvents: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "auto" : "none",
+                        }}
+                        tabIndex={hoveredItemKey === `featured-${item.rank}-${item.title}` ? 0 : -1}
+                        aria-label="一键同款"
+                        title="一键同款"
+                      >
+                        一键同款
+                      </button>
                     </div>
                     {/* 底部元信息 */}
                     <div className="flex items-center justify-between px-3 py-2.5">
@@ -536,7 +549,6 @@ export default function InspirationPage() {
                     onOpen={() => setSelectedItem(item)}
                     onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
                     onMouseLeave={handleInspirationCardMouseLeave}
-                    onCopyPrompt={() => copyPrompt(item.prompt)}
                     onApplySameStyle={() => applySameStyle(item)}
                     reactionSlot={
                       <InspirationReactionButton

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardList, Globe2, Loader2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import TopBar from "@/components/workspace/TopBar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { BG_GLOW } from "@/lib/workspace-data";
 import type {
@@ -210,10 +209,6 @@ export default function CrossBorderCommercePage() {
       {isDark && (
         <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.04 }} />
       )}
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} glass />
-      </div>
-
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto grid w-full max-w-[1440px] gap-4 px-6 py-5 xl:grid-cols-[420px_minmax(0,1fr)]">
           <section className="rounded-[var(--radius-lg-design)] border p-4" style={{ background: panel, borderColor: border }}>

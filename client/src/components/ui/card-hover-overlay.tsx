@@ -24,10 +24,19 @@ export type CardHoverAction = {
 
 type CardHoverOverlayProps = {
   visible: boolean;
-  actions: CardHoverAction[];
   /**
-   * 压暗强度。默认 0.42 —— 截图里 hover 后图片几乎看不出内容，
-   * 但仍保留一点层次，不至于变成纯黑色块。
+   * 居中胶囊按钮。
+   *
+   * ⚠️ 允许为空：灵感模板卡片的 hover 只做「整块轻微压暗 + 右上角入口淡入」，
+   *    用户 2026-11-10 明确要求去掉居中那两枚（与右上角的一键同款重复）。
+   *    空数组时这一层就是纯压暗层，不要因为没按钮就删掉它 ——
+   *    否则卡片 hover 只剩图片微放大，看不出「被选中」。
+   */
+  actions?: CardHoverAction[];
+  /**
+   * 压暗强度。默认 0.42（截图里带两枚按钮的情形）。
+   * 只有压暗、没有按钮时要传更轻的值（灵感卡用 0.18），
+   * 否则整张图变黑却没有任何可点元素，看起来像加载失败。
    */
   dim?: number;
   /**
@@ -42,7 +51,7 @@ type CardHoverOverlayProps = {
 
 export function CardHoverOverlay({
   visible,
-  actions,
+  actions = [],
   dim = 0.42,
   compact = false,
 }: CardHoverOverlayProps) {

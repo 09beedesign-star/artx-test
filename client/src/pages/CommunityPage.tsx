@@ -2,7 +2,6 @@
  * CommunityPage — 创作社区（占位页）
  */
 import { useTheme } from "@/contexts/ThemeContext";
-import TopBar from "@/components/workspace/TopBar";
 import { Users, Sparkles } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 
@@ -18,9 +17,6 @@ export default function CommunityPage() {
       {isDark && (
         <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", opacity: 0.10, zIndex: 0 }} />
       )}
-      <div style={{ position: "relative", zIndex: 1, gap: "var(--space-md)" }}>
-        <TopBar credits={0} />
-      </div>
       <div className="flex-1 flex flex-col items-center justify-center" style={{ position: "relative", zIndex: 1, gap: "var(--space-md)" }}>
         <div className="w-16 h-16 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "rgba(22,22,22,0.08)" }}>
           <Users size={28} style={{ color: "#161616" }} />

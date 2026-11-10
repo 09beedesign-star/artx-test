@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { CalendarClock, Coins, Gift, Info, RefreshCw, Wallet } from "lucide-react";
-import TopBar from "@/components/workspace/TopBar";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import CreditRulesBoard from "@/components/billing/CreditRulesBoard";
 import { getBillingTheme } from "@/components/billing/billing-theme";
@@ -86,10 +85,6 @@ export default function CreditsGuidePage() {
           style={{ backgroundImage: `url(${BG_GLOW})`, backgroundSize: "cover", backgroundPosition: "center", opacity: 0.12, zIndex: 0 }}
         />
       )}
-
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <TopBar credits={0} />
-      </div>
 
       <main className="flex-1 overflow-auto px-6 py-10" style={{ position: "relative", zIndex: 1 }}>
         {/*
@@ -271,8 +266,9 @@ export default function CreditsGuidePage() {
 
             {/*
               ⚠️ 这两个按钮原先是 <Link href="/billing">，也就是整页跳走。
-              而同一个页面右上角 TopBar 的积分胶囊已经改成开浮层了 ——
+              而当时同一页右上角的顶栏积分胶囊已经改成开浮层了 ——
               一页之内两种行为，用户点哪个全凭运气。两边统一走 openBilling。
+              （那条顶栏已于 2026-11-10 按用户要求移除，本页这两个按钮保持不变。）
               用 button 而不是 Link：它现在不再是「导航」，而是「开浮层」。
             */}
             <div className="flex flex-wrap items-center gap-3 pb-2">

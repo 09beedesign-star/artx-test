@@ -278,8 +278,10 @@ describe("shared inspiration card", () => {
   it("卡片里不再有任何头像元素", () => {
     expect(source).not.toContain("<InspirationAvatar");
     expect(source).not.toContain("pointer-events-none");
-    // 正向锚点：卡片交互还在
-    expect(source).toContain("onCopyPrompt");
+    // 正向锚点：卡片交互还在。
+    // ⚠️ 2026-11-10 起复制提示词不再挂在卡片上（居中按钮已按用户要求去掉，
+    // 复制入口在点卡片打开的详情弹窗里），所以锚点改成「一键同款」这条仍然存在的交互。
+    expect(source).toContain("onApplySameStyle");
   });
 
   it("always exposes the same-style action", () => {
