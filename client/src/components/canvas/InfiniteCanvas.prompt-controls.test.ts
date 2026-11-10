@@ -1477,3 +1477,60 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("未能定位被修改的原图文字区域");
   });
 });
+
+/**
+ * 2026-11-10 用户点名：「右下角的提示词输入框，把输入状态的阴影去掉，
+ * 绿色激活描边去掉」。
+ *
+ * 改之前聚焦时描边切 `rgba(197,237,71,0.42)`、阴影切 `activeGlow`
+ *（`0 0 0 3px 绿 + 0 18px 44px 黑`）—— 一聚焦整张卡片像通电了一样。
+ * 用户的关注点此刻是「我正在打什么字」，不是「这个框被激活了」。
+ *
+ * ⚠️ 绿色只保留给拖拽落区（isComposerImageDragOver）—— 那是需要
+ *    用户立刻反应的临时态，不该和「正在输入」共用一套视觉。
+ */
+describe("右下角输入框：聚焦不再改变外观（2026-11-10）", () => {
+  const canvasSource = stripComments(
+    readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"),
+  );
+
+  /** 输入框卡片本身就是那个 `px-3 py-3` 的圆角容器，向后切足够覆盖整个 style 块。 */
+  const surface = (() => {
+    const at = canvasSource.indexOf(
+      "rounded-[var(--radius-xl-design)] px-3 py-3",
+    );
+    return at === -1 ? "" : canvasSource.slice(at, at + 900);
+  })();
+
+  it("切片非空（锚点失效会让下面全部恒绿）", () => {
+    expect(surface.length, "输入框卡片锚点失效").toBeGreaterThan(400);
+    expect(surface, "切到的不是输入框卡片").toContain("background: elevatedBg");
+  });
+
+  it("阴影不得再随聚焦切换", () => {
+    expect(surface).toContain("boxShadow: inputShadow");
+    expect(
+      surface,
+      "聚焦态又挂了独立阴影 —— 输入是常态，不该有「通电」反馈",
+    ).not.toContain("boxShadow: inputFocused");
+  });
+
+  it("绿色激活描边必须消失，但拖拽落区的绿色要保留", () => {
+    expect(
+      surface,
+      "聚焦时的绿色描边回来了",
+    ).not.toContain("rgba(197,237,71,0.42)");
+    // 拖拽态（需要用户立刻反应）仍然保留绿边，不能一刀切成普通 border。
+    expect(surface, "拖拽落区的绿色描边被误删").toContain(
+      'rgba(197,237,71,0.72)',
+    );
+  });
+
+  it("activeGlow 这个常量必须真的删掉，不能只停止使用", () => {
+    /*
+     * 只改调用点、把常量留在原地 —— 下一个人想「加个聚焦反馈」时
+     * 会顺手把它接回去，而不是重新想一遍「该不该有」。
+     */
+    expect(canvasSource).not.toContain("activeGlow");
+  });
+});

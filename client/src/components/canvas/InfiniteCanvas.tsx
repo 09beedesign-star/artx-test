@@ -18175,14 +18175,27 @@ function AssetEditPromptBar({
               transform: visible ? "translateY(0)" : "translateY(20px)",
             }),
         zIndex: promptBarOnTop ? PROMPT_BAR_FRONT_Z : PROMPT_BAR_BACK_Z,
-        // 底色 = 画布助手对话里 AI 气泡的灰（2026-09-21 用户点名）。
-        // 颜色取自对话气泡的 chipBg，别在这里另调一个"差不多的灰"。
-        background: isDark ? "#232326" : "rgba(0,0,0,0.04)",
-        // 同名键覆盖（不用 backgroundColor，避免与 background 简写冲突的 React 警告）
-        ...(opaqueSurface && !isDark ? { background: "#f4f4f6" } : {}),
-        backdropFilter: "blur(24px)",
-        border: `1.5px solid #161616`,
-        boxShadow: `0 0 0 3px rgba(22,22,22,0.12), 0 12px 48px rgba(0,0,0,0.28)`,
+        /*
+         * 【2026-11-10 用户点名：和上面的命令 bar 一样的颜色和质感，黑色描边去掉】
+         *
+         * 原来这里是 1.5px solid #161616 + `0 0 0 3px rgba(22,22,22,0.12)`
+         * 的外扩黑环 —— 在画布上像一块贴上去的黑框卡片，和上方的
+         * AssetFloatingToolbar（白色毛玻璃 + 极淡描边 + 柔和投影）完全两种语言。
+         *
+         * 现在四个属性逐个对齐命令条（toolBg / toolBorder / blur / shadow
+         * 在 AssetFloatingToolbar 里是同一组值），改这里要同步看那边：
+         * 同一份视觉规格不允许有两个出口。
+         */
+        background: isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)",
+        // 不透明表面（3D 画布）用纯白，不能用 #f4f4f6 —— 那是灰底，和命令条不一个色。
+        ...(opaqueSurface && !isDark ? { background: "#ffffff" } : {}),
+        backdropFilter: "blur(16px)",
+        border: `1px solid ${
+          isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"
+        }`,
+        boxShadow: isDark
+          ? "0 8px 32px rgba(0,0,0,0.45)"
+          : "0 4px 20px rgba(0,0,0,0.12)",
         borderRadius: "var(--radius-md-design)",
         overflow: "hidden",
         // ⚠️ 入场动画的 transform 已在上面按 anchor / 传统两种模式分别给出，
@@ -18237,9 +18250,13 @@ function AssetEditPromptBar({
          * 尺寸唯一事实源 = COMPOSER_REF_TOKEN_SIZE（height 26 / padding /
          * 图标 18 / 字号 12 全部取常量）；只保留用户点名的紫色配色差异。
          * 结构也对齐引用标签：缩略图 + 标题，不再塞第二个小图标。
+         *
+         * 【2026-11-10 用户点名：引用标签圆角改为 4px】
+         * 原来是 rounded-[var(--radius-md-design)]（全局 12px 起），
+         * 在 26px 高的窄条上看起来接近胶囊，和面板新的直角感不搭。
          */}
         <div
-          className="flex shrink-0 items-center overflow-hidden rounded-[var(--radius-md-design)]"
+          className="flex shrink-0 items-center overflow-hidden rounded-[4px]"
           style={{
             height: COMPOSER_REF_TOKEN_SIZE.height,
             maxWidth: COMPOSER_REF_TOKEN_SIZE.maxWidth,
@@ -22150,8 +22167,10 @@ function CanvasAssistantPanel({
     ? "#bbbbbb"
     : "#777472";
   const compactSelectorActiveText = "white";
-  const activeGlow =
-    "0 0 0 3px rgba(197,237,71,0.14), 0 18px 44px rgba(0,0,0,0.24)";
+  /*
+   * ⚠️ `activeGlow`（聚焦态的绿色光晕 + 黑色重投影）已于 2026-11-10 按用户要求移除。
+   * 不要再加回来：输入框聚焦是**常态**，不是需要用户响应的临时提示。
+   */
   const inputShadow =
     "0 16px 42px rgba(210,214,224,0.10), 0 0 0 1px rgba(210,214,224,0.10)";
   const collapsedPeekWidth = 72;
@@ -26264,14 +26283,23 @@ function CanvasAssistantPanel({
               className="relative rounded-[var(--radius-xl-design)] px-3 py-3 transition-all duration-200"
               style={{
                 background: elevatedBg,
+                /**
+                 * 【2026-11-10 用户点名：输入状态的阴影去掉、绿色激活描边去掉】
+                 *
+                 * 原来聚焦时描边切 `rgba(197,237,71,0.42)`、阴影切 `activeGlow`
+                 * （`0 0 0 3px 绿 + 0 18px 44px 黑`）—— 一聚焦整张卡片像「通电」了一样，
+                 * 在浅色画布上过于抢眼，而用户此刻只关心自己打的字。
+                 *
+                 * 现在聚焦不改变外观；绿色只保留给**拖拽落区**
+                 * （isComposerImageDragOver）—— 那是需要用户立刻反应的临时态，
+                 * 和「我正在输入」这种常态不该共用一套视觉。
+                 */
                 border: `1px solid ${
                   isComposerImageDragOver
                     ? "rgba(197,237,71,0.72)"
-                    : inputFocused
-                      ? "rgba(197,237,71,0.42)"
-                      : border
+                    : border
                 }`,
-                boxShadow: inputFocused ? activeGlow : inputShadow,
+                boxShadow: inputShadow,
                 minWidth: 0,
                 overflowX: "hidden",
               }}

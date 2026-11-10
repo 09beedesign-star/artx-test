@@ -163,8 +163,14 @@ describe("鼠标操作隔离", () => {
     // 底部空间不够时先平移画布，而不是让框压进 3D 视口
     expect(canvasSrc).toContain("MODEL3D_COMPOSER_ESTIMATED_HEIGHT");
     expect(canvasSrc).toMatch(/setViewport\(\s*\{ x: vp\.x, y: vp\.y - shift/);
-    // 浅色模式不透明底
-    expect(canvasSrc).toContain('...(opaqueSurface && !isDark ? { background: "#f4f4f6" } : {})');
+    /*
+     * 浅色模式必须是**不透明**底（3D 视口内容花，半透明会糊成一片）。
+     * 2026-11-10：色值从 #f4f4f6 改成纯白，与上方命令条同色 ——
+     * 这里锁的是「不透明」这个性质，不是某个具体灰阶。
+     */
+    expect(canvasSrc).toContain(
+      '...(opaqueSurface && !isDark ? { background: "#ffffff" } : {})'
+    );
     const bar = canvasSrc.slice(canvasSrc.indexOf("key={`model3d-composer-"));
     expect(bar.slice(0, 800)).toContain("opaqueSurface");
   });

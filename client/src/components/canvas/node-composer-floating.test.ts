@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripSourceComments } from "../../../../shared/strip-source-comments";
 
 /**
  * 「图片节点下方悬浮提示词输入框」2026-09-20 新增功能的回归锁。
@@ -461,11 +462,52 @@ describe("需求 7（2026-09-21）：引用标签尺寸对齐 + 底部按钮行 
     expect(header, "旧文案还在头部").not.toContain("智能优化此图片");
   });
 
-  it("面板底色必须是对话气泡的灰（isDark ? #232326 : oklch(0 0 0 / 4%)）", () => {
+  it("面板底色 / 描边 / 投影必须与上方命令条同源（2026-11-10 用户点名）", () => {
+    /*
+     * 用户原话：「把悬浮提示词输入框改为和上面的命令 bar 一样的颜色和质感，
+     * 黑色描边去掉，引用标签圆角改为 4px」。
+     *
+     * 改之前这里是 1.5px solid #161616 + `0 0 0 3px rgba(22,22,22,0.12)` 外扩黑环，
+     * 与上方的 AssetFloatingToolbar（白色毛玻璃 + 极淡描边 + 柔和投影）
+     * 是两套视觉语言，同一个浮层体系里出现了两种卡片。
+     *
+     * ⚠️ 这里的四个值必须与 AssetFloatingToolbar 的 toolBg / toolBorder /
+     *    blur / shadow 完全一致 —— 同一份视觉规格不允许有两个出口。
+     *
+     * ⚠️ 断言必须扫**剥过注释**的源码：下面要排除的「1.5px solid #161616」
+     *    正好写在上面这段注释里 —— 不剥注释会恒红，而恒红的检测器和
+     *    没有检测器一样没用。
+     */
+    const code = stripSourceComments(source);
     expect(
-      source,
-      "面板底色没有换成气泡灰"
-    ).toContain('background: isDark ? "#232326" : "oklch(0 0 0 / 4%)"');
+      code,
+      "面板底色没对齐命令条（白色毛玻璃）"
+    ).toContain('background: isDark ? "rgba(22,22,30,0.88)" : "rgba(255,255,255,0.86)"');
+    expect(code, "描边没对齐命令条").toContain(
+      'isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"'
+    );
+    expect(code, "投影没对齐命令条").toContain(
+      '"0 8px 32px rgba(0,0,0,0.45)"'
+    );
+
+    // 反向断言：黑色硬描边与外扩黑环都不能回来
+    expect(code, "黑色描边回来了").not.toContain("1.5px solid #161616");
+    expect(code, "外扩黑环回来了").not.toContain("0 0 0 3px rgba(22,22,22,0.12)");
+    // 旧的气泡灰口径也必须一并消失，避免两个底色分支同时存在
+    expect(code, "面板底色还在用旧的对话气泡灰").not.toContain(
+      'background: isDark ? "#232326"'
+    );
+  });
+
+  it("悬浮框里的引用标签圆角必须是 4px（2026-11-10 用户点名）", () => {
+    /*
+     * 26px 高的窄条上用 --radius-md-design（12px 起）看起来接近胶囊，
+     * 和面板新的直角感不搭。只改这一个标签，不扩散到其它渲染点。
+     */
+    expect(header).toContain("rounded-[4px]");
+    expect(header, "引用标签又退回全局圆角变量").not.toContain(
+      "overflow-hidden rounded-[var(--radius-md-design)]"
+    );
   });
 
   it("底部按钮行：Skill 移除，模型/张数/画幅走 ghost 统一口径", () => {
