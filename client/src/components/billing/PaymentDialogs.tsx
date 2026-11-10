@@ -25,7 +25,7 @@ export default function PaymentDialogs({
     setSuccessDialog,
     checkPaymentStatus,
   } = controller;
-  const { isDark, panelStrong, border, text, sub, faint, wechatGreen } = theme;
+  const { isDark, panelStrong, border, text, sub, faint, accent, solid, solidText } = theme;
 
   return (
     <>
@@ -174,15 +174,15 @@ export default function PaymentDialogs({
                 />
               ) : (
                 <div className="flex h-[220px] flex-col items-center justify-center gap-3">
-                  <WalletCards size={34} style={{ color: wechatGreen }} />
+                  <WalletCards size={34} style={{ color: accent }} />
                   <a
                     href={paymentDialog.payUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="rounded-[var(--radius-md-design)] px-4 py-2 type-caption"
                     style={{
-                      background: wechatGreen,
-                      color: "#10130A",
+                      background: solid,
+                      color: solidText,
                       fontWeight: 720,
                     }}
                   >
@@ -201,7 +201,7 @@ export default function PaymentDialogs({
               type="button"
               onClick={() => void checkPaymentStatus(true)}
               className="mt-4 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
-              style={{ background: wechatGreen, color: "#10130A", fontWeight: 720 }}
+              style={{ background: solid, color: solidText, fontWeight: 720 }}
             >
               我已支付
             </button>
@@ -225,7 +225,7 @@ export default function PaymentDialogs({
               boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
             }}
           >
-            <div className="h-2 w-full" style={{ background: wechatGreen }} />
+            <div className="h-2 w-full" style={{ background: solid }} />
             <div className="p-5">
               <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
@@ -265,11 +265,16 @@ export default function PaymentDialogs({
               <div
                 className="rounded-[var(--radius-lg-design)] border p-4 text-center"
                 style={{
-                  borderColor: "#bbbbbb",
-                  background: "#bbbbbb",
+                  /**
+                   * 【2026-11-10】底必须跟主题走。原来两态都写死 #bbbbbb（浅灰），
+                   * 而里面的大字用的是 accent —— 深色模式下 accent 是近白，
+                   * 近白的字压在浅灰底上等于隐形。底和字必须成对随主题变化。
+                   */
+                  borderColor: isDark ? "rgba(255,255,255,0.12)" : "#bbbbbb",
+                  background: isDark ? "rgba(255,255,255,0.08)" : "#bbbbbb",
                 }}
               >
-                <div style={{ color: wechatGreen, fontSize: 26, fontWeight: 760 }}>
+                <div style={{ color: accent, fontSize: 26, fontWeight: 760 }}>
                   {successDialog.type === "subscription"
                     ? successDialog.title
                     : `+${successDialog.credits.toLocaleString("zh-HK")}`}
@@ -292,7 +297,7 @@ export default function PaymentDialogs({
                 type="button"
                 onClick={() => setSuccessDialog(null)}
                 className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
-                style={{ background: wechatGreen, color: "#10130A", fontWeight: 720 }}
+                style={{ background: solid, color: solidText, fontWeight: 720 }}
               >
                 确认
               </button>

@@ -43,9 +43,19 @@ import type { BillingTheme } from "./billing-theme";
 type Tone = "green" | "purple" | "cyan";
 
 function toneColor(tone: Tone, isDark: boolean) {
-  // 品牌绿色：白天模式加深以提升对比度
-  if (tone === "green") return isDark ? "#C5ED47" : "#5C7A1A";
-  return isDark ? "#f5f6f8" : "#161616";
+  /**
+   * 【2026-11-10 用户点名】「订阅、充值与升级页面，所有的绿色系全部改为黑白色系」。
+   * 原来 "green" 是品牌荧光绿 #C5ED47 / #5C7A1A。
+   *
+   * ⚠️ tone 名字保留 `green`：它在这里表达的是「主推 / 优惠」这一语义档位，
+   * 不是具体颜色。改名的收益不如留一句注释说清楚 —— 不然下一个人看到
+   * `toneColor("green")` 返回黑色，会以为算错了。
+   *
+   * ⚠️ 但不能三档全压成同一个黑：比例条要靠深浅区分层级。
+   * 主推档用实黑，其余档用 45% 黑，层次保住、颜色仍然是黑白。
+   */
+  if (tone === "green") return isDark ? "#F5F6F8" : "#161616";
+  return isDark ? "rgba(245,246,248,0.45)" : "rgba(22,22,22,0.45)";
 }
 
 /**
@@ -142,9 +152,14 @@ export default function CreditRulesBoard({
   /** 有值才渲染「邀请好友」按钮 —— 未登录的公开页不该给出登录后才可用的入口。 */
   onOpenInvite?: () => void;
 }) {
-  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen } = theme;
+  const { isDark, panel, panelStrong, border, text, sub, faint, solid, solidText } = theme;
   const accent = toneColor("green", isDark);
-  const accentSoft = isDark ? "#bbbbbb" : "#e6e3df";
+  /**
+   * 徽章底。两态都必须是「跟主题走的中性色」：
+   * 恒浅灰（原来深色模式给 #bbbbbb）配上深色模式里的近白 accent，
+   * 就是浅底浅字，完全看不见。
+   */
+  const accentSoft = isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.06)";
 
   const welcome = useMemo(() => getWelcomePackage(), []);
   const unitRows = useMemo(() => buildUnitCreditRows(), []);
@@ -211,10 +226,21 @@ export default function CreditRulesBoard({
       <div
         className="rounded-[var(--radius-lg-design)] border p-4"
         style={{
+          /**
+           * 【2026-11-10】随「全页去绿」一并把这块 Hero 的渐变收窄到同一亮度区间。
+           *
+           * 原来是「浅灰 → 纯黑」的对角渐变：标题、42px 数字、说明文字全是深色，
+           * 压在渐变右半边的黑区上本来就几乎看不见 —— 只因为强调色是深绿，
+           * 在浅灰那一半还勉强成立。强调色改成纯黑之后，这块彻底糊成一片
+           *（实测 350 那个数字完全消失）。
+           *
+           * 📌 判据：**一块背景横跨深浅两端时，上面只能放"中间调"以外的文字**，
+           * 要么整块浅底配深字，要么整块深底配浅字。渐变可以留，亮度区间不能跨太远。
+           */
           background: isDark
-            ? "linear-gradient(120deg, #bbbbbb, rgba(22,22,22,0.10))"
-            : "linear-gradient(120deg, #e6e3df, #161616)",
-          borderColor: isDark ? "#bbbbbb" : "#cccccc",
+            ? "linear-gradient(120deg, #2b2b2b, #1a1a1a)"
+            : "linear-gradient(120deg, #f4f4f4, #dcdcdc)",
+          borderColor: isDark ? "#3a3a3a" : "#cccccc",
         }}
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -515,7 +541,7 @@ export default function CreditRulesBoard({
           <Link
             href="/credits-guide"
             className="flex h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-md-design)] px-4 type-caption transition-opacity hover:opacity-85"
-            style={{ background: accent, color: "#10130A", fontWeight: 720 }}
+            style={{ background: solid, color: solidText, fontWeight: 720 }}
           >
             查看完整积分规则
             <ArrowUpRight size={13} />

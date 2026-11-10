@@ -14,7 +14,27 @@ export default function PaymentMethodPicker({
   theme: BillingTheme;
 }) {
   const { selectedPaymentMethod, setSelectedPaymentMethod } = controller;
-  const { panel, panelStrong, border, text, faint } = theme;
+  const { isDark, panel, panelStrong, border, text, faint } = theme;
+  /**
+   * 未选中 = 白面；选中 = 一层浅色底 + 同色描边。
+   *
+   * 【2026-11-10】微信那一支原本是品牌绿 `rgba(7,193,96,...)`，
+   * 随「所有绿色系改为黑白色系」一并改成中性灰。
+   * ⚠️ 只改绿的那一支，支付宝的蓝不动 —— 用户要求的是「绿色系」，
+   * 蓝色属于品牌色，不在这次范围内。
+   */
+  const activeSurface = (isWechat: boolean) =>
+    isWechat
+      ? isDark
+        ? "rgba(255,255,255,0.10)"
+        : "rgba(22,22,22,0.07)"
+      : "rgba(22, 119, 255, 0.14)";
+  const activeBorder = (isWechat: boolean) =>
+    isWechat
+      ? isDark
+        ? "rgba(255,255,255,0.32)"
+        : "rgba(22,22,22,0.34)"
+      : "rgba(22, 119, 255, 0.46)";
 
   return (
     <section
@@ -47,14 +67,10 @@ export default function PaymentMethodPicker({
                 className="flex min-h-[64px] min-w-[188px] items-center gap-3 rounded-[var(--radius-lg-design)] border px-3 py-2 text-left transition-all"
                 style={{
                   background: active
-                    ? method.id === "wechat"
-                      ? "rgba(7, 193, 96, 0.14)"
-                      : "rgba(22, 119, 255, 0.14)"
+                    ? activeSurface(method.id === "wechat")
                     : panelStrong,
                   borderColor: active
-                    ? method.id === "wechat"
-                      ? "rgba(7, 193, 96, 0.46)"
-                      : "rgba(22, 119, 255, 0.46)"
+                    ? activeBorder(method.id === "wechat")
                     : border,
                   color: text,
                 }}

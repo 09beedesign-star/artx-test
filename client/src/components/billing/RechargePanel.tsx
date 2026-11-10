@@ -33,7 +33,7 @@ export default function RechargePanel({
     activePaymentMethod,
     startRechargePayment,
   } = controller;
-  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen } = theme;
+  const { isDark, panel, panelStrong, border, text, sub, faint, accent, solid, solidText } = theme;
 
   return (
     <section
@@ -60,13 +60,13 @@ export default function RechargePanel({
             <Link
               href="/credits-guide"
               className="ml-1.5 underline underline-offset-2 transition-opacity hover:opacity-80"
-              style={{ color: wechatGreen }}
+              style={{ color: accent }}
             >
               查看完整积分规则
             </Link>
           </p>
         </div>
-        <WalletCards size={20} style={{ color: wechatGreen }} />
+        <WalletCards size={20} style={{ color: accent }} />
       </div>
       <div className="grid gap-3 xl:grid-cols-3">
         {rechargePacks.map(pack => (
@@ -78,8 +78,9 @@ export default function RechargePanel({
             <div
               className="mb-4 flex h-10 w-10 items-center justify-center rounded-[var(--radius-md-design)]"
               style={{
-                background: "#bbbbbb",
-                color: wechatGreen,
+                /** 底跟主题走 —— 恒浅灰 #bbbbbb 配深色模式下的亮色图标等于看不见。 */
+                background: isDark ? "rgba(255,255,255,0.08)" : "#bbbbbb",
+                color: accent,
               }}
             >
               <CreditCard size={18} />
@@ -168,7 +169,7 @@ export default function RechargePanel({
                   {perk.included ? (
                     <Check
                       size={13}
-                      style={{ color: wechatGreen, flex: "0 0 auto", marginTop: 2 }}
+                      style={{ color: accent, flex: "0 0 auto", marginTop: 2 }}
                     />
                   ) : (
                     <X
@@ -190,8 +191,8 @@ export default function RechargePanel({
               disabled={payingRechargeId === pack.id}
               className="mt-5 h-10 w-full rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
               style={{
-                background: wechatGreen,
-                color: "#10130A",
+                background: solid,
+                color: solidText,
                 fontWeight: 720,
               }}
             >

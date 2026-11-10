@@ -42,7 +42,16 @@ export default function CreditsGuidePage() {
   const panel = isDark ? "#161616" : "rgba(255,255,255,0.86)";
   const field = isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.035)";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const accent = "#C5ED47";
+  /**
+   * 【2026-11-10 用户点名】「订阅、充值与升级页面，所有的绿色系全部改为黑白色系，
+   * 按钮变成黑色白字按钮」。原来是品牌荧光绿 #C5ED47。
+   *
+   * ⚠️ 深色模式反相成浅色：黑按钮压在 #161616 的页面上等于隐形。
+   * ⚠️ 按钮文字必须跟着走（下面 `color` 那一处）—— 底和字成对改，
+   *    只改底就是黑底黑字，零报错地消失。
+   */
+  const accent = isDark ? "#F2F2F2" : "#161616";
+  const accentText = isDark ? "#161616" : "#FFFFFF";
 
   // 用主推档位举例，避免写死「Pro」——将来换主推档这里自动跟着变。
   const featuredPlan = useMemo(
@@ -276,7 +285,7 @@ export default function CreditsGuidePage() {
                 type="button"
                 onClick={() => openBilling("recharge")}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
-                style={{ background: accent, color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
+                style={{ background: accent, color: accentText, boxShadow: "0 14px 30px rgba(0,0,0,0.18)" }}
               >
                 去充值
               </button>

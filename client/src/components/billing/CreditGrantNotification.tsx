@@ -44,13 +44,17 @@ function dispatchCreditsUpdated(balance?: number) {
 
 export default function CreditGrantNotification() {
   const { isAuthenticated, user } = useAuth();
-  const { resolvedTheme } = useTheme();
   const [activeNotification, setActiveNotification] = useState<CreditNotification | null>(null);
   const [notificationQueue, setNotificationQueue] = useState<CreditNotification[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
-  const isDark = resolvedTheme === "dark";
-  const brandGreenText = isDark ? "#C5ED47" : "#5C7A1A"; // 品牌绿色文字（白天模式加深）
+  /**
+   * 【2026-11-10】随「订阅/充值页去绿」一起改为黑白。
+   *
+   * ⚠️ 这张卡片恒为深色底（#1d1d1d），所以强调色两模式都用浅色 ——
+   * 原来浅色模式给的是深绿 #5C7A1A，压在深色卡片上本来就几乎看不见。
+   */
+  const accentText = "#F2F2F2";
 
   const fetchNotifications = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -127,21 +131,21 @@ export default function CreditGrantNotification() {
 
   return (
     <aside
-      className="fixed right-5 top-20 z-[2147483500] w-[360px] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-[#C5ED47]/35 bg-[#1d1d1d]/95 text-white shadow-[0_24px_80px_rgba(0,0,0,0.48)] backdrop-blur-xl"
+      className="fixed right-5 top-20 z-[2147483500] w-[360px] max-w-[calc(100vw-40px)] overflow-hidden rounded-[22px] border border-white/16 bg-[#1d1d1d]/95 text-white shadow-[0_24px_80px_rgba(0,0,0,0.48)] backdrop-blur-xl"
       role="dialog"
       aria-live="polite"
       aria-label="系统赠送积分通知"
       data-testid="credit-grant-notification"
     >
-      <div className="absolute -right-10 -top-10 size-28 rounded-full bg-[#C5ED47]/25 blur-2xl" />
+      <div className="absolute -right-10 -top-10 size-28 rounded-full bg-white/10 blur-2xl" />
       <div className="relative p-5">
         <div className="mb-4 flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-full bg-[#C5ED47] text-[#1d1d1d] shadow-[0_0_24px_rgba(197,237,71,0.38)]">
+          <div className="flex size-11 items-center justify-center rounded-full bg-white text-[#1d1d1d] shadow-[0_0_24px_rgba(255,255,255,0.28)]">
             <Gift size={21} />
           </div>
           <div>
             <div className="flex items-center gap-1.5 text-sm font-semibold">
-              <Sparkles size={14} style={{ color: brandGreenText }} />
+              <Sparkles size={14} style={{ color: accentText }} />
               系统积分赠送
             </div>
             <p className="mt-0.5 text-xs text-white/52">余额已同步刷新</p>
@@ -154,14 +158,14 @@ export default function CreditGrantNotification() {
 
         <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.045] px-4 py-3">
           <span className="text-xs text-white/50">当前积分余额</span>
-          <span className="text-lg font-semibold" style={{ color: brandGreenText }}>
+          <span className="text-lg font-semibold" style={{ color: accentText }}>
             {activeNotification.balance.toLocaleString("zh-CN")}
           </span>
         </div>
 
         <button
           type="button"
-          className="mt-4 h-11 w-full rounded-full bg-[#C5ED47] px-4 text-sm font-semibold text-[#1d1d1d] transition hover:bg-[#d7ff60] focus:outline-none focus:ring-2 focus:ring-[#C5ED47]/50"
+          className="mt-4 h-11 w-full rounded-full bg-white px-4 text-sm font-semibold text-[#1d1d1d] transition hover:bg-[#e6e6e6] focus:outline-none focus:ring-2 focus:ring-white/40"
           onClick={acknowledgeNotification}
         >
           确认

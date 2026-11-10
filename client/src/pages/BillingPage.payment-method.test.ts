@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { stripSourceComments } from "../../../shared/strip-source-comments";
 
 describe("BillingPage payment method selection", () => {
   /*
@@ -11,8 +12,15 @@ describe("BillingPage payment method selection", () => {
       - use-billing-center.ts   —— 下单时带上 selectedPaymentMethod
     锚点跟着搬，并按语义分到对应文件上，别用一个大字符串通吃。
   */
+  /**
+   * ⚠️ 必须剥注释再断言色值：源码注释里会写明"原来的品牌绿是什么"，
+   * 不剥的话 `not.toContain("#07C160")` 会被注释命中而恒红 ——
+   * 恒红和恒绿一样，都是坏检测器。
+   */
   const read = (file: string) =>
-    readFileSync(resolve(__dirname, "../components/billing", file), "utf-8");
+    stripSourceComments(
+      readFileSync(resolve(__dirname, "../components/billing", file), "utf-8"),
+    );
 
   it("下单永远带上用户选的支付方式，不写死微信", () => {
     const controller = read("use-billing-center.ts");
@@ -43,7 +51,15 @@ describe("BillingPage payment method selection", () => {
     expect(logo).not.toContain('rect width="64" height="64"');
     expect(logo).toContain("M12 2c3.713 0 6.993 1.534");
     expect(logo).toContain("M10.5 2h2v2.788h7.002");
-    expect(logo).toContain('fill="#07C160"');
-    expect(logo).toContain('fill="#1677FF"');
+    /**
+     * 【2026-11-10】微信的品牌绿已下线，改用 currentColor 跟随容器文字色 ——
+     * 用户要求「所有绿色系改为黑白色系」，logo 不能例外。
+     * 支付宝的品牌蓝保留（用户点名的是绿色系）。
+     * 但 fill 必须走变量、不能在两支里各写死一份，否则 compact 版又会变回彩色。
+     */
+    expect(logo).not.toContain("#07C160");
+    expect(logo).toContain('"#1677FF"');
+    expect(logo).toContain("fill={fill}");
+    expect(logo).toContain("currentColor");
   });
 });

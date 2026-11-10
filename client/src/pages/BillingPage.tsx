@@ -61,7 +61,7 @@ export default function BillingPage() {
     subscriptionStatus,
     balanceFlash,
   } = controller;
-  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, wechatGreen, wechatGreenText } =
+  const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, accent } =
     theme;
 
   /*
@@ -150,8 +150,14 @@ export default function BillingPage() {
                   onClick={scrollToCreditRules}
                   className="mt-3 flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--radius-pill)] px-3.5 type-caption transition-opacity hover:opacity-80"
                   style={{
-                    background: "#bbbbbb",
-                    color: wechatGreenText,
+                    /**
+                     * 【2026-11-10】底色必须跟主题走，不能恒用浅灰 #bbbbbb。
+                     * `accent` 在浅色模式是黑、深色模式是近白 —— 恒浅灰底 + 近白字
+                     * 就是深色模式下白底白字，零报错地看不见。
+                     * 📌 底和字必须同时随主题变化，只改一边等于挖坑。
+                     */
+                    background: isDark ? "rgba(255,255,255,0.10)" : "#bbbbbb",
+                    color: accent,
                     fontWeight: 640,
                   }}
                 >

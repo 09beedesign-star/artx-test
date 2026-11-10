@@ -46,11 +46,21 @@ export default function SubscriptionPanel({
     activePaymentMethod,
     startSubscriptionPayment,
   } = controller;
-  const { isDark, panel, panelStrong, border, text, sub, faint, wechatGreen, alipayBlue, purple } = theme;
-  
+  const { isDark, panel, panelStrong, border, text, sub, faint, accent, solid, solidText, alipayBlue, purple } = theme;
+
   // 根据选择的支付方式获取按钮颜色
   const getButtonColor = () => {
-    return selectedPaymentMethod === "wechat" ? wechatGreen : alipayBlue;
+    return selectedPaymentMethod === "wechat" ? solid : alipayBlue;
+  };
+  /**
+   * 按钮上的文字色必须跟着底走。
+   *
+   * 【2026-11-10】黑色化之前这里是写死的 `#10130A`（近黑）——
+   * 因为底永远是亮色（荧光绿 / 支付宝蓝）。底换成黑色后，近黑的字
+   * 就是黑底黑字，零报错地消失。⚠️ 底和字必须成对改。
+   */
+  const getButtonTextColor = () => {
+    return selectedPaymentMethod === "wechat" ? solidText : "#FFFFFF";
   };
 
   return (
@@ -286,7 +296,7 @@ export default function SubscriptionPanel({
                     {feature.included ? (
                       <Check
                         size={13}
-                        style={{ color: wechatGreen, flex: "0 0 auto", marginTop: 2 }}
+                        style={{ color: accent, flex: "0 0 auto", marginTop: 2 }}
                       />
                     ) : (
                       <X
@@ -324,7 +334,7 @@ export default function SubscriptionPanel({
                     isCurrentSubscribedPlan || isDowngradePlan
                       ? faint
                       : isSelected
-                        ? "#10130A"
+                        ? getButtonTextColor()
                         : text,
                   border: `1px solid ${
                     isCurrentSubscribedPlan || isDowngradePlan
