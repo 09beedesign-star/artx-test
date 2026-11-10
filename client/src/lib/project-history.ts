@@ -4,6 +4,23 @@ export interface WorkspaceHistoryProject {
   id: string;
   title: string;
   cover: string | null;
+  /**
+   * 所属项目（文件夹）id；空 = 未归类。
+   *
+   * ⚠️⚠️ 层级是「工作台 → 项目 → 画板」，这里的 record 是**画板**，
+   *    项目本身存在 project-folders.ts 的登记表里。画板自带 folderId
+   *    才能跟着现有的项目历史一起同步 —— 分组信息如果只存在本机登记表，
+   *    换台设备就只剩一堆未归类画板。
+   */
+  folderId?: string | null;
+  /**
+   * 所属项目名（冗余存一份）。
+   * 📌 换设备时登记表可能还没同步下来，这时靠它把画板归到同名项目里，
+   *    而不是让用户看到「未归类」。改名时两处必须一起改。
+   */
+  folderName?: string;
+  /** 收藏（卡片右上角星标）。 */
+  starred?: boolean;
   /** 用户右键「设为封面」手动指定的图片节点 id；为空时封面自动取画布第一张图。 */
   coverNodeId?: string | null;
   /** 封面最后改写时间（ISO 毫秒）。跨设备同步时封面按它单独合并。 */
@@ -64,6 +81,14 @@ function getCurrentWorkspaceOwnerId() {
 function storageKeyForCurrentUser(baseKey: string) {
   const ownerId = getCurrentWorkspaceOwnerId();
   return ownerId ? `${baseKey}:${ownerId}` : baseKey;
+}
+
+/**
+ * 按账号分桶的存储 key。
+ * 给 project-folders.ts 复用：两处必须同一个分桶口径，否则 A 账号会读到 B 账号的项目。
+ */
+export function workspaceScopedStorageKey(baseKey: string) {
+  return storageKeyForCurrentUser(baseKey);
 }
 
 export function readWorkspaceProjectHistory(): WorkspaceHistoryProject[] {
@@ -164,6 +189,9 @@ export function updateWorkspaceProjectHistory(id: string, patch: Partial<Workspa
     socialPresetId: patch.socialPresetId,
     canvasWidth: patch.canvasWidth,
     canvasHeight: patch.canvasHeight,
+    folderId: patch.folderId ?? null,
+    folderName: patch.folderName,
+    starred: patch.starred ?? false,
   };
   writeWorkspaceProjectHistory([project, ...projects]);
 }
@@ -268,7 +296,11 @@ export function removeWorkspaceProjectHistory(ids: string[]) {
   writeWorkspaceProjectHistory(readWorkspaceProjectHistory().filter(item => !idSet.has(item.id)));
 }
 
-export function createWorkspaceHistoryProject(title?: string, initialPrompt?: string): WorkspaceHistoryProject {
+export function createWorkspaceHistoryProject(
+  title?: string,
+  initialPrompt?: string,
+  folder?: { id: string; name: string } | null
+): WorkspaceHistoryProject {
   const createdAt = formatTimestamp();
   const project: WorkspaceHistoryProject = {
     id: `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -278,7 +310,45 @@ export function createWorkspaceHistoryProject(title?: string, initialPrompt?: st
     nodeCount: 0,
     createdAt,
     initialPrompt,
+    folderId: folder?.id ?? null,
+    folderName: folder?.name,
+    starred: false,
   };
   upsertWorkspaceProjectHistory(project);
   return project;
+}
+
+/* ------------------------------------------------------------------ *
+ * 项目（文件夹）归组（2026-11-10 三级结构）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 把一批画板归到某个项目下 / 移出项目（folderId = null）。
+ *
+ * ⚠️ 必须**一次写一遍**，不能循环调 updateWorkspaceProjectHistory：
+ *    后者每调一次就是一次全量写盘 + 一次 scheduleWorkspaceSync，
+ *    批量移动 20 个画板等于敲 20 次同步鼓点，还会让排序在中途被改乱。
+ * ⚠️ 项目改名时必须传新的 folderName，否则另一台设备靠冗余字段拼出旧项目名。
+ */
+export function assignWorkspaceProjectsToFolder(
+  ids: string[],
+  folderId: string | null,
+  folderName?: string
+) {
+  if (ids.length === 0) return;
+  const idSet = new Set(ids);
+  const next = readWorkspaceProjectHistory().map(item => {
+    if (!idSet.has(item.id)) return item;
+    return {
+      ...item,
+      folderId: folderId,
+      folderName: folderId ? folderName : undefined,
+    };
+  });
+  writeWorkspaceProjectHistory(next);
+}
+
+/** 收藏 / 取消收藏一块画板。 */
+export function setWorkspaceProjectStarred(id: string, starred: boolean) {
+  updateWorkspaceProjectHistory(id, { starred });
 }

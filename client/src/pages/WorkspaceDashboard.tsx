@@ -1,190 +1,500 @@
 /**
- * WorkspaceDashboard — 工作台页面
- * Design: Neo-Studio Dark
- * Features:
- * - 历史项目缩略图网格
- * - 创建项目（自定义封面）
- * - 右下角 ... 菜单：重命名 / 副本 / 删除
- * - 鼠标框选批量删除（二次确认）
+ * WorkspaceDashboard — 工作台（三级结构：工作台 → 项目 → 画板）
+ *
+ * - 根层 `/workspace`：项目卡片网格 + 「未归类画板」
+ * - 项目内 `/workspace?p=<folderId>`：该项目的画板网格 / 列表
+ * - 画板点击进 `/project/<boardId>`（画布本身）
+ *
+ * 层级事实源：
+ * - 项目（文件夹）→ `@/lib/project-folders`
+ * - 画板 → `@/lib/project-history`（记录自带 folderId / folderName）
+ *
+ * ⚠️ 新建入口：根层放「新建项目」，项目内放「新建画布 / 导入文件」。
+ *    侧边栏「新创作」是全局入口，创建画板时若已在某个项目内则直接落在该项目。
  */
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
-import TopBar from "@/components/workspace/TopBar";
-import {
-  MoreHorizontal, Pencil, Copy, Trash2,
-  FolderOpen, Clock,
-} from "lucide-react";
 import { toast } from "sonner";
 import {
+  ChevronRight, Copy, FolderOpen, FolderPlus, Image as ImageIcon,
+  LayoutGrid, List, MoreHorizontal, Pencil, Plus, Star, Trash2, Upload, X,
+} from "lucide-react";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  assignWorkspaceProjectsToFolder,
   createWorkspaceHistoryProject,
-  readWorkspaceProjectHistory,
   removeWorkspaceProjectHistory,
+  setWorkspaceProjectCover,
+  setWorkspaceProjectStarred,
   touchWorkspaceProjectHistory,
   updateWorkspaceProjectHistory,
   upsertWorkspaceProjectHistory,
   type WorkspaceHistoryProject,
 } from "@/lib/project-history";
-import { saveProjectMemory } from "@/lib/user-memory-client";
+import {
+  createWorkspaceFolder,
+  deleteWorkspaceFolders,
+  listUnfiledBoards,
+  listWorkspaceFolders,
+  renameWorkspaceFolder,
+  touchWorkspaceFolder,
+  WORKSPACE_FOLDERS_UPDATED_EVENT,
+  type WorkspaceFolderSummary,
+} from "@/lib/project-folders";
 import { resolveProjectCoverUrl, WORKSPACE_PROJECTS_UPDATED_EVENT } from "@/lib/workspace-sync";
+import { fileToDataUrl } from "@/lib/feedback-submit";
+import { writeHomePromptHandoff } from "@/lib/home-prompt-handoff";
 
-// ── Types ──────────────────────────────────────────────────────
-interface WsProject {
-  id: string;
-  title: string;
-  cover: string | null;
-  updatedAt: string;
-  nodeCount: number;
-  createdAt?: string;
-  deliveryAt?: string;
-  owner?: string;
-  note?: string;
-  socialPresetId?: string;
-  canvasWidth?: number;
-  canvasHeight?: number;
+// ── Design tokens ──────────────────────────────────────────────
+const COVER_ASPECT_RATIO = "3 / 2";
+const BOARD_GRID_COLUMNS = "repeat(auto-fill, minmax(196px, 1fr))";
+const FOLDER_GRID_COLUMNS = "repeat(auto-fill, minmax(232px, 1fr))";
+const MAX_IMPORT_FILES = 6;
+
+function useTokens() {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  return useMemo(() => ({
+    isDark,
+    page: isDark ? "#0f0f0f" : "#ffffff",
+    text: isDark ? "#f2f2f4" : "#161616",
+    sub: isDark ? "#8a8a90" : "#82807d",
+    faint: isDark ? "#6a6a70" : "#a4a4a4",
+    card: isDark ? "#191919" : "#ffffff",
+    cardHover: isDark ? "#202020" : "#fbfbfa",
+    border: isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.10)",
+    borderHover: isDark ? "rgba(255,255,255,0.22)" : "rgba(22,22,22,0.22)",
+    raised: isDark ? "rgba(255,255,255,0.05)" : "rgba(22,22,22,0.04)",
+    raisedHover: isDark ? "rgba(255,255,255,0.09)" : "rgba(22,22,22,0.07)",
+    placeholder: isDark ? "#141414" : "#f4f4f2",
+    popover: isDark ? "#1e1e1e" : "#ffffff",
+    danger: "#c0392b",
+  }), [isDark]);
 }
 
-const WORKSPACE_CARD_COVER_ASPECT_RATIO = "4/3";
-const WORKSPACE_CARD_INFO_HEIGHT = 96;
-const WORKSPACE_PROJECT_GRID_COLUMNS = "repeat(4, minmax(0, 1fr))";
+type Tokens = ReturnType<typeof useTokens>;
 
-function fromHistoryProject(project: WorkspaceHistoryProject): WsProject {
-  return {
-    id: project.id,
-    title: project.title,
-    cover: project.cover,
-    updatedAt: project.updatedAt,
-    nodeCount: project.nodeCount,
-    createdAt: project.createdAt,
-    socialPresetId: project.socialPresetId,
-    canvasWidth: project.canvasWidth,
-    canvasHeight: project.canvasHeight,
-  };
+function formatDate(value?: string) {
+  if (!value) return "—";
+  return value.slice(0, 10);
 }
 
-// ── Inline Dropdown Menu ───────────────────────────────────────
-function CardMenu({
-  isDark,
-  onRename,
-  onDuplicate,
-  onDelete,
-}: {
-  isDark: boolean;
-  onRename: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-}) {
+function boardMeta(board: WorkspaceHistoryProject) {
+  const size = board.nodeCount > 0 ? `${board.nodeCount} 个元素` : "空白画板";
+  return `${size} · 最近修改 ${formatDate(board.updatedAt)}`;
+}
+
+// ── Dropdown menu (轻量，自绘，保证卡片内定位) ──────────────────
+interface MenuItem {
+  icon: React.ElementType;
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
+}
+
+function CardMenu({ t, items, align = "right" }: { t: Tokens; items: MenuItem[]; align?: "left" | "right" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    const handler = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
-    setTimeout(() => document.addEventListener("mousedown", handler), 50);
-    return () => document.removeEventListener("mousedown", handler);
+    // 延迟挂载：否则触发菜单的那一次点击会立刻被判定为「点在外面」
+    const timer = window.setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
   }, [open]);
 
-  const bg = isDark ? "#222222" : "rgba(248,248,252,0.97)";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const textColor = isDark ? "#161616" : "#161616";
-  const hoverBg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)";
-
   return (
-    <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
+    <div ref={ref} className="relative" onClick={event => event.stopPropagation()}>
       <button
-        className="w-5 h-5 rounded-[var(--radius-md-design)] flex items-center justify-center transition-all active:scale-90"
+        type="button"
+        aria-label="更多操作"
+        onClick={event => { event.stopPropagation(); setOpen(value => !value); }}
+        className="flex h-6 w-6 items-center justify-center rounded-md transition-colors"
         style={{
-          background: open
-            ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)")
-            : "transparent",
-          color: isDark ? "#99999e" : "#777472",
+          background: open ? t.raisedHover : "transparent",
+          color: t.sub,
         }}
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
       >
-        <MoreHorizontal size={14} />
+        <MoreHorizontal size={15} />
       </button>
-
       {open && (
         <div
-          className="absolute rounded-[var(--radius-lg-design)] overflow-hidden z-[9999]"
+          className="absolute z-[60] overflow-hidden rounded-xl py-1"
           style={{
-            background: bg,
-            border: `1px solid ${border}`,
-            minWidth: 160,
-            boxShadow: "0 16px 48px rgba(0,0,0,0.40)",
-            backdropFilter: "blur(20px)",
-            bottom: "calc(100% + 8px)",
-            right: 0,
+            minWidth: 156,
+            right: align === "right" ? 0 : undefined,
+            left: align === "left" ? 0 : undefined,
+            bottom: "calc(100% + 6px)",
+            background: t.popover,
+            border: `1px solid ${t.border}`,
+            boxShadow: "0 18px 48px rgba(0,0,0,0.28)",
           }}
         >
-          <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
-            style={{ color: textColor }}
-            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => { onRename(); setOpen(false); }}
-          >
-            <Pencil size={13} />
-            重命名
-          </button>
-          <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
-            style={{ color: textColor }}
-            onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => { onDuplicate(); setOpen(false); }}
-          >
-            <Copy size={13} />
-            创建副本
-          </button>
-          <div style={{ height: 1, background: border, margin: "2px 0" }} />
-          <button
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 type-caption text-left transition-colors"
-            style={{ color: "#999999" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#999999")}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-            onClick={() => { onDelete(); setOpen(false); }}
-          >
-            <Trash2 size={13} />
-            删除
-          </button>
+          {items.map(item => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={event => { event.stopPropagation(); item.onSelect(); setOpen(false); }}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
+              style={{ color: item.danger ? t.danger : t.text, fontSize: 12.5 }}
+              onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+            >
+              <item.icon size={13.5} strokeWidth={1.6} />
+              {item.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ── Delete Confirm Dialog ──────────────────────────────────────
-function DeleteConfirmDialog({
-  count, onConfirm, onCancel, isDark,
-}: { count: number; onConfirm: () => void; onCancel: () => void; isDark: boolean }) {
-  const bg = isDark ? "#222222" : "#161616";
-  const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
-  const text = isDark ? "#161616" : "#161616";
-  const sub = isDark ? "#99999e" : "#777472";
+// ── 空画板缩略图（一张淡淡的空白页，和参考站点的线框占位一致）────
+function EmptyCover({ t }: { t: Tokens }) {
+  const line = t.isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.07)";
+  return (
+    <div className="flex h-full w-full items-center justify-center" style={{ background: t.placeholder }}>
+      <div
+        className="flex flex-col justify-start gap-[5px] rounded-[4px] px-3 pt-3"
+        style={{
+          width: "56%",
+          aspectRatio: "4 / 3",
+          background: t.isDark ? "rgba(255,255,255,0.045)" : "#ffffff",
+          border: `1px solid ${t.border}`,
+        }}
+      >
+        <div className="rounded-[2px]" style={{ height: 5, width: "46%", background: line }} />
+        <div className="rounded-[2px]" style={{ height: 4, width: "100%", background: line }} />
+        <div className="rounded-[2px]" style={{ height: 4, width: "72%", background: line }} />
+      </div>
+    </div>
+  );
+}
+
+// ── 画板卡片（网格） ───────────────────────────────────────────
+function BoardCard({
+  t, board, renaming, onOpen, onRename, onRenameSubmit, menuItems,
+}: {
+  t: Tokens;
+  board: WorkspaceHistoryProject;
+  renaming: boolean;
+  onOpen: () => void;
+  onRename: () => void;
+  onRenameSubmit: (name: string) => void;
+  menuItems: MenuItem[];
+}) {
+  const [draft, setDraft] = useState(board.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    setDraft(board.title);
+    const timer = window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 30);
+    return () => window.clearTimeout(timer);
+  }, [renaming, board.title]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onCancel}>
-      <div data-artx-dialog-surface className="rounded-[var(--radius-lg-design)] p-6 w-80" style={{ background: bg, border: `1px solid ${border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-[var(--radius-lg-design)] flex items-center justify-center" style={{ background: "#999999" }}>
-            <Trash2 size={17} color="#999999" />
+    <div
+      data-board-id={board.id}
+      onClick={onOpen}
+      className="group relative cursor-pointer overflow-hidden rounded-[10px] transition-all"
+      style={{ background: t.card, border: `1px solid ${t.border}` }}
+      onMouseEnter={event => { event.currentTarget.style.borderColor = t.borderHover; }}
+      onMouseLeave={event => { event.currentTarget.style.borderColor = t.border; }}
+    >
+      {/* 封面 */}
+      <div className="relative overflow-hidden" style={{ aspectRatio: COVER_ASPECT_RATIO }}>
+        {board.cover ? (
+          <img
+            src={resolveProjectCoverUrl(board.cover) ?? undefined}
+            alt={board.title}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+          />
+        ) : (
+          <EmptyCover t={t} />
+        )}
+
+        {/* 收藏星标：收藏后常驻，未收藏 hover 才出现 */}
+        <button
+          type="button"
+          aria-label={board.starred ? "取消收藏" : "收藏画板"}
+          onClick={event => {
+            event.stopPropagation();
+            setWorkspaceProjectStarred(board.id, !board.starred);
+          }}
+          className={`absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full transition-all ${
+            board.starred ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+          style={{
+            background: t.isDark ? "rgba(20,20,20,0.72)" : "rgba(255,255,255,0.92)",
+            border: `1px solid ${t.border}`,
+            color: board.starred ? t.text : t.sub,
+          }}
+        >
+          <Star size={14} strokeWidth={1.6} fill={board.starred ? "currentColor" : "none"} />
+        </button>
+      </div>
+
+      {/* 信息 */}
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            {renaming ? (
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={event => setDraft(event.target.value)}
+                onClick={event => event.stopPropagation()}
+                onKeyDown={event => {
+                  if (event.key === "Enter") onRenameSubmit(draft.trim() || board.title);
+                  if (event.key === "Escape") onRenameSubmit(board.title);
+                }}
+                onBlur={() => onRenameSubmit(draft.trim() || board.title)}
+                className="w-full bg-transparent outline-none"
+                style={{ color: t.text, fontSize: 13, borderBottom: `1px solid ${t.text}` }}
+              />
+            ) : (
+              <p
+                className="truncate"
+                style={{ color: t.text, fontSize: 13, fontWeight: 550, letterSpacing: "-0.01em" }}
+                onDoubleClick={event => { event.stopPropagation(); onRename(); }}
+                title="双击重命名画板"
+              >
+                {board.title}
+              </p>
+            )}
           </div>
-          <p className="type-body-sm" style={{ color: text, fontWeight: 540 }}>删除 {count} 个项目？</p>
+          <div className="-mr-1 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+            <CardMenu t={t} items={menuItems} />
+          </div>
         </div>
-        <p className="type-caption mb-5 leading-relaxed" style={{ color: sub }}>
-          此操作不可撤销，项目内的所有画布节点和素材将被永久删除。
+        {/* ⚠️ 元信息单独占一行：和「...」同一行时会被挤成「最近修改 2026-1…」，日期永远看不全 */}
+        <p className="mt-0.5 truncate" style={{ color: t.sub, fontSize: 11, letterSpacing: "-0.005em" }}>
+          {boardMeta(board)}
         </p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption transition-opacity hover:opacity-80"
-            style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", color: text }}>
+      </div>
+    </div>
+  );
+}
+
+// ── 画板行（列表视图） ────────────────────────────────────────
+function BoardRow({
+  t, board, renaming, onOpen, onRename, onRenameSubmit, menuItems,
+}: {
+  t: Tokens;
+  board: WorkspaceHistoryProject;
+  renaming: boolean;
+  onOpen: () => void;
+  onRename: () => void;
+  onRenameSubmit: (name: string) => void;
+  menuItems: MenuItem[];
+}) {
+  const [draft, setDraft] = useState(board.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    setDraft(board.title);
+    const timer = window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 30);
+    return () => window.clearTimeout(timer);
+  }, [renaming, board.title]);
+
+  return (
+    <div
+      data-board-id={board.id}
+      onClick={onOpen}
+      className="group flex cursor-pointer items-center gap-3 rounded-[10px] px-3 py-2 transition-colors"
+      style={{ border: `1px solid ${t.border}`, background: t.card }}
+      onMouseEnter={event => { event.currentTarget.style.borderColor = t.borderHover; }}
+      onMouseLeave={event => { event.currentTarget.style.borderColor = t.border; }}
+    >
+      <div className="h-10 w-14 flex-shrink-0 overflow-hidden rounded-md" style={{ border: `1px solid ${t.border}` }}>
+        {board.cover
+          ? <img src={resolveProjectCoverUrl(board.cover) ?? undefined} alt="" className="h-full w-full object-cover" />
+          : (
+            <div className="flex h-full w-full items-center justify-center" style={{ background: t.placeholder }}>
+              <ImageIcon size={13} strokeWidth={1.4} style={{ color: t.faint }} />
+            </div>
+          )}
+      </div>
+      <div className="min-w-0 flex-1">
+        {renaming ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onClick={event => event.stopPropagation()}
+            onKeyDown={event => {
+              if (event.key === "Enter") onRenameSubmit(draft.trim() || board.title);
+              if (event.key === "Escape") onRenameSubmit(board.title);
+            }}
+            onBlur={() => onRenameSubmit(draft.trim() || board.title)}
+            className="w-full bg-transparent outline-none"
+            style={{ color: t.text, fontSize: 13, borderBottom: `1px solid ${t.text}` }}
+          />
+        ) : (
+          <p className="truncate" style={{ color: t.text, fontSize: 13, fontWeight: 550 }}>{board.title}</p>
+        )}
+        <p className="truncate" style={{ color: t.sub, fontSize: 11 }}>{boardMeta(board)}</p>
+      </div>
+      <button
+        type="button"
+        aria-label={board.starred ? "取消收藏" : "收藏画板"}
+        onClick={event => { event.stopPropagation(); setWorkspaceProjectStarred(board.id, !board.starred); }}
+        className="flex h-7 w-7 items-center justify-center rounded-full transition-colors"
+        style={{ color: board.starred ? t.text : t.faint }}
+      >
+        <Star size={14} strokeWidth={1.6} fill={board.starred ? "currentColor" : "none"} />
+      </button>
+      <CardMenu t={t} items={menuItems} />
+    </div>
+  );
+}
+
+// ── 项目卡片（根层） ──────────────────────────────────────────
+function FolderCard({
+  t, folder, renaming, onOpen, onRename, onRenameSubmit, menuItems,
+}: {
+  t: Tokens;
+  folder: WorkspaceFolderSummary;
+  renaming: boolean;
+  onOpen: () => void;
+  onRename: () => void;
+  onRenameSubmit: (name: string) => void;
+  menuItems: MenuItem[];
+}) {
+  const [draft, setDraft] = useState(folder.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renaming) return;
+    setDraft(folder.name);
+    const timer = window.setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 30);
+    return () => window.clearTimeout(timer);
+  }, [renaming, folder.name]);
+
+  const covers = folder.covers.filter(Boolean).slice(0, 4);
+
+  return (
+    <div
+      data-folder-id={folder.id}
+      onClick={onOpen}
+      className="group relative cursor-pointer overflow-hidden rounded-[10px] transition-all"
+      style={{ background: t.card, border: `1px solid ${t.border}` }}
+      onMouseEnter={event => { event.currentTarget.style.borderColor = t.borderHover; }}
+      onMouseLeave={event => { event.currentTarget.style.borderColor = t.border; }}
+    >
+      <div className="relative overflow-hidden" style={{ aspectRatio: COVER_ASPECT_RATIO }}>
+        {covers.length === 0 ? (
+          <div className="flex h-full w-full items-center justify-center" style={{ background: t.placeholder }}>
+            <FolderOpen size={26} strokeWidth={1.2} style={{ color: t.faint }} />
+          </div>
+        ) : covers.length === 1 ? (
+          <img
+            src={resolveProjectCoverUrl(covers[0]) ?? undefined}
+            alt={folder.name}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+          />
+        ) : (
+          <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-px" style={{ background: t.border }}>
+            {[0, 1, 2, 3].map(index => (
+              <div key={index} className="overflow-hidden" style={{ background: t.placeholder }}>
+                {covers[index] ? (
+                  <img src={resolveProjectCoverUrl(covers[index]) ?? undefined} alt="" className="h-full w-full object-cover" />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
+          <CardMenu t={t} items={menuItems} />
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5">
+        {renaming ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onClick={event => event.stopPropagation()}
+            onKeyDown={event => {
+              if (event.key === "Enter") onRenameSubmit(draft.trim() || folder.name);
+              if (event.key === "Escape") onRenameSubmit(folder.name);
+            }}
+            onBlur={() => onRenameSubmit(draft.trim() || folder.name)}
+            className="w-full bg-transparent outline-none"
+            style={{ color: t.text, fontSize: 13, borderBottom: `1px solid ${t.text}` }}
+          />
+        ) : (
+          <p
+            className="truncate"
+            style={{ color: t.text, fontSize: 13, fontWeight: 550, letterSpacing: "-0.01em" }}
+            onDoubleClick={event => { event.stopPropagation(); onRename(); }}
+          >
+            {folder.name}
+          </p>
+        )}
+        <p className="mt-1 truncate" style={{ color: t.sub, fontSize: 11 }}>
+          {folder.boardCount} 块画板 · 更新于 {formatDate(folder.updatedAt)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── 删除确认 ──────────────────────────────────────────────────
+function DeleteConfirmDialog({
+  t, title, description, confirmLabel, onConfirm, onCancel,
+}: {
+  t: Tokens;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.42)", backdropFilter: "blur(2px)" }}
+      onClick={onCancel}
+    >
+      <div
+        className="w-[360px] rounded-2xl p-6"
+        style={{ background: t.popover, border: `1px solid ${t.border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.28)" }}
+        onClick={event => event.stopPropagation()}
+      >
+        <p style={{ color: t.text, fontSize: 15, fontWeight: 600 }}>{title}</p>
+        <p className="mt-2 leading-6" style={{ color: t.sub, fontSize: 12.5 }}>{description}</p>
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-9 rounded-full px-4 transition-colors"
+            style={{ border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5 }}
+            onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+            onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+          >
             取消
           </button>
-          <button onClick={onConfirm} className="flex-1 py-2 rounded-[var(--radius-lg-design)] type-caption transition-opacity hover:opacity-90"
-            style={{ background: "#999999", color: "white" }}>
-            确认删除
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="h-9 rounded-full px-4 transition-opacity hover:opacity-85"
+            style={{ background: t.danger, color: "#ffffff", fontSize: 12.5, fontWeight: 550 }}
+          >
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -192,232 +502,594 @@ function DeleteConfirmDialog({
   );
 }
 
-// ── Project Card ───────────────────────────────────────────────
-function ProjectCard({
-  project, renaming, isDark,
-  onOpen, onRename, onDuplicate, onDelete, onRenameSubmit,
+// ── 移动画板到项目 ────────────────────────────────────────────
+function MoveBoardDialog({
+  t, board, folders, onClose, onMove,
 }: {
-  project: WsProject;
-  renaming: boolean;
-  isDark: boolean;
-  onOpen: () => void;
-  onRename: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onRenameSubmit: (name: string) => void;
+  t: Tokens;
+  board: WorkspaceHistoryProject;
+  folders: WorkspaceFolderSummary[];
+  onClose: () => void;
+  onMove: (folder: WorkspaceFolderSummary | null) => void;
 }) {
-  const [editVal, setEditVal] = useState(project.title);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (renaming) { setEditVal(project.title); setTimeout(() => inputRef.current?.select(), 50); }
-  }, [renaming, project.title]);
-
-  const cardBg = isDark ? "#222222" : "#ffffff";
-  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "#e6e3df";
-  const cardShadow = isDark ? "none" : "0 1px 3px rgba(0,0,0,0.08)";
-  const text = isDark ? "#f0f0f1" : "#262627";
-  const sub = isDark ? "#99999e" : "#777472";
-
   return (
     <div
-      className="group relative overflow-hidden cursor-pointer transition-all"
-      style={{
-        width: "100%",
-        background: cardBg,
-        border: `1px solid ${cardBorder}`,
-        borderRadius: 6,
-        boxShadow: cardShadow,
-        transition: "all 0.18s ease",
-      }}
-      onClick={onOpen}
+      className="fixed inset-0 z-[80] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.42)", backdropFilter: "blur(2px)" }}
+      onClick={onClose}
     >
-      {/* Cover */}
-      <div className="relative overflow-hidden" style={{ aspectRatio: WORKSPACE_CARD_COVER_ASPECT_RATIO }}>
-        {project.cover ? (
-          <img
-            src={resolveProjectCoverUrl(project.cover) ?? undefined}
-            alt={project.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: isDark ? "#222222" : "#161616" }}>
-            <FolderOpen size={32} style={{ color: sub }} />
+      <div
+        className="w-[380px] overflow-hidden rounded-2xl"
+        style={{ background: t.popover, border: `1px solid ${t.border}`, boxShadow: "0 24px 64px rgba(0,0,0,0.28)" }}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pb-3 pt-5">
+          <div>
+            <p style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>移动到项目</p>
+            <p className="mt-1 truncate" style={{ color: t.sub, fontSize: 11.5 }}>{board.title}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ color: t.sub, border: `1px solid ${t.border}` }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <div className="max-h-[300px] overflow-y-auto px-2 pb-2">
+          {folders.length === 0 && (
+            <p className="px-3 py-6 text-center" style={{ color: t.sub, fontSize: 12 }}>
+              还没有项目，先在根层新建一个项目
+            </p>
+          )}
+          {folders.map(folder => (
+            <button
+              key={folder.id}
+              type="button"
+              onClick={() => onMove(folder)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors"
+              style={{ color: t.text, fontSize: 12.5 }}
+              onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+            >
+              <FolderOpen size={14} strokeWidth={1.6} style={{ color: t.sub }} />
+              <span className="truncate">{folder.name}</span>
+              <span className="ml-auto flex-shrink-0" style={{ color: t.faint, fontSize: 11 }}>
+                {folder.boardCount}
+              </span>
+            </button>
+          ))}
+        </div>
+        {board.folderId && (
+          <div className="px-2 pb-3">
+            <button
+              type="button"
+              onClick={() => onMove(null)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors"
+              style={{ color: t.sub, fontSize: 12.5 }}
+              onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+              onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+            >
+              <X size={14} strokeWidth={1.6} />
+              移出项目（变成未归类）
+            </button>
           </div>
         )}
-        {/* Hover overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ background: "rgba(0,0,0,0.40)" }}>
-          <span className="type-caption text-white px-3 py-1.5 rounded-[var(--radius-pill)]"
-            style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}>
-            单击打开
-          </span>
-        </div>
-      </div>
-
-      {/* Info */}
-      <div className="px-3 py-3" style={{ height: WORKSPACE_CARD_INFO_HEIGHT }}>
-        {renaming ? (
-          <input
-            ref={inputRef}
-            value={editVal}
-            onChange={e => setEditVal(e.target.value)}
-            onClick={e => e.stopPropagation()}
-            onKeyDown={e => {
-              if (e.key === "Enter") onRenameSubmit(editVal.trim() || project.title);
-              if (e.key === "Escape") onRenameSubmit(project.title);
-            }}
-            onBlur={() => onRenameSubmit(editVal.trim() || project.title)}
-            className="w-full bg-transparent type-caption outline-none border-b"
-            style={{ color: text, borderColor: "#161616" }}
-          />
-        ) : (
-          <p className="type-caption truncate" style={{ color: text, fontSize: 13, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{project.title}</p>
-        )}
-        {/* Time row + ... menu aligned */}
-        <div className="flex items-center gap-1.5 mt-1.5">
-          <Clock size={10} style={{ color: sub }} />
-          <span className="type-caption" style={{ color: sub, fontSize: 11 }}>{project.updatedAt}</span>
-          <span className="type-caption" style={{ color: sub, fontSize: 11 }}>· {project.nodeCount} 个节点</span>
-          <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-            <CardMenu
-              isDark={isDark}
-              onRename={onRename}
-              onDuplicate={onDuplicate}
-              onDelete={onDelete}
-            />
-          </div>
-        </div>
       </div>
     </div>
   );
 }
 
 // ── Main Page ──────────────────────────────────────────────────
+type SortKey = "recent" | "created" | "name";
+type TypeFilter = "all" | "filled" | "empty";
+type PendingDelete =
+  | { kind: "folder"; id: string; name: string; boardCount: number }
+  | { kind: "board"; id: string; name: string };
+
 export default function WorkspaceDashboard() {
   const [, navigate] = useLocation();
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const search = useSearch();
+  const t = useTokens();
 
-  const [projects, setProjects] = useState<WsProject[]>([]);
+  const activeFolderId = useMemo(() => new URLSearchParams(search).get("p"), [search]);
+
+  const [folders, setFolders] = useState<WorkspaceFolderSummary[]>([]);
+  const [unfiled, setUnfiled] = useState<WorkspaceHistoryProject[]>([]);
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("recent");
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [movingBoard, setMovingBoard] = useState<WorkspaceHistoryProject | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
-  const bg = isDark ? "#222222" : "#ffffff";
-  const text = isDark ? "#f4f4f5" : "#262627";
-  const sub = isDark ? "#99999e" : "#777472";
+  const refresh = useCallback(() => {
+    setFolders(listWorkspaceFolders());
+    setUnfiled(listUnfiledBoards());
+  }, []);
 
   useEffect(() => {
-    const historyProjects = readWorkspaceProjectHistory().map(fromHistoryProject);
-    setProjects(historyProjects);
-    // 云端同步回写后刷新卡片：另一台设备设的封面不用手动刷新页面就能出现。
-    const refresh = () => setProjects(readWorkspaceProjectHistory().map(fromHistoryProject));
+    refresh();
     window.addEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
-    return () => window.removeEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
-  }, []);
+    window.addEventListener(WORKSPACE_FOLDERS_UPDATED_EVENT, refresh);
+    return () => {
+      window.removeEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refresh);
+      window.removeEventListener(WORKSPACE_FOLDERS_UPDATED_EVENT, refresh);
+    };
+  }, [refresh]);
 
-  const handleRename = useCallback((id: string, name: string) => {
-    setProjects(ps => ps.map(p => p.id === id ? { ...p, title: name } : p));
-    updateWorkspaceProjectHistory(id, { title: name });
-    setRenamingId(null);
-  }, []);
+  // 别的设备同步回来的收藏态、画板增删都要反映到卡片上
+  useEffect(() => { refresh(); }, [activeFolderId, refresh]);
 
-  const handleDuplicate = useCallback((id: string) => {
-    setProjects(ps => {
-      const src = ps.find(p => p.id === id);
-      if (!src) return ps;
-      const historyProject = createWorkspaceHistoryProject(`${src.title} 副本`);
-      const copy: WsProject = { ...src, id: historyProject.id, title: historyProject.title, updatedAt: historyProject.updatedAt, createdAt: historyProject.createdAt };
-      upsertWorkspaceProjectHistory({
-        id: copy.id,
-        title: copy.title,
-        cover: copy.cover,
-        updatedAt: copy.updatedAt,
-        nodeCount: copy.nodeCount,
-        createdAt: copy.createdAt || copy.updatedAt,
-      });
-      const idx = ps.findIndex(p => p.id === id);
-      const next = [...ps];
-      next.splice(idx + 1, 0, copy);
-      return next;
+  const activeFolder = useMemo(
+    () => (activeFolderId ? folders.find(folder => folder.id === activeFolderId) ?? null : null),
+    [folders, activeFolderId]
+  );
+
+  const visibleBoards = useMemo(() => {
+    if (!activeFolder) return [];
+    const list = activeFolder.boards.filter(board => {
+      if (typeFilter === "filled") return board.nodeCount > 0;
+      if (typeFilter === "empty") return board.nodeCount === 0;
+      return true;
     });
-    toast("副本已创建");
-  }, []);
+    return [...list].sort((a, b) => {
+      if (sortKey === "name") return a.title.localeCompare(b.title, "zh-Hans-CN");
+      if (sortKey === "created") return (b.createdAt || "").localeCompare(a.createdAt || "");
+      return (b.updatedAt || "").localeCompare(a.updatedAt || "");
+    });
+  }, [activeFolder, typeFilter, sortKey]);
 
-  const handleDelete = useCallback((ids: string[]) => {
-    setDeleteConfirm(ids);
-  }, []);
+  // ── 项目操作 ────────────────────────────────────────────────
+  const handleCreateFolder = useCallback(() => {
+    const folder = createWorkspaceFolder();
+    refresh();
+    navigate(`/workspace?p=${folder.id}`);
+  }, [navigate, refresh]);
+
+  const handleRenameFolder = useCallback((id: string, name: string) => {
+    renameWorkspaceFolder(id, name);
+    setRenamingId(null);
+    refresh();
+  }, [refresh]);
 
   const confirmDelete = useCallback(() => {
-    if (!deleteConfirm) return;
-    const ids = deleteConfirm;
-    setProjects(ps => ps.filter(p => !ids.includes(p.id)));
-    removeWorkspaceProjectHistory(ids);
-    setDeleteConfirm(null);
-    toast(`已删除 ${ids.length} 个项目`);
-    // 项目/对话记忆归属于该项目：项目删除 → 记忆文档一并删除（note 为空即删除）。
-    // 后台执行，不阻塞删除反馈；未登录或网络失败只记日志。
-    void Promise.allSettled(
-      ids.map(projectId => saveProjectMemory({ projectId, note: "" }))
-    ).then(results => {
-      const failed = results.filter(r => r.status === "rejected").length;
-      if (failed) console.warn(`[memory] ${failed} 个项目记忆删除失败`);
-    });
-  }, [deleteConfirm]);
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "board") {
+      removeWorkspaceProjectHistory([pendingDelete.id]);
+      toast("画板已删除");
+    } else {
+      const { deletedBoardIds } = deleteWorkspaceFolders([pendingDelete.id], "delete-boards");
+      if (deletedBoardIds.length > 0) removeWorkspaceProjectHistory(deletedBoardIds);
+      toast("项目已删除", {
+        description: deletedBoardIds.length > 0 ? `同时删除了 ${deletedBoardIds.length} 块画板` : undefined,
+      });
+      if (activeFolderId === pendingDelete.id) navigate("/workspace");
+    }
+    setPendingDelete(null);
+    refresh();
+  }, [pendingDelete, activeFolderId, navigate, refresh]);
 
-  const handleOpenProject = useCallback((id: string) => {
+  // ── 画板操作 ────────────────────────────────────────────────
+  const openBoard = useCallback((id: string) => {
     touchWorkspaceProjectHistory(id);
-    setProjects(readWorkspaceProjectHistory().map(fromHistoryProject));
+    if (activeFolderId) touchWorkspaceFolder(activeFolderId);
     navigate(`/project/${id}`);
-  }, [navigate]);
+  }, [navigate, activeFolderId]);
+
+  const handleRenameBoard = useCallback((id: string, name: string) => {
+    updateWorkspaceProjectHistory(id, { title: name });
+    setRenamingId(null);
+    refresh();
+  }, [refresh]);
+
+  const handleDuplicateBoard = useCallback((board: WorkspaceHistoryProject) => {
+    const copy = createWorkspaceHistoryProject(
+      `${board.title} 副本`,
+      undefined,
+      board.folderId ? { id: board.folderId, name: board.folderName || activeFolder?.name || "" } : null
+    );
+    upsertWorkspaceProjectHistory({
+      ...copy,
+      cover: board.cover,
+      nodeCount: board.nodeCount,
+      socialPresetId: board.socialPresetId,
+      canvasWidth: board.canvasWidth,
+      canvasHeight: board.canvasHeight,
+    });
+    refresh();
+    toast("副本已创建", { description: copy.title });
+  }, [activeFolder, refresh]);
+
+  const handleMoveBoard = useCallback((board: WorkspaceHistoryProject, folder: WorkspaceFolderSummary | null) => {
+    assignWorkspaceProjectsToFolder([board.id], folder?.id ?? null, folder?.name);
+    setMovingBoard(null);
+    refresh();
+    toast(folder ? `已移动到「${folder.name}」` : "已移出项目");
+  }, [refresh]);
+
+  const handleCreateBoard = useCallback(() => {
+    if (!activeFolder) return;
+    const board = createWorkspaceHistoryProject(
+      undefined,
+      undefined,
+      { id: activeFolder.id, name: activeFolder.name }
+    );
+    refresh();
+    navigate(`/project/${board.id}`);
+  }, [activeFolder, navigate, refresh]);
+
+  /**
+   * 导入文件 = 每个图片生成一块画板，图片作为封面并交给画布的引用图通道。
+   * ⚠️ 不用「只写封面」的糊弄做法：那样打开画板是空画布 + 一张对不上的封面。
+   *    走 writeHomePromptHandoff 后，画布会把图接成引用图（和首页带图进画布同一条链路）。
+   * ⚠️⚠️ 交接载荷在 sessionStorage 里只有**一个槽**：循环里每写一次就会覆盖前一次。
+   *    所以先建完所有画板、最后只给要打开的那一块写载荷，否则导入 3 张只有最后一张进得了画布。
+   */
+  const handleImportFiles = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!activeFolder || files.length === 0) return;
+
+    const images = files.filter(file => file.type.startsWith("image/")).slice(0, MAX_IMPORT_FILES);
+    if (images.length === 0) {
+      toast.error("只支持图片文件");
+      return;
+    }
+    if (images.length < files.length) {
+      toast(`一次最多导入 ${MAX_IMPORT_FILES} 张图片，其余已跳过`);
+    }
+
+    setImporting(true);
+    try {
+      let firstBoardId = "";
+      let firstReference: { id: string; title: string; src: string } | null = null;
+
+      for (const file of images) {
+        const board = createWorkspaceHistoryProject(
+          file.name.replace(/\.[^.]+$/, "") || undefined,
+          undefined,
+          { id: activeFolder.id, name: activeFolder.name }
+        );
+        if (!firstBoardId) firstBoardId = board.id;
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          setWorkspaceProjectCover(board.id, dataUrl);
+          if (!firstReference) {
+            firstReference = { id: board.id, title: file.name, src: dataUrl };
+          }
+        } catch {
+          // 缩略图失败不影响画板本身，至少卡片是建出来的
+        }
+      }
+
+      refresh();
+      toast(`已导入 ${images.length} 个文件`);
+      if (firstBoardId) {
+        if (firstReference) {
+          writeHomePromptHandoff({ projectId: firstBoardId, references: [firstReference] });
+        }
+        navigate(`/project/${firstBoardId}`);
+      }
+    } finally {
+      setImporting(false);
+    }
+  }, [activeFolder, navigate, refresh]);
+
+  const boardMenuItems = useCallback((board: WorkspaceHistoryProject): MenuItem[] => [
+    { icon: Pencil, label: "重命名", onSelect: () => setRenamingId(board.id) },
+    {
+      icon: Star,
+      label: board.starred ? "取消收藏" : "收藏",
+      onSelect: () => { setWorkspaceProjectStarred(board.id, !board.starred); refresh(); },
+    },
+    { icon: Copy, label: "创建副本", onSelect: () => handleDuplicateBoard(board) },
+    { icon: FolderOpen, label: "移动到项目", onSelect: () => setMovingBoard(board) },
+    {
+      icon: Trash2,
+      label: "删除",
+      danger: true,
+      onSelect: () => setPendingDelete({ kind: "board", id: board.id, name: board.title }),
+    },
+  ], [handleDuplicateBoard, refresh]);
+
+  const renderBoard = (board: WorkspaceHistoryProject) => {
+    const props = {
+      t,
+      board,
+      renaming: renamingId === board.id,
+      onOpen: () => openBoard(board.id),
+      onRename: () => setRenamingId(board.id),
+      onRenameSubmit: (name: string) => handleRenameBoard(board.id, name),
+      menuItems: boardMenuItems(board),
+    };
+    return view === "grid"
+      ? <BoardCard key={board.id} {...props} />
+      : <BoardRow key={board.id} {...props} />;
+  };
+
+  // ── Header ─────────────────────────────────────────────────
+  const header = activeFolder ? (
+    <div className="flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5" style={{ color: t.faint, fontSize: 11.5 }}>
+          <button
+            type="button"
+            onClick={() => navigate("/workspace")}
+            className="rounded transition-colors hover:underline"
+            style={{ color: t.faint }}
+          >
+            工作台
+          </button>
+          <ChevronRight size={11} />
+          <span className="truncate" style={{ color: t.sub }}>{activeFolder.name}</span>
+        </div>
+        {renamingId === activeFolder.id ? (
+          <input
+            autoFocus
+            defaultValue={activeFolder.name}
+            onClick={event => event.stopPropagation()}
+            onBlur={event => handleRenameFolder(activeFolder.id, event.target.value.trim() || activeFolder.name)}
+            onKeyDown={event => {
+              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+              if (event.key === "Escape") handleRenameFolder(activeFolder.id, activeFolder.name);
+            }}
+            className="mt-1 w-[320px] max-w-full bg-transparent outline-none"
+            style={{ color: t.text, fontSize: 19, fontWeight: 620, borderBottom: `1px solid ${t.text}` }}
+          />
+        ) : (
+          <h1
+            className="mt-0.5 truncate"
+            style={{ color: t.text, fontSize: 19, fontWeight: 620, letterSpacing: "-0.02em" }}
+            onDoubleClick={() => setRenamingId(activeFolder.id)}
+            title="双击重命名项目"
+          >
+            {activeFolder.name}
+          </h1>
+        )}
+      </div>
+      <div className="flex flex-shrink-0 items-center gap-2">
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={handleImportFiles}
+        />
+        <button
+          type="button"
+          disabled={importing}
+          onClick={() => importInputRef.current?.click()}
+          className="flex h-8 items-center gap-1.5 rounded-full px-3 transition-colors disabled:opacity-60"
+          style={{ border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5 }}
+          onMouseEnter={event => { event.currentTarget.style.background = t.raised; }}
+          onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}
+        >
+          <Upload size={13.5} strokeWidth={1.7} />
+          {importing ? "导入中…" : "导入文件"}
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateBoard}
+          className="flex h-8 items-center gap-1.5 rounded-full px-3.5 transition-colors"
+          style={{ background: t.isDark ? "#ffffff" : "#161616", color: t.isDark ? "#161616" : "#ffffff", fontSize: 12.5, fontWeight: 550 }}
+          onMouseEnter={event => { event.currentTarget.style.opacity = "0.86"; }}
+          onMouseLeave={event => { event.currentTarget.style.opacity = "1"; }}
+        >
+          <Plus size={13.5} strokeWidth={2} />
+          新建画布
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h1 style={{ color: t.text, fontSize: 19, fontWeight: 620, letterSpacing: "-0.02em" }}>工作台</h1>
+        <p className="mt-0.5" style={{ color: t.sub, fontSize: 11.5 }}>
+          {folders.length} 个项目 · {folders.reduce((sum, folder) => sum + folder.boardCount, 0) + unfiled.length} 块画板
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={handleCreateFolder}
+        className="flex h-8 flex-shrink-0 items-center gap-1.5 rounded-full px-3.5 transition-colors"
+        style={{ background: t.isDark ? "#ffffff" : "#161616", color: t.isDark ? "#161616" : "#ffffff", fontSize: 12.5, fontWeight: 550 }}
+        onMouseEnter={event => { event.currentTarget.style.opacity = "0.86"; }}
+        onMouseLeave={event => { event.currentTarget.style.opacity = "1"; }}
+      >
+        <FolderPlus size={13.5} strokeWidth={2} />
+        新建项目
+      </button>
+    </div>
+  );
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg, transition: "background 0.25s ease" }}>
-      {/* 新建入口已统一收口到左侧「新创作」（AppShell），工作台不再提供 */}
-      <TopBar credits={0} glass />
+    <div className="flex h-full flex-col overflow-hidden" style={{ background: t.page }}>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1180px] px-8 pb-16 pt-6">
+          {header}
 
-      <div className="flex-1 overflow-y-auto px-6 py-8 select-none" style={{ position: "relative" }}>
+          {/* ── 工具栏（仅项目内） ── */}
+          {activeFolder && (
+            <div className="mt-5 flex items-center gap-2">
+              <Select value={typeFilter} onValueChange={value => setTypeFilter(value as TypeFilter)}>
+                <SelectTrigger size="sm" className="gap-1.5 rounded-lg" aria-label="按类型筛选">
+                  <span style={{ color: t.sub, fontSize: 11.5 }}>类型</span>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有类型</SelectItem>
+                  <SelectItem value="filled">有内容的画板</SelectItem>
+                  <SelectItem value="empty">空白画板</SelectItem>
+                </SelectContent>
+              </Select>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="type-headline" style={{ color: text, fontSize: 26, fontWeight: 650, letterSpacing: 0 }}>工作台</h1>
-            <p className="type-caption mt-1" style={{ color: sub, fontSize: 12, letterSpacing: 0 }}>{projects.length} 个项目</p>
-          </div>
-        </div>
+              <Select value={sortKey} onValueChange={value => setSortKey(value as SortKey)}>
+                <SelectTrigger size="sm" className="gap-1.5 rounded-lg" aria-label="排序方式">
+                  <span style={{ color: t.sub, fontSize: 11.5 }}>排序</span>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recent">最近修改</SelectItem>
+                  <SelectItem value="created">创建时间</SelectItem>
+                  <SelectItem value="name">名称</SelectItem>
+                </SelectContent>
+              </Select>
 
-        {/* Project Grid */}
-        {projects.length === 0 ? (
-          /* 空状态：入口已经不在本页，必须明确告诉用户去哪儿新建，否则会以为功能坏了 */
-          <div className="flex flex-col items-center justify-center gap-2 py-24">
-            <FolderOpen size={26} strokeWidth={1.2} style={{ color: isDark ? "#3a3a3a" : "#d5d5d5" }} />
-            <span style={{ fontSize: 13, color: sub, letterSpacing: 0 }}>还没有画板</span>
-            <span style={{ fontSize: 12, color: isDark ? "#66666b" : "#a8a8a8", letterSpacing: 0 }}>
-              点击左侧「新创作」开始，或用快捷键 ⌘N / Ctrl+N
-            </span>
-          </div>
-        ) : (
-        <div className="grid gap-6" style={{ gridTemplateColumns: WORKSPACE_PROJECT_GRID_COLUMNS }}>
-          {projects.map(project => (
-            <div key={project.id} data-project-id={project.id} className="project-card">
-              <ProjectCard
-                project={project}
-                renaming={renamingId === project.id}
-                isDark={isDark}
-                onOpen={() => handleOpenProject(project.id)}
-                onRename={() => setRenamingId(project.id)}
-                onDuplicate={() => handleDuplicate(project.id)}
-                onDelete={() => handleDelete([project.id])}
-                onRenameSubmit={name => handleRename(project.id, name)}
-              />
+              <div className="ml-auto flex items-center gap-1 rounded-lg p-0.5" style={{ border: `1px solid ${t.border}` }}>
+                {([
+                  { key: "grid", icon: LayoutGrid, label: "网格视图" },
+                  { key: "list", icon: List, label: "列表视图" },
+                ] as const).map(item => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    aria-label={item.label}
+                    aria-pressed={view === item.key}
+                    onClick={() => setView(item.key)}
+                    className="flex h-6 w-7 items-center justify-center rounded-md transition-colors"
+                    style={{
+                      background: view === item.key ? t.raisedHover : "transparent",
+                      color: view === item.key ? t.text : t.faint,
+                    }}
+                  >
+                    <item.icon size={14} strokeWidth={1.7} />
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-        )}
+          )}
 
+          {/* ── 项目内：画板 ── */}
+          {activeFolder ? (
+            visibleBoards.length === 0 ? (
+              <div className="mt-16 flex flex-col items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: t.placeholder }}>
+                  <ImageIcon size={22} strokeWidth={1.3} style={{ color: t.faint }} />
+                </div>
+                <p style={{ color: t.text, fontSize: 13, fontWeight: 520 }}>
+                  {activeFolder.boardCount === 0 ? "这个项目还没有画板" : "没有符合条件的画板"}
+                </p>
+                <p style={{ color: t.sub, fontSize: 12 }}>
+                  {activeFolder.boardCount === 0 ? "点右上角「新建画布」开始，或直接导入图片" : "换个筛选条件试试"}
+                </p>
+              </div>
+            ) : (
+              <div
+                className={view === "grid" ? "mt-4 grid gap-4" : "mt-4 flex flex-col gap-2"}
+                style={view === "grid" ? { gridTemplateColumns: BOARD_GRID_COLUMNS } : undefined}
+              >
+                {visibleBoards.map(renderBoard)}
+              </div>
+            )
+          ) : (
+            <>
+              {/* ── 根层：项目网格 ── */}
+              {folders.length === 0 ? (
+                <div className="mt-16 flex flex-col items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: t.placeholder }}>
+                    <FolderOpen size={22} strokeWidth={1.3} style={{ color: t.faint }} />
+                  </div>
+                  <p style={{ color: t.text, fontSize: 13, fontWeight: 520 }}>还没有项目</p>
+                  <p style={{ color: t.sub, fontSize: 12 }}>新建一个项目，把同类画板收在一起</p>
+                  <button
+                    type="button"
+                    onClick={handleCreateFolder}
+                    className="mt-1 flex h-8 items-center gap-1.5 rounded-full px-3.5"
+                    style={{ background: t.isDark ? "#ffffff" : "#161616", color: t.isDark ? "#161616" : "#ffffff", fontSize: 12.5 }}
+                  >
+                    <FolderPlus size={13.5} strokeWidth={2} />
+                    新建项目
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-5 grid gap-4" style={{ gridTemplateColumns: FOLDER_GRID_COLUMNS }}>
+                  {folders.map(folder => (
+                    <FolderCard
+                      key={folder.id}
+                      t={t}
+                      folder={folder}
+                      renaming={renamingId === folder.id}
+                      onOpen={() => navigate(`/workspace?p=${folder.id}`)}
+                      onRename={() => setRenamingId(folder.id)}
+                      onRenameSubmit={name => handleRenameFolder(folder.id, name)}
+                      menuItems={[
+                        { icon: FolderOpen, label: "打开项目", onSelect: () => navigate(`/workspace?p=${folder.id}`) },
+                        { icon: Pencil, label: "重命名", onSelect: () => setRenamingId(folder.id) },
+                        {
+                          icon: Trash2,
+                          label: "删除项目",
+                          danger: true,
+                          onSelect: () => setPendingDelete({
+                            kind: "folder",
+                            id: folder.id,
+                            name: folder.name,
+                            boardCount: folder.boardCount,
+                          }),
+                        },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* ── 根层：未归类画板 ── */}
+              {unfiled.length > 0 && (
+                <div className="mt-10">
+                  <div className="flex items-baseline gap-2">
+                    <h2 style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>未归类画板</h2>
+                    <span style={{ color: t.faint, fontSize: 11.5 }}>
+                      {unfiled.length} 块 · 可移动到某个项目
+                    </span>
+                  </div>
+                  <div
+                    className={view === "grid" ? "mt-3 grid gap-4" : "mt-3 flex flex-col gap-2"}
+                    style={view === "grid" ? { gridTemplateColumns: BOARD_GRID_COLUMNS } : undefined}
+                  >
+                    {unfiled.map(renderBoard)}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {deleteConfirm && <DeleteConfirmDialog count={deleteConfirm.length} onConfirm={confirmDelete} onCancel={() => setDeleteConfirm(null)} isDark={isDark} />}
+      {pendingDelete && (
+        <DeleteConfirmDialog
+          t={t}
+          title={
+            pendingDelete.kind === "folder"
+              ? `删除项目「${pendingDelete.name}」？`
+              : `删除画板「${pendingDelete.name}」？`
+          }
+          description={
+            pendingDelete.kind === "folder"
+              ? pendingDelete.boardCount > 0
+                ? `项目里的 ${pendingDelete.boardCount} 块画板会一起删除，此操作不可撤销。`
+                : "这是一个空项目，删除后不可撤销。"
+              : "画板内的所有内容将被删除，此操作不可撤销。"
+          }
+          confirmLabel="删除"
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {movingBoard && (
+        <MoveBoardDialog
+          t={t}
+          board={movingBoard}
+          folders={folders}
+          onClose={() => setMovingBoard(null)}
+          onMove={folder => handleMoveBoard(movingBoard, folder)}
+        />
+      )}
     </div>
   );
 }

@@ -106,7 +106,7 @@ export default function CreateProjectDialog({
   const handleCreate = () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      toast("请填写项目名称");
+      toast("请填写画板名称");
       return;
     }
     onCreate({
@@ -150,8 +150,8 @@ export default function CreateProjectDialog({
           <div className="mt-5 grid grid-cols-[1fr_150px] gap-4">
             <div className="space-y-3">
               <div>
-                <label className="type-caption mb-1.5 block" style={labelStyle}>项目名称</label>
-                <input value={name} onChange={e => setName(e.target.value)} className={fieldClass} style={inputStyle} placeholder="输入项目名称..." autoFocus />
+                <label className="type-caption mb-1.5 block" style={labelStyle}>画板名称</label>
+                <input value={name} onChange={e => setName(e.target.value)} className={fieldClass} style={inputStyle} placeholder="输入画板名称..." autoFocus />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -164,7 +164,7 @@ export default function CreateProjectDialog({
                 </div>
               </div>
               <div>
-                <label className="type-caption mb-1.5 block" style={labelStyle}>项目相关负责人</label>
+                <label className="type-caption mb-1.5 block" style={labelStyle}>相关负责人</label>
                 <input value={owner} onChange={e => setOwner(e.target.value)} className={fieldClass} style={inputStyle} placeholder="例如：品牌组 / 张三" />
               </div>
               <div>
@@ -174,7 +174,7 @@ export default function CreateProjectDialog({
                   onChange={e => setNote(e.target.value)}
                   className="w-full min-h-[92px] px-3 py-2 rounded-[var(--radius-md-design)] type-caption outline-none resize-none"
                   style={inputStyle}
-                  placeholder="补充项目目标、交付范围或协作说明..."
+                  placeholder="补充画板目标、交付范围或协作说明..."
                 />
               </div>
             </div>

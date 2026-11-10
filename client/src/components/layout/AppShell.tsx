@@ -2,8 +2,8 @@
  * AppShell — Three-Column Layout (图叙 AI 风格)
  * Left icon rail | Middle nav panel | Right content
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useLocation } from "wouter";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
@@ -15,12 +15,19 @@ import { DEFAULT_IMAGE_MODEL_ID } from "@shared/image-models";
 import { TOUR_ANCHORS, type TourAnchor } from "@shared/onboarding-steps";
 import InviteDialog from "@/components/workspace/InviteDialog";
 import CreateProjectDialog, { type CreateProjectPayload } from "@/components/workspace/CreateProjectDialog";
-import { createWorkspaceHistoryProject, upsertWorkspaceProjectHistory } from "@/lib/project-history";
+import { createWorkspaceHistoryProject, readWorkspaceProjectHistory, upsertWorkspaceProjectHistory } from "@/lib/project-history";
+import {
+  createWorkspaceFolder,
+  listWorkspaceFolders,
+  WORKSPACE_FOLDERS_UPDATED_EVENT,
+  type WorkspaceFolderSummary,
+} from "@/lib/project-folders";
+import { WORKSPACE_PROJECTS_UPDATED_EVENT } from "@/lib/workspace-sync";
 import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
-  Users, LayoutGrid, Layers,
+  Users, LayoutGrid, Layers, FileText,
 } from "lucide-react";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -88,6 +95,7 @@ function getStoredAuthToken() {
 
 export default function AppShell({ children, hideSidebar = false }: AppShellProps) {
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, openLoginModal } = useAuth();
   const onboarding = useOnboarding();
@@ -115,6 +123,39 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [createOpen, setCreateOpen] = useState(false);
 
   /*
+   * 中间面板的「项目 / 最近」：真实数据。
+   * ⚠️ 以前这里是写死的空状态占位（「打开的项目会显示在这里」），
+   *    用户在工作台建了项目，侧栏却永远空着 —— 一眼就是假 UI。
+   * ✅ 和工作台共用同一条事件总线，任一侧改动立刻互相同步。
+   */
+  const [panelFolders, setPanelFolders] = useState<WorkspaceFolderSummary[]>([]);
+  const [recentBoards, setRecentBoards] = useState<ReturnType<typeof readWorkspaceProjectHistory>>([]);
+  const activeFolderId = useMemo(() => new URLSearchParams(search).get("p"), [search]);
+  const activeFolder = useMemo(
+    () => (activeFolderId ? panelFolders.find(folder => folder.id === activeFolderId) ?? null : null),
+    [panelFolders, activeFolderId]
+  );
+
+  const refreshPanel = useCallback(() => {
+    setPanelFolders(listWorkspaceFolders());
+    // 「最近」= 最近打开/修改过的画板，取前 5 条即可
+    setRecentBoards(readWorkspaceProjectHistory().slice(0, 5));
+  }, []);
+
+  useEffect(() => {
+    refreshPanel();
+    window.addEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refreshPanel);
+    window.addEventListener(WORKSPACE_FOLDERS_UPDATED_EVENT, refreshPanel);
+    return () => {
+      window.removeEventListener(WORKSPACE_PROJECTS_UPDATED_EVENT, refreshPanel);
+      window.removeEventListener(WORKSPACE_FOLDERS_UPDATED_EVENT, refreshPanel);
+    };
+  }, [refreshPanel]);
+
+  // 路由变化 = 可能的「刚打开某块画板」，最近列表要重排
+  useEffect(() => { refreshPanel(); }, [location, activeFolderId, refreshPanel]);
+
+  /*
    * 「新创作」的唯一入口。
    * ⚠️ 不要改成 navigate("/") —— 那只是回首页，用户点了并不会真的拿到一块新画板。
    * 未登录先弹登录：没登录建出来的项目存不进云端，等于白建。
@@ -128,13 +169,38 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   }, [isAuthenticated, openLoginModal]);
 
   const handleCreateProject = useCallback((payload: CreateProjectPayload) => {
-    const project = createWorkspaceHistoryProject(payload.name);
+    /*
+     * 当前正待在某个项目里（/workspace?p=xxx）时，新画板直接落在该项目下；
+     * 否则进「未归类」，用户可以在工作台里再移动。
+     * 不做这一步的话，用户在项目里按 ⌘N 建出来的画板会跑到项目外面，
+     * 当场就是「新建了但看不见」。
+     */
+    const folder = activeFolder
+      ? { id: activeFolder.id, name: activeFolder.name }
+      : null;
+    const project = createWorkspaceHistoryProject(payload.name, undefined, folder);
     // createWorkspaceHistoryProject 内部已 upsert 一次，这里补上封面后按 id 覆盖。
     upsertWorkspaceProjectHistory({ ...project, cover: payload.cover });
     setCreateOpen(false);
-    toast("项目已创建", { description: payload.name });
+    refreshPanel();
+    toast("画板已创建", { description: payload.name });
     navigate(`/project/${project.id}`);
-  }, [navigate]);
+  }, [navigate, activeFolder, refreshPanel]);
+
+  /**
+   * 侧栏「项目 +」= 新建项目并直接进去。
+   * ⚠️ 必须登录：项目本身只存本机，但项目里的画板会走云同步，
+   *    未登录建的画板云端没有身份可挂，用户换设备就「全没了」。
+   */
+  const handleCreateFolder = useCallback(() => {
+    if (!isAuthenticated) {
+      openLoginModal();
+      return;
+    }
+    const folder = createWorkspaceFolder();
+    refreshPanel();
+    navigate(`/workspace?p=${folder.id}`);
+  }, [isAuthenticated, openLoginModal, navigate, refreshPanel]);
 
   /*
    * ⌘N（macOS）/ Ctrl+N（Windows、Linux）新建画布。
@@ -942,26 +1008,83 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           />
 
           {/* Projects section */}
-          <div className="mb-2 flex items-center justify-between px-1">
+          <div className="mb-1.5 flex items-center justify-between px-1">
             <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? "#555" : "#aaa", letterSpacing: "0.04em", textTransform: "uppercase" }}>
               项目
             </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => navigate("/workspace")}
-                title="前往工作台"
-                className="flex h-5 w-5 items-center justify-center rounded transition-all"
-                style={{ color: isDark ? "#666" : "#bbb" }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#bbb")}
-              >
-                <LayoutGrid size={13} strokeWidth={1.5} />
-              </button>
+            <div className="flex items-center gap-0.5">
+              <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCreateFolder}
+                    aria-label="新建项目"
+                    className="flex h-5 w-5 items-center justify-center rounded transition-all"
+                    style={{ color: isDark ? "#666" : "#bbb" }}
+                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
+                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#bbb")}
+                  >
+                    <Plus size={13} strokeWidth={1.8} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6}>新建项目</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/workspace")}
+                    aria-label="前往工作台"
+                    className="flex h-5 w-5 items-center justify-center rounded transition-all"
+                    style={{ color: isDark ? "#666" : "#bbb" }}
+                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
+                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#bbb")}
+                  >
+                    <LayoutGrid size={13} strokeWidth={1.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6}>前往工作台</TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
-          {/* Recent projects label */}
+          {/* Project list —— 真实项目，点进去即进入该项目的画板列表 */}
+          {panelFolders.length > 0 && (
+            <div className="mb-2 flex flex-col gap-0.5">
+              {panelFolders.slice(0, 6).map(folder => {
+                const active = folder.id === activeFolderId;
+                return (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => navigate(`/workspace?p=${folder.id}`)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 text-left transition-all"
+                    style={{
+                      height: 30,
+                      background: active ? (isDark ? "rgba(255,255,255,0.10)" : "rgba(22,22,22,0.08)") : "transparent",
+                      color: active ? (isDark ? "#f1f1f3" : "#161616") : (isDark ? "#888888" : "#777777"),
+                    }}
+                    onMouseEnter={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)";
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+                    }}
+                  >
+                    <FolderOpen size={14} strokeWidth={active ? 1.9 : 1.5} style={{ flexShrink: 0, opacity: active ? 1 : 0.75 }} />
+                    <span className="truncate" style={{ fontSize: 12.5, fontWeight: active ? 560 : 440, letterSpacing: "-0.01em" }}>
+                      {folder.name}
+                    </span>
+                    <span className="ml-auto flex-shrink-0" style={{ fontSize: 10.5, color: isDark ? "#555" : "#aaa" }}>
+                      {folder.boardCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Recent boards label */}
           <button
             type="button"
             className="mb-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left"
@@ -972,22 +1095,38 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <span style={{ fontSize: 11.5, fontWeight: 500, letterSpacing: "-0.01em" }}>最近</span>
           </button>
 
-          {/* Empty state */}
-          <div
-            className="flex flex-1 flex-col items-center justify-start px-2 pt-4 gap-1.5"
-          >
-            <Layers size={22} strokeWidth={1.2} style={{ color: isDark ? "#333" : "#ddd" }} />
-            <span
-              style={{
-                fontSize: 11.5,
-                color: isDark ? "#444" : "#ccc",
-                textAlign: "center",
-                lineHeight: 1.5,
-              }}
-            >
-              打开的项目会显示在这里
-            </span>
-          </div>
+          {recentBoards.length > 0 ? (
+            <div className="flex flex-col gap-0.5">
+              {recentBoards.map(board => (
+                <button
+                  key={board.id}
+                  type="button"
+                  onClick={() => navigate(`/project/${board.id}`)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 text-left transition-all"
+                  style={{ height: 28, color: isDark ? "#888888" : "#777777" }}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)")}
+                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+                >
+                  <FileText size={13} strokeWidth={1.5} style={{ flexShrink: 0, opacity: 0.7 }} />
+                  <span className="truncate" style={{ fontSize: 12, letterSpacing: "-0.01em" }}>{board.title}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-start gap-1.5 px-2 pt-6">
+              <Layers size={22} strokeWidth={1.2} style={{ color: isDark ? "#333" : "#ddd" }} />
+              <span
+                style={{
+                  fontSize: 11.5,
+                  color: isDark ? "#444" : "#ccc",
+                  textAlign: "center",
+                  lineHeight: 1.5,
+                }}
+              >
+                打开的画板会显示在这里
+              </span>
+            </div>
+          )}
 
           {/* Bottom utility in panel */}
           <div

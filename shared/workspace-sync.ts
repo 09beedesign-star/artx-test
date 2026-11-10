@@ -30,6 +30,16 @@ export type SyncedWorkspaceProject = {
   socialPresetId?: string;
   canvasWidth?: number;
   canvasHeight?: number;
+  /**
+   * 所属项目（文件夹）id；空 = 未归类。
+   * ⚠️⚠️ 必须列进来：下面的 normalizeProject 是**白名单**，漏一个字段就会在
+   *    上行时被静默剥掉 —— 表现为「另一台设备上所有画板都变成未归类」，且零报错。
+   */
+  folderId?: string | null;
+  /** 所属项目名（冗余），换设备时靠它反推项目。 */
+  folderName?: string;
+  /** 收藏星标。 */
+  starred?: boolean;
 };
 
 /** 单个项目的画布内容。 */
@@ -254,6 +264,9 @@ function normalizeProject(value: unknown): SyncedWorkspaceProject | null {
     socialPresetId: typeof value.socialPresetId === "string" ? value.socialPresetId : undefined,
     canvasWidth: typeof value.canvasWidth === "number" ? value.canvasWidth : undefined,
     canvasHeight: typeof value.canvasHeight === "number" ? value.canvasHeight : undefined,
+    folderId: typeof value.folderId === "string" && value.folderId ? value.folderId : null,
+    folderName: typeof value.folderName === "string" && value.folderName ? value.folderName : undefined,
+    starred: value.starred === true,
   };
 }
 
