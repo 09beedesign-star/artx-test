@@ -20,6 +20,7 @@ import {
 } from "@/data/ecommerce-canvas-templates";
 import { EcommerceTemplateCard } from "./EcommerceTemplateCard";
 import { LIME, type EcommercePalette } from "./shared";
+import { ECOMMERCE_BACK_BUTTON_CLASS, ECOMMERCE_BACK_BUTTON_STYLE } from "./back-button-tokens";
 import { templateIndexById } from "./template-visual";
 
 type Props = {
@@ -79,8 +80,8 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
           <span style={{ color: palette.text }}>模板库</span>
           <Link
             href="/ecommerce-canvas/post"
-            className="ml-auto rounded-md px-2.5 py-1"
-            style={{ border: `1px solid ${palette.border}`, color: palette.sub }}
+            className={`ml-auto ${ECOMMERCE_BACK_BUTTON_CLASS}`}
+            style={ECOMMERCE_BACK_BUTTON_STYLE}
           >
             ← 返回工作台
           </Link>

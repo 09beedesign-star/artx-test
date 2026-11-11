@@ -14,6 +14,7 @@ import {
   type EcommerceTpl,
 } from "@/data/ecommerce-canvas-templates";
 import { LIME, splitFlow, type EcommercePalette } from "./shared";
+import { ECOMMERCE_BACK_BUTTON_CLASS, ECOMMERCE_BACK_BUTTON_STYLE } from "./back-button-tokens";
 import {
   THUMB_CELLS,
   categoryLabelById,
@@ -81,8 +82,8 @@ export function EcommerceTemplateDetail({ template, palette, onUse }: Props) {
           <span style={{ color: palette.text }}>{template.name}</span>
           <button
             type="button"
-            className="ml-auto rounded-md px-2.5 py-1"
-            style={{ border: `1px solid ${palette.border}`, color: palette.sub }}
+            className={`ml-auto ${ECOMMERCE_BACK_BUTTON_CLASS}`}
+            style={ECOMMERCE_BACK_BUTTON_STYLE}
             onClick={() => {
               if (window.history.length > 1) window.history.back();
               else navigate("/ecommerce-canvas/templates");

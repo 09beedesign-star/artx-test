@@ -58,6 +58,7 @@ import {
 } from "./shared";
 import { CountRow, SectionTitle, Select, Switch } from "./primitives";
 import { templateCoverUrl } from "./template-visual";
+import { ECOMMERCE_BACK_BUTTON_CLASS, ECOMMERCE_BACK_BUTTON_STYLE } from "./back-button-tokens";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 
 const MAX_UPLOADS = 5;
@@ -273,7 +274,7 @@ export function EcommerceWorkspace({
                 aria-selected={mode === m}
                 data-testid={`ecommerce-mode-tab-${m}`}
                 onClick={() => { if (mode !== m) onSwitchMode(m); }}
-                className="rounded py-1.5 text-center text-[12px] transition-colors"
+                className="rounded-md py-1.5 text-center text-[12px] transition-colors"
                 style={{
                   background: mode === m 
                     ? (isDark ? palette.panelStrong : "rgba(20,20,36,0.92)")
@@ -773,8 +774,8 @@ export function EcommerceWorkspace({
               </span>
               <button
                 type="button"
-                className="rounded-md px-3 py-1.5 text-[12px]"
-                style={{ border: `1px solid ${palette.border}`, color: palette.text }}
+                className={`text-[12px] ${ECOMMERCE_BACK_BUTTON_CLASS}`}
+                style={ECOMMERCE_BACK_BUTTON_STYLE}
                 onClick={onClearResults}
               >
                 ← {mode === "post" ? "返回模板库" : "返回"}

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ChevronRight, Download, ImageOff, Sparkles, Trash2 } from "lucide-react";
 import { LIME, type EcommerceMode, type EcommercePalette, downloadImage } from "./shared";
+import { ECOMMERCE_BACK_BUTTON_CLASS, ECOMMERCE_BACK_BUTTON_STYLE } from "./back-button-tokens";
 import {
   fetchUploadExpiry,
   buildUploadExpiryIndex,
@@ -136,8 +137,8 @@ export function EcommerceHistory({
             {backLink ? (
               <Link
                 href={backLink.href}
-                className="ml-auto rounded-md px-2.5 py-1"
-                style={{ border: `1px solid ${palette.border}`, color: palette.sub }}
+                className={`ml-auto text-[11px] ${ECOMMERCE_BACK_BUTTON_CLASS}`}
+                style={ECOMMERCE_BACK_BUTTON_STYLE}
               >
                 {backLink.label}
               </Link>
