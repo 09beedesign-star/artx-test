@@ -727,7 +727,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 onClick={createApiKey}
                 disabled={apiKeyLoading}
                 className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md-design)] px-3 type-caption"
-                style={{ background: "#C5ED47", color: "#10130A", fontWeight: 720, opacity: apiKeyLoading ? 0.65 : 1 }}
+                style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", fontWeight: 720, opacity: apiKeyLoading ? 0.65 : 1 }}
               >
                 {apiKeyLoading ? <Loader2 size={13} className="animate-spin" /> : <KeyRound size={13} />}
                 生成

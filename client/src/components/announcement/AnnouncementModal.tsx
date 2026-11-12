@@ -36,7 +36,7 @@ import type { AnnouncementContent } from "./announcement-content";
  *    否则会把其它组件设的 overflow 一起抹掉。
  */
 
-/** 右下角按钮 / 左下角标签共用的荧光绿（取自设计稿 #BAFF2E） */
+/** ⚠️ 仅供纯展示（装饰竖条 / tag 文字）；右下角按钮已改黑框线体按钮。 */
 const ACCENT_LIME = "var(--accent-lime, #BAFF2E)";
 
 /**
@@ -107,9 +107,9 @@ export default function AnnouncementModal({
       onClick={onClose}
       style={{
         borderRadius: 6,
-        border: "none",
-        background: ACCENT_LIME,
-        color: "#111",
+        border: "1px solid var(--artx-action-border)",
+        background: "var(--artx-action-bg)",
+        color: "var(--artx-action-fg)",
         cursor: "pointer",
         transition: "filter 0.15s ease",
         ...layout,

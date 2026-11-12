@@ -8,6 +8,7 @@
  *
  * 【2026-10-18】新增：全部图片显示 + 独立下载 + 过期倒计时 + 自动修剪。
  */
+import { ACTION_OUTLINE_CLASS, ACTION_OUTLINE_STYLE } from "@/lib/action-surface-tokens";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { ChevronRight, Download, ImageOff, Sparkles, Trash2 } from "lucide-react";
@@ -173,8 +174,8 @@ export function EcommerceHistory({
             {emptyLinkHref ? (
               <Link
                 href={emptyLinkHref}
-                className="text-[12px] underline"
-                style={{ color: LIME }}
+                className={`text-[12px] ${ACTION_OUTLINE_CLASS} px-2.5 py-1`}
+                style={ACTION_OUTLINE_STYLE}
               >
                 {emptyLinkText}
               </Link>
@@ -232,7 +233,7 @@ export function EcommerceHistory({
                         <button
                           type="button"
                           className="rounded-md px-3 py-1.5 text-[12px] font-medium"
-                          style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+                          style={ACTION_OUTLINE_STYLE}
                           onClick={() => onOpen(entry)}
                         >
                           查看结果

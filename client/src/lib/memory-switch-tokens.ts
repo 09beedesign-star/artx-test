@@ -2,7 +2,7 @@
  * 「记忆开关」药丸的配色事实源（2026-11-10）。
  *
  * 参照物：画布提示词输入框右上角的「上下文记忆」开关 ——
- *   黑药丸 `#161616` + 白色 Brain 图标 + `size="sm" tone="lime"` 的小开关。
+ *   黑药丸 `#161616` + 白色 Brain 图标 + `size="sm"` 黑白轨道的小开关。
  * 电商画布左栏的「电商画布记忆」提示条按用户要求复用同一套外观，
  * 只是多保留一行说明文字，且文字必须是白色（黑底上不可再用绿色或深灰）。
  *
@@ -28,4 +28,4 @@ export const MEMORY_SWITCH_SURFACE = {
  *    只压轨道会让 thumb 顶出去（2026-11-10「开关有偏移」的成因）。
  */
 export const MEMORY_SWITCH_SIZE = "sm" as const;
-export const MEMORY_SWITCH_TONE = "lime" as const;
+export const MEMORY_SWITCH_TONE = "default" as const;

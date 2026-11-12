@@ -12,14 +12,14 @@ import * as SwitchPrimitive from "@radix-ui/react-switch";
 import { cn } from "@/lib/utils";
 
 type SwitchSize = "default" | "sm";
-type SwitchTone = "default" | "lime";
+type SwitchTone = "default";
 
 type SwitchProps = React.ComponentProps<typeof SwitchPrimitive.Root> & {
   thumbClassName?: string;
   thumbStyle?: React.CSSProperties;
   /** 尺寸：default = 20×36（thumb 16 / 位移 16），sm = 16×28（thumb 12 / 位移 12） */
   size?: SwitchSize;
-  /** 激活态轨道色调：default = 黑，lime = 品牌绿 */
+  /** 激活态轨道色调：黑（深色主题反相为白）。品牌绿档已随全站黑白化移除。 */
   tone?: SwitchTone;
 };
 
@@ -30,7 +30,6 @@ const SIZE_CLASSES: Record<SwitchSize, { root: string; thumb: string }> = {
 
 const TONE_CLASSES: Record<SwitchTone, string> = {
   default: "data-[state=checked]:bg-[#161616] dark:data-[state=checked]:bg-white",
-  lime: "data-[state=checked]:bg-[#C5ED47] dark:data-[state=checked]:bg-[#C5ED47]",
 };
 
 function Switch({

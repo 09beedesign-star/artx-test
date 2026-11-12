@@ -10,6 +10,7 @@
  * ⚠️ 搜索同时匹配 name 与 flow：分镜公式是用户唯一能想起来的线索
  *    （"记得有个先特写再退后的模板"），只搜名字等于没有搜索。
  */
+import { ACTION_ACTIVE_STYLE, ACTION_OUTLINE_CLASS, ACTION_OUTLINE_STYLE } from "@/lib/action-surface-tokens";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ChevronRight, Search, Sparkles, X } from "lucide-react";
@@ -121,11 +122,9 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
               key={item.id}
               type="button"
               className="shrink-0 rounded-full px-3 py-1.5 text-[12px]"
-              style={{
-                background: category === item.id ? "rgba(197,237,71,0.16)" : palette.field,
-                border: `1px solid ${category === item.id ? "rgba(197,237,71,0.62)" : palette.border}`,
-                color: category === item.id ? LIME : palette.text,
-              }}
+              style={category === item.id
+                ? ACTION_ACTIVE_STYLE
+                : { background: palette.field, border: `1px solid ${palette.border}`, color: palette.text }}
               onClick={() => setCategory(item.id)}
             >
               {item.label}
@@ -142,8 +141,8 @@ export function EcommerceTemplateGallery({ palette, selectedId, onPick, onOpenDe
             <div className="text-[13px]">没有匹配的模板</div>
             <button
               type="button"
-              className="text-[12px] underline"
-              style={{ color: LIME }}
+              className={`text-[12px] ${ACTION_OUTLINE_CLASS} px-2.5 py-1`}
+              style={ACTION_OUTLINE_STYLE}
               onClick={() => {
                 setKeyword("");
                 setCategory("all");

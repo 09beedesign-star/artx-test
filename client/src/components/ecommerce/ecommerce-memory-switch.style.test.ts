@@ -103,7 +103,7 @@ describe("配色事实源：黑底白字白图标", () => {
 
   it("尺寸与色调档与画布一致", () => {
     expect(MEMORY_SWITCH_SIZE).toBe("sm");
-    expect(MEMORY_SWITCH_TONE).toBe("lime");
+    expect(MEMORY_SWITCH_TONE).toBe("default");
   });
 });
 
@@ -134,7 +134,7 @@ describe("组件接线：提示条真的用了事实源", () => {
     expect(notice).not.toMatch(/style=\{\s*memoryActive/);
   });
 
-  it("开关走 sm/lime 常量，没有在调用方压轨道", () => {
+  it("开关走 sm/default 常量，没有在调用方压轨道", () => {
     expect(notice).toContain("size={MEMORY_SWITCH_SIZE}");
     expect(notice).toContain("tone={MEMORY_SWITCH_TONE}");
     expect(notice).not.toMatch(/className="h-\[14px\] w-\[26px\]"/);
@@ -152,9 +152,9 @@ describe("跨文件一致性：画布参照物没和事实源跑偏", () => {
     expect(canvasPill).toContain(`tone="${MEMORY_SWITCH_TONE}"`);
   });
 
-  it("switch.tsx 里 sm 与 lime 档还在（常量不是空指向）", () => {
+  it("switch.tsx 里 sm 档还在，且 lime 绿轨已退场", () => {
     const sw = code("client/src/components/ui/switch.tsx");
     expect(sw).toContain('sm: { root: "h-4 w-7 p-[2px]"');
-    expect(sw).toContain('lime: "data-[state=checked]:bg-[#C5ED47]');
+    expect(sw).not.toContain('bg-[#C5ED47]');
   });
 });

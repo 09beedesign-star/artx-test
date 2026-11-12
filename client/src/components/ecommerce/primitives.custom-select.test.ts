@@ -50,10 +50,13 @@ describe("自定义 Select 下拉菜单", () => {
   });
 
   it("选中项应该高亮显示", () => {
-    // 深色模式：绿色文字 + 浅绿背景
-    // 白色模式：黑色文字 + 灰色背景
-    expect(source).toMatch(/isDark\s*\?\s*LIME\s*:\s*["']rgba\(20,20,36,0\.92\)/);
-    expect(source).toMatch(/isDark\s*\?\s*["']rgba\(178,237,154,0\.08\)["']\s*:\s*["']rgba\(0,0,0,0\.06\)/);
+    // 【2026-11-12 用户点名】可点击绿色统一改黑框线体按钮：
+    // 选中项不再用「深绿文字 + 浅绿底」，改走全站反相实心事实源。
+    expect(source).toContain("ACTION_ACTIVE_STYLE");
+    expect(source).toMatch(/style=\{option === value \? ACTION_ACTIVE_STYLE/);
+    // 反向断言：旧的荧光绿文字 / 浅绿底不能回来
+    expect(source, "选中项还在用 LIME 绿字").not.toMatch(/isDark\s*\?\s*LIME/);
+    expect(source, "选中项还在用浅绿底").not.toContain('rgba(178,237,154,0.08)');
   });
 
   it("箭头图标应该随展开状态旋转", () => {

@@ -637,6 +637,8 @@ export function SmartCommerceProductDialog({
     border: isDark ? "rgba(255,255,255,0.11)" : "rgba(22,22,34,0.11)",
     text: isDark ? "rgba(255,255,255,0.92)" : "rgba(22,22,34,0.92)",
     muted: isDark ? "rgba(255,255,255,0.58)" : "rgba(22,22,34,0.55)",
+    // ⚠️ 只喂纯展示（图标、状态块、装饰边框）；可点击元素已统一走
+    //    --artx-action-* 黑白色系，不要再把本值用到按钮上。
     accent: "#C5ED47",
   };
 
@@ -1582,9 +1584,9 @@ export function SmartCommerceProductDialog({
                           type="button"
                           className="h-10 min-w-0 overflow-hidden rounded-md px-1.5 text-left text-[10px] font-semibold transition-colors"
                           style={{
-                            color: colors.text,
-                            background: active ? "rgba(197,237,71,0.13)" : colors.surface,
-                            border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
+                            color: active ? "var(--artx-action-active-fg)" : colors.text,
+                            background: active ? "var(--artx-action-active-bg)" : colors.surface,
+                            border: `1px solid ${active ? "var(--artx-action-active-border)" : colors.border}`,
                           }}
                           onClick={() => {
                             setSelectedPreset(preset);
@@ -1620,12 +1622,12 @@ export function SmartCommerceProductDialog({
                         type="button"
                         className="h-8 rounded-md text-[10px] font-semibold uppercase transition-colors"
                         style={{
-                          color: colors.text,
+                          color: !selectedEcommerce && resolution === item ? "var(--artx-action-active-fg)" : colors.text,
                           background:
                             !selectedEcommerce && resolution === item
-                              ? "rgba(197,237,71,0.13)"
+                              ? "var(--artx-action-active-bg)"
                               : colors.surface,
-                          border: `1px solid ${!selectedEcommerce && resolution === item ? "rgba(197,237,71,0.58)" : colors.border}`,
+                          border: `1px solid ${!selectedEcommerce && resolution === item ? "var(--artx-action-active-border)" : colors.border}`,
                         }}
                         onClick={() => {
                           setResolution(item);
@@ -1676,8 +1678,9 @@ export function SmartCommerceProductDialog({
                         aria-selected={active}
                         className="flex h-8 items-center justify-center gap-1.5 rounded text-[10px] font-semibold transition-colors"
                         style={{
-                          color: active ? "#172000" : colors.muted,
-                          background: active ? colors.accent : "transparent",
+                          color: active ? "var(--artx-action-active-fg)" : colors.muted,
+                          background: active ? "var(--artx-action-active-bg)" : "var(--artx-action-bg)",
+                        border: `1px solid ${active ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`,
                         }}
                         onClick={() => setBackgroundMode(mode.id)}
                         title={
@@ -1899,9 +1902,9 @@ export function SmartCommerceProductDialog({
                                 type="button"
                                 className="flex h-6 items-center gap-1 rounded px-1.5 text-[9px] font-medium transition-colors"
                                 style={{
-                                  color: used ? "#172000" : colors.text,
-                                  background: used ? colors.accent : colors.surfaceStrong,
-                                  border: `1px solid ${used ? "rgba(197,237,71,0.75)" : colors.border}`,
+                                  color: used ? "var(--artx-action-active-fg)" : colors.text,
+                                  background: used ? "var(--artx-action-active-bg)" : colors.surfaceStrong,
+                                  border: `1px solid ${used ? "var(--artx-action-active-border)" : colors.border}`,
                                 }}
                                 onClick={() => appendStyleKeyword(keyword)}
                                 title={used ? "已加入提示词" : `插入「${keyword}」`}
@@ -1993,7 +1996,7 @@ export function SmartCommerceProductDialog({
                       <button
                         type="button"
                         className="flex h-6 shrink-0 items-center gap-0.5 rounded px-1.5 text-[10px] font-medium transition-colors"
-                        style={{ color: colors.accent, background: "transparent" }}
+                        style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
                         onClick={() => setShowPicwishSelector(true)}
                         title="查看全部电商背景模板"
                       >
@@ -2169,9 +2172,9 @@ export function SmartCommerceProductDialog({
                         type="button"
                         className="flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 text-[9px] font-semibold transition-colors"
                         style={{
-                          color: active ? colors.text : colors.muted,
-                          background: active ? "rgba(197,237,71,0.13)" : colors.surface,
-                          border: `1px solid ${active ? "rgba(197,237,71,0.58)" : colors.border}`,
+                          color: active ? "var(--artx-action-active-fg)" : colors.muted,
+                          background: active ? "var(--artx-action-active-bg)" : colors.surface,
+                          border: `1px solid ${active ? "var(--artx-action-active-border)" : colors.border}`,
                         }}
                         onClick={() => setSelectedComposition(composition)}
                         title={composition.label}
@@ -2330,10 +2333,11 @@ export function SmartCommerceProductDialog({
                                   type="button"
                                   className="flex h-10 items-center gap-1.5 rounded px-1.5 text-left transition-colors"
                                   style={{
+                                    color: active ? "var(--artx-action-active-fg)" : colors.text,
                                     background: active
-                                      ? "rgba(197,237,71,0.14)"
+                                      ? "var(--artx-action-active-bg)"
                                       : colors.surfaceStrong,
-                                    border: `1px solid ${active ? "rgba(197,237,71,0.75)" : colors.border}`,
+                                    border: `1px solid ${active ? "var(--artx-action-active-border)" : colors.border}`,
                                   }}
                                   onClick={() => {
                                     setSelectedEcommerce(preset);
@@ -2413,9 +2417,9 @@ export function SmartCommerceProductDialog({
                       type="button"
                       className="h-9 rounded-md text-[10px] font-semibold transition-colors"
                       style={{
-                        color: count === item ? "#172000" : colors.text,
-                        background: count === item ? colors.accent : colors.surface,
-                        border: `1px solid ${count === item ? "rgba(197,237,71,0.75)" : colors.border}`,
+                        color: count === item ? "var(--artx-action-active-fg)" : colors.text,
+                        background: count === item ? "var(--artx-action-active-bg)" : colors.surface,
+                        border: `1px solid ${count === item ? "var(--artx-action-active-border)" : colors.border}`,
                       }}
                       onClick={() => setCount(item)}
                     >
@@ -2613,7 +2617,7 @@ export function SmartCommerceProductDialog({
                               <button
                                 type="button"
                                 className="flex h-7 items-center gap-1 rounded px-1.5 text-[9px] font-semibold transition-colors hover:bg-white/10"
-                                style={{ color: colors.accent }}
+                                style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
                                 onClick={() => handleUpdatePreset(preset)}
                                 aria-label={`把当前参数更新到 ${preset.name}`}
                                 title="用当前面板参数覆盖这组预设"
@@ -2664,7 +2668,7 @@ export function SmartCommerceProductDialog({
               type="button"
               disabled={!canGenerate}
               className="flex h-9 items-center gap-2 rounded-md px-4 text-[11px] font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-              style={{ color: "#172000", background: colors.accent }}
+              style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
               onClick={handleCreate}
             >
               {isCreating ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}

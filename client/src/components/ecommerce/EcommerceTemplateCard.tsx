@@ -4,6 +4,7 @@
  * 工作台右栏与模板库总览页共用同一个卡片实现 —— 两个出口必须长得一样，
  * 否则用户在详情页挑中的模板回到工作台会「认不出来」。
  */
+import { ACTION_OUTLINE_STYLE } from "@/lib/action-surface-tokens";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Check } from "lucide-react";
 import type { EcommerceTpl } from "@/data/ecommerce-canvas-templates";
@@ -133,7 +134,7 @@ export function EcommerceTemplateCard({
       <button
         type="button"
         className="absolute right-2 top-2 flex items-center gap-0.5 rounded px-1.5 py-1 text-[10px] font-medium opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-        style={{ color: "#1a1a1a", background: LIME }}
+        style={ACTION_OUTLINE_STYLE}
         onClick={() => onOpenDetail(template)}
         title="查看模板分镜详情"
       >

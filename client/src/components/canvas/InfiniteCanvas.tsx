@@ -1483,11 +1483,11 @@ function ImageCountSelector({
                     }
                     className="relative h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
                     style={{
-                      color: active ? "#172000" : text,
-                      background: active ? "#C5ED47" : "transparent",
+                      color: active ? "var(--artx-action-active-fg)" : text,
+                      background: active ? "var(--artx-action-active-bg)" : "var(--artx-action-bg)",
                       // 推荐值未被选中时给个描边，让用户知道「这个才是该模型的常规用法」。
                       border: recommended && !active
-                        ? "1px solid rgba(197,237,71,0.55)"
+                        ? "1px solid var(--artx-action-border)"
                         : "1px solid transparent",
                     }}
                     onClick={() => {
@@ -1713,8 +1713,9 @@ function ImageRatioSelector({
                   type="button"
                   className="h-8 rounded-[var(--radius-sm-design)] type-caption transition-colors"
                   style={{
-                    color: active ? "#172000" : text,
-                    background: active ? "#C5ED47" : "transparent",
+                    color: active ? "var(--artx-action-active-fg)" : text,
+                    background: active ? "var(--artx-action-active-bg)" : "var(--artx-action-bg)",
+                    border: `1px solid ${active ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`
                   }}
                   onClick={() => {
                     onChange(ratio);
@@ -5239,11 +5240,11 @@ function SocialMediaSizePanel({
                                 style={{
                                   background:
                                     activeCropPresetId === preset.id
-                                      ? "#C5ED47"
+                                      ? "var(--artx-action-active-bg)"
                                       : "rgba(255,255,255,0.10)",
                                   color:
                                     activeCropPresetId === preset.id
-                                      ? "#10130A"
+                                      ? "var(--artx-action-active-fg)"
                                       : "#161616",
                                   border: `1px solid ${activeCropPresetId === preset.id ? "transparent" : "rgba(255,255,255,0.12)"}`,
                                 }}
@@ -6041,7 +6042,8 @@ function AnnotationBubble({
   const accentColor = ann.color || annotationColors[0];
   const doneBg = isDark ? "rgba(34,42,22,0.97)" : "rgba(240,255,235,0.98)";
   const doneBorder = isDark ? "rgba(100,200,80,0.25)" : "rgba(80,160,60,0.20)";
-  const confirmButtonBg = "#C5ED47";
+  // 可点击按钮统一走黑白色系；本常量只用于这一个确认气泡。
+  const confirmButtonBg = "var(--artx-action-active-bg)";
   const deleteConfirmBubble = deleteConfirmOpen ? (
     <div
       ref={deleteConfirmRef}
@@ -6298,19 +6300,19 @@ function AnnotationBubble({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "#111827",
+                color: "var(--artx-action-active-fg)",
                 background: confirmButtonBg,
-                border: "none",
+                border: "1px solid var(--artx-action-active-border)",
                 cursor: "pointer",
                 fontSize: 10,
                 fontWeight: 700,
-                boxShadow: "0 8px 18px rgba(197,237,71,0.20)",
+                boxShadow: "none",
               }}
               onClick={() => {
                 closeBubble();
               }}
               onMouseEnter={e =>
-                (e.currentTarget.style.background = "#D8FF5C")
+                (e.currentTarget.style.background = "rgba(128,128,128,0.35)")
               }
               onMouseLeave={e =>
                 (e.currentTarget.style.background = confirmButtonBg)
@@ -9746,7 +9748,7 @@ function AssetNodeComponent({
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.78)", background: "transparent" }} onClick={cancelCameraViewAdjuster}>取消</button>
                   <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "white", background: "rgba(255,255,255,0.10)" }} onClick={() => window.dispatchEvent(new CustomEvent("asset-camera-view-four-apply", { detail: { nodeId, cameraView: assetCameraView } }))}>四视图</button>
-                  <button type="button" className="rounded-[10px] px-4 py-2 text-sm font-semibold" style={{ color: "#0b0c0d", background: "#C5ED47" }} onClick={() => updateCameraViewNode(assetCameraView, true)}>应用</button>
+                  <button type="button" className="rounded-[10px] px-4 py-2 text-sm font-semibold" style={{ color: "var(--artx-action-ondark-fg)", background: "var(--artx-action-ondark-bg)", border: "1px solid var(--artx-action-ondark-border)" }} onClick={() => updateCameraViewNode(assetCameraView, true)}>应用</button>
                 </div>
               </div>
             </div>
@@ -10470,14 +10472,15 @@ function AssetNodeComponent({
                   minWidth: 74,
                   padding: "0 9px",
                   zIndex: 115,
-                  background: "#C5ED47",
-                  color: "#000",
+                  background: "var(--artx-action-bg)",
+                  color: "var(--artx-action-fg)",
+                  border: "1px solid var(--artx-action-border)",
                   opacity: hoveringAssetNode ? 1 : 0,
                   transform: hoveringAssetNode
                     ? "translateY(0) scale(1)"
                     : "translateY(4px) scale(0.94)",
                   pointerEvents: hoveringAssetNode ? "auto" : "none",
-                  boxShadow: "0 12px 30px rgba(197,237,71,0.32)",
+                  boxShadow: "none",
                   fontSize: 11,
                   fontWeight: 700,
                   lineHeight: 1,
@@ -19740,10 +19743,11 @@ function ImageGeneratorPopover({
               disabled={!canGenerate}
               className="flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-lg-design)] px-4 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
               style={{
-                background: canGenerate ? "#C5ED47" : hoverBg,
-                color: canGenerate ? "#000" : sub,
+                background: canGenerate ? "var(--artx-action-bg)" : hoverBg,
+                color: canGenerate ? "var(--artx-action-fg)" : sub,
+                border: "1px solid var(--artx-action-border)",
                 boxShadow: canGenerate
-                  ? "0 12px 30px rgba(197,237,71,0.24)"
+                  ? "none"
                   : "none",
               }}
               onClick={handleGenerate}
@@ -19973,6 +19977,7 @@ function FontDesignDialog({
   const text = isDark ? "rgba(255,255,255,0.90)" : "rgba(22,22,34,0.90)";
   const sub = isDark ? "rgba(255,255,255,0.65)" : "rgba(22,22,34,0.52)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  // ⚠️ 本常量只喂纯展示（选中勾、图标 cutoutBg）；可点击按钮走 --artx-action-*。
   const accent = "#C5ED47";
   const aiAccent = "#161616";
   const activeBorder = "rgba(22,22,22,0.54)";
@@ -20457,10 +20462,11 @@ function FontDesignDialog({
             className="flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md-design)] px-5 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed"
             style={{
               minWidth: 148,
-              background: canGenerate ? accent : hoverBg,
-              color: canGenerate ? "#000" : sub,
+              background: canGenerate ? "var(--artx-action-bg)" : hoverBg,
+              color: canGenerate ? "var(--artx-action-fg)" : sub,
+              border: "1px solid var(--artx-action-border)",
               boxShadow: canGenerate
-                ? "0 14px 34px rgba(197,237,71,0.30)"
+                ? "none"
                 : "none",
               cursor: canGenerate ? "pointer" : "not-allowed",
               opacity: canGenerate ? 1 : 0.56,
@@ -20468,16 +20474,16 @@ function FontDesignDialog({
             }}
             onMouseEnter={event => {
               if (!canGenerate) return;
-              event.currentTarget.style.background = "#D6FF59";
+              event.currentTarget.style.background = "rgba(128,128,128,0.35)";
               event.currentTarget.style.boxShadow =
-                "0 18px 42px rgba(197,237,71,0.38)";
+                "none";
             }}
             onMouseLeave={event => {
               event.currentTarget.style.background = canGenerate
-                ? accent
+                ? "var(--artx-action-bg)"
                 : hoverBg;
               event.currentTarget.style.boxShadow = canGenerate
-                ? "0 14px 34px rgba(197,237,71,0.30)"
+                ? "none"
                 : "none";
             }}
             onClick={handleGenerate}
@@ -21158,9 +21164,10 @@ function NewCanvasConfirmDialog({
             onClick={onConfirm}
             className="h-9 min-w-[112px] rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-90"
             style={{
-              background: "#C5ED47",
-              color: "#111827",
-              boxShadow: "0 8px 24px rgba(197,237,71,0.22)",
+              background: "var(--artx-action-bg)",
+              color: "var(--artx-action-fg)",
+              border: "1px solid var(--artx-action-border)",
+              boxShadow: "none",
               fontWeight: 700,
             }}
           >
@@ -26254,8 +26261,9 @@ function CanvasAssistantPanel({
                                       type="button"
                                       className="rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-85"
                                       style={{
-                                        background: "#C5ED47",
-                                        color: "#000",
+                                        background: "var(--artx-action-bg)",
+                                        color: "var(--artx-action-fg)",
+                                        border: "1px solid var(--artx-action-border)",
                                         opacity:
                                           selectedReferenceIds.length > 0
                                             ? 1
@@ -26289,7 +26297,7 @@ function CanvasAssistantPanel({
                               style={{
                                 color:
                                   regeneratingMessageId === message.id
-                                    ? "#C5ED47"
+                                    ? "var(--artx-action-fg)"
                                     : sub,
                                 background: "transparent",
                               }}
@@ -26467,7 +26475,7 @@ function CanvasAssistantPanel({
                   checked={memoryContextEnabled}
                   disabled={memoryContextBusy}
                   size="sm"
-                  tone="lime"
+                  tone="default"
                   aria-label="上下文记忆开关"
                   data-testid="composer-memory-switch"
                   onCheckedChange={next => {
@@ -27361,15 +27369,15 @@ function CanvasAssistantPanel({
                               aria-label="自动模式"
                               style={{
                                 background: assistantAutoMode
-                                  ? "#C5ED47"
+                                  ? "var(--artx-action-active-bg)"
                                   : isDark
                                     ? "rgba(255,255,255,0.14)"
                                     : "rgba(0,0,0,0.12)",
-                                border: `1px solid ${assistantAutoMode ? "rgba(197,237,71,0.60)" : border}`,
+                                border: `1px solid ${assistantAutoMode ? "var(--artx-action-active-border)" : border}`,
                               }}
                               thumbStyle={{
                                 background: assistantAutoMode
-                                  ? "#111827"
+                                  ? "var(--artx-action-active-fg)"
                                   : isDark
                                     ? "#999999"
                                     : "#fff",
@@ -27390,12 +27398,12 @@ function CanvasAssistantPanel({
                                 className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
                                 style={{
                                   color:
-                                    assistantModelTab === tab.id ? text : sub,
+                                    assistantModelTab === tab.id ? "var(--artx-action-active-fg)" : sub,
                                   background:
                                     assistantModelTab === tab.id
-                                      ? "rgba(197,237,71,0.14)"
+                                      ? "var(--artx-action-active-bg)"
                                       : "transparent",
-                                  border: `1px solid ${assistantModelTab === tab.id ? "rgba(197,237,71,0.40)" : "transparent"}`,
+                                  border: `1px solid ${assistantModelTab === tab.id ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`,
                                 }}
                                 onClick={() => setAssistantModelTab(tab.id)}
                               >
@@ -27410,12 +27418,12 @@ function CanvasAssistantPanel({
                               disabled={model.disabled}
                               className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
                               style={{
-                                color: text,
+                                color: assistantModel.id === model.id ? "var(--artx-action-active-fg)" : text,
                                 opacity: model.disabled ? 0.46 : 1,
                                 cursor: model.disabled ? "not-allowed" : "pointer",
                                 background:
                                   assistantModel.id === model.id
-                                    ? "rgba(197,237,71,0.12)"
+                                    ? "var(--artx-action-active-bg)"
                                     : "transparent",
                               }}
                               onMouseEnter={e =>
@@ -27424,7 +27432,7 @@ function CanvasAssistantPanel({
                               onMouseLeave={e =>
                                 (e.currentTarget.style.background =
                                   assistantModel.id === model.id
-                                    ? "rgba(197,237,71,0.12)"
+                                    ? "var(--artx-action-active-bg)"
                                     : "transparent")
                               }
                               onClick={() => {
@@ -41922,7 +41930,7 @@ function CloudRetentionDialog({
           <button
             type="button"
             className="h-8 rounded-md px-4 text-[11px] font-semibold"
-            style={{ color: "#172000", background: "var(--accent-lime, #d7f25c)" }}
+            style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
             onClick={onAcknowledge}
           >
             我知道了
@@ -42116,7 +42124,7 @@ function UploadExpirySummaryDialog({
             type="button"
             disabled={downloading}
             className="h-8 rounded-md px-4 text-[11px] font-semibold disabled:opacity-60"
-            style={{ color: "#172000", background: "var(--accent-lime, #d7f25c)" }}
+            style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
             onClick={() => void handleDownloadAll()}
           >
             {downloading ? "下载中…" : `全部下载（${data.warningCount}）`}

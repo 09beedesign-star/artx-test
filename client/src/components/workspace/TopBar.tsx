@@ -464,9 +464,9 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
       {!isAuthenticated && (
         <button
           onClick={openLoginModal}
-          className="h-8 shrink-0 whitespace-nowrap rounded-[6px] bg-[#C5ED47] px-3 text-sm font-medium text-[#1a2209] transition-colors hover:bg-[#d1f65f]"
+          className="h-8 shrink-0 whitespace-nowrap rounded-[6px] px-3 text-sm font-medium transition-colors"
           style={{
-            border: "0",
+            color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)",
           }}
         >
           开始体验
@@ -541,8 +541,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
           onClick={() => openBilling("subscription")}
           className="flex h-7 items-center gap-1.5 px-2.5 type-caption transition-all duration-150 active:scale-95"
           style={{
-            background: "#C5ED47",
-            color: isDark ? "#0a3d29" : "#FFFFFF",
+            background: "var(--artx-action-bg)",
+            color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)",
             borderRadius: 4,
             boxShadow: "none",
             fontWeight: 650,
@@ -834,8 +834,8 @@ export default function TopBar({ credits = 0, projectTitle, projectTime, onProje
                 onClick={copyApiKey}
                 className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
                 style={{
-                  background: "#C5ED47",
-                  color: "#1a2209",
+                  background: "var(--artx-action-bg)",
+                  color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)",
                   boxShadow: "none",
                 }}
               >

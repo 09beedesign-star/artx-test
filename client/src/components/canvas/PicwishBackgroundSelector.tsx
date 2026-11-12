@@ -56,7 +56,7 @@ export function PicwishBackgroundSelector({
       {!embedded && onClose ? <button type="button" className="flex h-8 w-8 items-center justify-center rounded-md" onClick={onClose} aria-label="关闭背景模板"><X size={16} /></button> : null}
     </div>
     <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b px-5 py-2.5" style={{ borderColor: border }}>
-      {categories.map(item => <button key={item} type="button" className="shrink-0 rounded-md px-2.5 py-1.5 text-[10px] font-semibold" style={{ background: category === item ? "rgba(197,237,71,0.16)" : surface, border: `1px solid ${category === item ? "rgba(197,237,71,0.62)" : border}` }} onClick={() => setCategory(item)}>{item}</button>)}
+      {categories.map(item => <button key={item} type="button" className="shrink-0 rounded-md px-2.5 py-1.5 text-[10px] font-semibold" style={{ color: category === item ? "var(--artx-action-active-fg)" : "inherit", background: category === item ? "var(--artx-action-active-bg)" : surface, border: `1px solid ${category === item ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}` }} onClick={() => setCategory(item)}>{item}</button>)}
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto p-5">
       {error ? <div className="rounded-md border p-4 text-center" style={{ borderColor: border, background: surface }}><p className="text-[11px] text-amber-400">{error}</p></div> : null}

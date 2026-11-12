@@ -7,6 +7,7 @@
  * ⚠️ 必须处理「模板不存在」：直接手敲 /templates/999 不该白屏，
  *    也不该抛异常，而是给出可点的返回出口。
  */
+import { ACTION_OUTLINE_STYLE } from "@/lib/action-surface-tokens";
 import { Link, useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import {
@@ -50,7 +51,7 @@ export function EcommerceTemplateDetail({ template, palette, onUse }: Props) {
           <Link
             href="/ecommerce-canvas/templates"
             className="mt-3 inline-block rounded-md px-3 py-1.5 text-[12px] font-medium"
-            style={{ background: "rgba(197,237,71,0.14)", border: "1px solid rgba(197,237,71,0.4)", color: LIME }}
+            style={ACTION_OUTLINE_STYLE}
           >
             回到模板库
           </Link>
@@ -176,7 +177,7 @@ export function EcommerceTemplateDetail({ template, palette, onUse }: Props) {
               <button
                 type="button"
                 className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold"
-                style={{ background: LIME, color: "#1a1a1a" }}
+                style={ACTION_OUTLINE_STYLE}
                 onClick={() => onUse(template)}
               >
                 <Sparkles size={13} /> 使用此模板生成

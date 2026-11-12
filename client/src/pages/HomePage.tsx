@@ -862,8 +862,8 @@ export default function HomePage() {
               type="button"
               onClick={openInspirationPage}
               data-tour-id={TOUR_ANCHORS.homeInspirationMore}
-              className="artx-green-text text-sm font-semibold underline decoration-[var(--color-brand-green)]/60 underline-offset-4 transition-colors hover:opacity-80"
-              style={{ color: 'var(--color-brand-green-text)' }}
+              className="rounded-full px-3 py-1 text-sm font-semibold transition-colors hover:opacity-80"
+              style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
             >
               查看全部灵感模板
             </button>

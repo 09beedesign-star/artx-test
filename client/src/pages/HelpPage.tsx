@@ -202,7 +202,7 @@ export default function HelpPage() {
                 onClick={handleSubmit}
                 disabled={submitting}
                 className="flex h-10 items-center gap-2 rounded-[var(--radius-md-design)] px-5 type-body-sm font-medium transition-transform hover:opacity-90 active:scale-[0.98]"
-                style={{ background: "#C5ED47", color: "#000", boxShadow: "0 14px 30px rgba(197,237,71,0.24)" }}
+                style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
               >
                 <img src={generationMark} alt="" aria-hidden="true" draggable={false} className="h-4 w-4 object-contain" style={{ filter: "brightness(0)" }} />
                 {submitting ? "提交中" : "提交"}

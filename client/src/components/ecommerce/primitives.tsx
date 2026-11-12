@@ -8,6 +8,7 @@
  *   卸载重建 DOM → textarea 失焦、下拉被合上。这在表单密集的页面上是
  *   典型零报错故障：代码跑得好好的，用户刚打字就被弹走。
  */
+import { ACTION_ACTIVE_STYLE } from "@/lib/action-surface-tokens";
 import type React from "react";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
@@ -72,11 +73,11 @@ export function Switch({
         aria-pressed={on}
         onClick={onToggle}
         className="relative h-[18px] w-8 shrink-0 rounded-full transition-colors"
-        style={{ background: on ? LIME : isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)" }}
+        style={{ background: on ? "var(--artx-action-active-bg)" : isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)" }}
       >
         <span
           className="absolute top-[2px] h-[14px] w-[14px] rounded-full transition-all"
-          style={{ left: on ? 16 : 2, background: on ? "#1a1a1a" : "#fff" }}
+          style={{ left: on ? 16 : 2, background: on ? "var(--artx-action-active-fg)" : "#fff" }}
         />
       </button>
     </div>
@@ -191,14 +192,7 @@ export function Select({
               type="button"
               onClick={() => handleSelect(option)}
               className="w-full px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-white/5"
-              style={{
-                color: option === value 
-                  ? (isDark ? LIME : "rgba(20,20,36,0.92)") 
-                  : palette.text,
-                background: option === value 
-                  ? (isDark ? "rgba(178,237,154,0.08)" : "rgba(0,0,0,0.06)") 
-                  : "transparent",
-              }}
+              style={option === value ? ACTION_ACTIVE_STYLE : { color: palette.text, background: "transparent" }}
             >
               {option}
             </button>

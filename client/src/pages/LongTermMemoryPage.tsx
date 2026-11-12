@@ -305,7 +305,7 @@ export default function LongTermMemoryPage() {
               <a
                 href="/billing?tab=subscription"
                 className="shrink-0 type-caption px-3 py-1.5 rounded-lg font-medium"
-                style={{ background: "#C5ED47", color: "#111" }}
+                style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
                 data-testid="memory-upgrade-link"
               >
                 升级 {nextPlan.shortName} · 每项 {nextPlan.memoryLimits!.perDimension.toLocaleString()} 字
@@ -427,9 +427,9 @@ export default function LongTermMemoryPage() {
               disabled={!hasUnsavedChanges || isSaving}
               className="px-6 py-3 rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               style={{
-                background: hasUnsavedChanges && !isSaving ? "#C5ED47" : c.card,
-                border: `1px solid ${hasUnsavedChanges && !isSaving ? "#C5ED47" : LINE_IDLE}`,
-                color: hasUnsavedChanges && !isSaving ? "#000" : TEXT_IDLE,
+                background: hasUnsavedChanges && !isSaving ? "var(--artx-action-bg)" : c.card,
+                border: `1px solid ${hasUnsavedChanges && !isSaving ? "var(--artx-action-border)" : LINE_IDLE}`,
+                color: hasUnsavedChanges && !isSaving ? "var(--artx-action-fg)" : TEXT_IDLE,
               }}
               data-testid="memory-save"
             >

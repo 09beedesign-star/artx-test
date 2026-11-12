@@ -15,6 +15,7 @@
  *    页面上不再存在「点了没反应」的开关。
  * ⚠️ 上传区写着「点击或拖拽上传」，首版却只接了点击。这里补上拖拽。
  */
+import { ACTION_ACTIVE_STYLE, ACTION_OUTLINE_CLASS, ACTION_OUTLINE_STYLE } from "@/lib/action-surface-tokens";
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
@@ -182,16 +183,11 @@ export function EcommerceWorkspace({
   const showResults = results.length > 0 || generating || interrupted;
   const count = mode === "post" ? draft.postCount : draft.productCount;
 
-  // 品牌绿 chip 样式（主题感知）
-  const chipStyle = (on: boolean) => ({
-    background: on 
-      ? (isDark ? "rgba(178,237,154,0.16)" : "rgba(178,237,154,0.25)") 
-      : palette.field,
-    border: `1px solid ${on 
-      ? (isDark ? "rgba(178,237,154,0.62)" : "#B2ED9A") 
-      : palette.border}`,
-    color: on ? (isDark ? lime : "var(--color-brand-green-label)") : palette.text,
-  });
+  // 可点击 chip 统一走全站事实源：选中反相实心，未选中保持面板原色。
+  // 色值由 CSS 变量跟随 html.dark，这里不再自己判断主题算颜色。
+  const chipStyle = (on: boolean) => on
+    ? ACTION_ACTIVE_STYLE
+    : { background: palette.field, border: `1px solid ${palette.border}`, color: palette.text };
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -276,15 +272,11 @@ export function EcommerceWorkspace({
                 onClick={() => { if (mode !== m) onSwitchMode(m); }}
                 className="rounded-md py-1.5 text-center text-[12px] transition-colors"
                 style={{
-                  background: mode === m 
-                    ? (isDark ? palette.panelStrong : "rgba(20,20,36,0.92)")
-                    : "transparent",
-                  color: mode === m 
-                    ? (isDark ? lime : "#ffffff") 
-                    : palette.sub,
-                  boxShadow: mode === m 
-                    ? (isDark ? `inset 0 0 0 1px ${lime}33` : "none")
-                    : "none",
+                  // 选中态走全站反相实心：深色主题下原先是柠檬绿字 + 绿描边，
+                  // 属于「可点击的绿色文字」，本次一并收口到黑白色系。
+                  ...(mode === m
+                    ? ACTION_ACTIVE_STYLE
+                    : { background: "transparent", color: palette.sub, boxShadow: "none" }),
                   fontWeight: mode === m ? 500 : 400,
                 }}
               >
@@ -609,8 +601,8 @@ export function EcommerceWorkspace({
             aside={
               <button
                 type="button"
-                className="flex items-center gap-1 text-[11px] font-medium transition-opacity hover:opacity-80"
-                style={{ color: lime }}
+                className={`${ACTION_OUTLINE_CLASS} gap-1 px-2.5 py-1 text-[11px] font-medium hover:opacity-80`}
+                style={ACTION_OUTLINE_STYLE}
                 onClick={() => {
                   updateDraft({
                     sellingPoints:
@@ -710,12 +702,8 @@ export function EcommerceWorkspace({
                 <button
                   type="button"
                   data-testid="ecommerce-hint-first-template"
-                  className="rounded-md px-2.5 py-1 text-[11px] font-medium"
-                  style={{ 
-                    background: "var(--color-brand-green-light)", 
-                    border: isDark ? "1px solid rgba(178,237,154,0.4)" : "1px solid #B2ED9A", 
-                    color: lime 
-                  }}
+                  className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  style={ACTION_OUTLINE_STYLE}
                   onClick={hintFirstTemplate}
                 >
                   在右侧选择模板
@@ -843,8 +831,8 @@ export function EcommerceWorkspace({
               */}
               <Link
                 href="/ecommerce-canvas/templates"
-                className="ml-auto flex items-center gap-0.5 text-[12px] transition-opacity hover:opacity-80"
-                style={{ color: lime }}
+                className={`ml-auto ${ACTION_OUTLINE_CLASS} gap-0.5 px-2.5 py-1 text-[12px] hover:opacity-80`}
+                style={ACTION_OUTLINE_STYLE}
                 data-testid="ecommerce-view-all-templates"
               >
                 展示所有模板 <ChevronRight size={12} />

@@ -151,7 +151,7 @@ export function InspirationPromptDialog({
         </div>
         <div className="flex shrink-0 gap-2 overflow-x-auto px-5 py-3" style={{ borderBottom: `1px solid ${border}` }}>
           {groups.map(group => (
-            <button key={group} type="button" onClick={() => setActiveGroup(group)} className="shrink-0 rounded-[var(--radius-pill)] px-3 py-1.5 type-caption" style={{ background: activeGroup === group ? activeBg : "transparent", border: `1px solid ${activeGroup === group ? "rgba(197,237,71,0.48)" : border}`, color: activeGroup === group ? brandGreenText : sub }}>
+            <button key={group} type="button" onClick={() => setActiveGroup(group)} className="shrink-0 rounded-[var(--radius-pill)] px-3 py-1.5 type-caption" style={{ background: activeGroup === group ? "var(--artx-action-active-bg)" : "var(--artx-action-bg)", border: `1px solid ${activeGroup === group ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`, color: activeGroup === group ? "var(--artx-action-active-fg)" : sub }}>
               {group}
             </button>
           ))}
@@ -170,7 +170,7 @@ export function InspirationPromptDialog({
                 <div className="mt-4 max-h-[36vh] overflow-y-auto rounded-[var(--radius-md-design)] p-4" style={{ background: cardBg, border: `1px solid ${border}` }}>
                   <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text }}>{selectedItem.prompt}</p>
                 </div>
-                <button type="button" onClick={() => onCopy(selectedItem)} className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2.5 type-caption" style={{ background: "#C5ED47", color: "#111", fontWeight: 700 }}>
+                <button type="button" onClick={() => onCopy(selectedItem)} className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2.5 type-caption" style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", fontWeight: 700 }}>
                   <Copy size={14} /> 复制提示词
                 </button>
               </div>
@@ -198,11 +198,11 @@ export function InspirationPromptDialog({
                       <button
                         onClick={(e) => { e.stopPropagation(); onImport(item); }}
                         className="absolute top-2 right-2 rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                        style={{ background: "#C5ED47" }}
+                        style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
                         aria-label="一键导入灵感"
                         title="一键导入灵感"
                       >
-                        <Download size={14} style={{ color: "#111" }} />
+                        <Download size={14} style={{ color: "var(--artx-action-fg)" }} />
                       </button>
                     )}
                   </div>

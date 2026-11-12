@@ -300,7 +300,7 @@ export default function CrossBorderCommercePage() {
                   onClick={handleCompose}
                   disabled={!composeInput || submitting}
                   className="mt-1 inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md-design)] px-4 type-caption transition-opacity disabled:opacity-55"
-                  style={{ background: "#c5ed47", color: "#111111" }}
+                  style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
                   检查并组合

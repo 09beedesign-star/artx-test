@@ -435,7 +435,7 @@ export default function ProfilePage() {
                   type="button"
                   onClick={() => navigate("/inspiration")}
                   className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
-                  style={{ background: "#C5ED47", color: "#111", letterSpacing: 0, textTransform: "none" }}
+                  style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}
                 >
                   去逛灵感模板
                 </button>
@@ -969,9 +969,9 @@ function AvatarCropDialog({
             onClick={confirmCrop}
             className="h-9 min-w-[96px] rounded-[var(--radius-md-design)] type-caption"
             style={{
-              background: "#C5ED47",
-              color: "#111827",
-              boxShadow: "0 8px 24px rgba(197,237,71,0.22)",
+              background: "var(--artx-action-bg)",
+              color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)",
+              boxShadow: "none",
               fontWeight: 700,
             }}
           >

@@ -46,7 +46,7 @@ describe("布局不随 hover 伸缩", () => {
   });
 });
 
-describe("激活态：黑底 + 白色图标，轨道变绿", () => {
+describe("激活态：黑底 + 白色图标，轨道走黑白", () => {
   it("开启时药丸底色是黑，图标是白", () => {
     expect(pill).toContain('memoryContextEnabled\n                    ? "#161616"');
     expect(pill).toContain('memoryContextEnabled ? "#ffffff" : sub');
@@ -54,9 +54,9 @@ describe("激活态：黑底 + 白色图标，轨道变绿", () => {
     expect(pill, "还在用荧光绿药丸").not.toContain("rgba(197,237,71,0.16)");
   });
 
-  it("开关走 size=sm + tone=lime，而不是在外面压轨道宽度", () => {
+  it("开关走 size=sm + tone=default，而不是在外面压轨道宽度", () => {
     expect(pill).toContain('size="sm"');
-    expect(pill).toContain('tone="lime"');
+    expect(pill).toContain('tone="default"');
     // 这就是第 1 条 bug 的源头写法，必须消失
     expect(pill, "还在用 className 压轨道 —— thumb 会顶出轨道").not.toContain(
       'className="h-[14px] w-[26px]"'
@@ -77,10 +77,12 @@ describe("Switch 自身的尺寸组不能拆开", () => {
     expect(sm, "sm 位移与轨道对不上").not.toContain("translate-x-4");
   });
 
-  it("lime 档在深色模式也保持绿色（否则会被 dark:bg-white 顶掉）", () => {
-    expect(switchSource).toContain(
-      'lime: "data-[state=checked]:bg-[#C5ED47] dark:data-[state=checked]:bg-[#C5ED47]"'
-    );
+  it("品牌绿 lime 档已退场，激活态统一黑白（深色主题反相为白）", () => {
+    // 【2026-11-12 用户点名】所有可点击绿色统一改黑白色系，Switch 轨道一并收口。
+    expect(switchSource, "还在用荧光绿轨道").not.toContain("bg-[#C5ED47]");
+    expect(switchSource, "lime 档类型没删干净").not.toContain('"default" | "lime"');
+    expect(switchSource).toContain('data-[state=checked]:bg-[#161616]');
+    expect(switchSource).toContain('dark:data-[state=checked]:bg-white');
   });
 });
 

@@ -1142,3 +1142,40 @@ html.light img[src*="artxstudio-logo"],
   --radius-xl-design: 6px;
   --radius-pill: 6px;
 }
+
+/* ============================================================
+   全站可点击强调元素 —— 黑色线框按钮的唯一色值事实源
+   【2026-11-12 用户点名】浅绿色高亮文字/标签在白底上看不清楚，
+   所有可点击的绿色标签、文字、按钮统一改成黑框黑字线框按钮；
+   只改可点击的，纯展示绿色（图标/状态/徽章/焦点描边等）不动。
+
+   ⚠️ 色值只在这里定义一份，TS 侧 action-surface-tokens.ts 只引用变量。
+   ⚠️ 深色主题必须反相成白框白字，否则黑框黑字在深底上同样看不清。
+   ⚠️ 选中态走反相实心，不能和未选中一样都是线框 —— 否则选不出来。
+   ============================================================ */
+:root {
+  --artx-action-bg: transparent;
+  --artx-action-fg: #161616;
+  --artx-action-border: rgba(22,22,22,0.55);
+  --artx-action-active-bg: #161616;
+  --artx-action-active-fg: #ffffff;
+  --artx-action-active-border: #161616;
+
+  /* 深色浮层专用：画布里有一批「浅色主题下的黑底面板」，它们不跟 html.dark 走。
+     用上面那组会在黑底上画出黑框黑字 —— 正是本次要消灭的「看不清楚」。 */
+  --artx-action-ondark-bg: transparent;
+  --artx-action-ondark-fg: #ffffff;
+  --artx-action-ondark-border: rgba(255,255,255,0.55);
+  --artx-action-ondark-active-bg: #ffffff;
+  --artx-action-ondark-active-fg: #161616;
+  --artx-action-ondark-active-border: #ffffff;
+}
+
+html.dark {
+  --artx-action-bg: transparent;
+  --artx-action-fg: #ffffff;
+  --artx-action-border: rgba(255,255,255,0.55);
+  --artx-action-active-bg: #ffffff;
+  --artx-action-active-fg: #161616;
+  --artx-action-active-border: #ffffff;
+}
