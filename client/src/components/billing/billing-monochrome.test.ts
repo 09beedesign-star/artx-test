@@ -6,10 +6,11 @@ import { stripSourceComments } from "../../../../shared/strip-source-comments";
 /**
  * 【2026-11-10 用户需求】
  * 「订阅、充值与升级页面，所有的绿色系全部改为黑白色系，按钮变成黑色白字按钮」
+ * 【2026-11-12 用户补充】
+ * 「订阅页面当中微信和支付宝的支付方式的 LOGO 保持是彩色的，不是现在黑白的」
  *
- * 这一组断言锁的是**结果**：这页面上不再有任何绿色像素源。
- * 不是「某个变量改成了黑色」—— 那样只能证明我改了一个地方，
- * 证明不了页面上别处没有第二个绿色出口。
+ * 这一组断言锁的是**结果**：除品牌 logo 外，这页面上不再有任何绿色像素源；
+ * 同时品牌 logo 必须真的是彩色的（不是把绿色删掉就完事）。
  */
 
 const ROOT = resolve(__dirname, "../../");
@@ -21,10 +22,15 @@ const read = (rel: string) => stripSourceComments(readFileSync(resolve(ROOT, rel
  * ⚠️ 必须连 `.ts` 一起收：主题色板是 `billing-theme.ts`，只收 `.tsx`
  * 会把它整份漏掉 —— 变异自证时抓到过一次（把 accent 改回荧光绿，
  * 7 条断言全绿），检测器看起来跑了，实际上一个绿值都没看过。
+ *
+ * 【2026-11-12】BRAND_LOGO_FILE 是**唯一**的绿色例外：用户要求微信 / 支付宝
+ * logo 保持品牌彩色。排除不等于放过 —— 下面既有「例外必须真带品牌色」的
+ * 正向断言，也有「排除名单不许偷偷变多」的反向断言。
  */
+const BRAND_LOGO_FILE = "PaymentMethodLogo.tsx";
 const BILLING_FILES = [
   ...readdirSync(resolve(__dirname))
-    .filter(f => (f.endsWith(".tsx") || f.endsWith(".ts")) && !/\.test\.tsx?$/.test(f))
+    .filter(f => (f.endsWith(".tsx") || f.endsWith(".ts")) && !/\.test\.tsx?$/.test(f) && f !== BRAND_LOGO_FILE)
     .map(f => `components/billing/${f}`),
   "pages/BillingPage.tsx",
   "pages/CreditsGuidePage.tsx",
@@ -71,7 +77,7 @@ describe("计费页绿色系清零", () => {
     expect(findGreens("rgba(255,255,255,0.10)")).toEqual([]);
   });
 
-  it("⚠️ 计费相关文件里不得残留任何绿色值", () => {
+  it("⚠️ 除品牌 logo 外，计费相关文件里不得残留任何绿色值", () => {
     const offenders: string[] = [];
     for (const file of BILLING_FILES) {
       const greens = findGreens(read(file));
@@ -79,26 +85,34 @@ describe("计费页绿色系清零", () => {
     }
     expect(
       offenders,
-      "还有绿色残留 —— 用户要求这一页彻底黑白",
+      "还有绿色残留 —— 按钮/卡片仍要求黑白，只有品牌 logo 例外",
     ).toEqual([]);
+
+    // 排除名单不能靠「再塞几个文件进来」把上面的检测洗绿。
+    const excluded = readdirSync(resolve(__dirname))
+      .filter(f => (f.endsWith(".tsx") || f.endsWith(".ts")) && !/\.test\.tsx?$/.test(f))
+      .filter(f => !BILLING_FILES.includes(`components/billing/${f}`));
+    expect(excluded, "只允许排除品牌 logo 这一个文件").toEqual([BRAND_LOGO_FILE]);
   });
 
-  it("⚠️ 微信 logo 的品牌绿必须彻底消失，改为跟随文字色", () => {
+  it("微信/支付宝 logo 恒为品牌彩色，不随容器文字色变回黑白", () => {
     /**
-     * 用户说的是「所有绿色系」—— logo 也是绿色，不能例外。
-     * 留一个绿点在页面上，整页黑白就不成立。
+     * 【2026-11-12 用户反转】上一轮要求整页黑白时把 fill 改成 currentColor，
+     * 结果 logo 在黑底白字按钮上被洗成白色，compact 两处（套餐卡 / 充值按钮）
+     * 连支付宝蓝也一起没了。用户明确要求恢复彩色。
      *
-     * 支付宝的品牌蓝保留：用户点名的是「绿色系」，蓝色不在范围内。
-     * 但 compact（按钮内）必须也用 currentColor —— 蓝按钮上挂蓝图标等于隐形。
+     * 断言走的是「结果」：绿色像素源真的存在于代码里（findGreens 自检过），
+     * 而不是「注释里提到了绿色」—— read() 已剥注释。
      */
-    const logo = read("components/billing/PaymentMethodLogo.tsx");
-    expect(logo, "微信的品牌绿还在").not.toContain("#07C160");
+    const logo = read(`components/billing/${BRAND_LOGO_FILE}`);
+    expect(findGreens(logo), "微信 logo 的品牌绿没回来").toContain("#07C160");
     expect(logo).toContain('"#1677FF"');
-    expect(logo).toContain("currentColor");
+    // 四个出口共用唯一事实源，不能退回「两支各自写死 fill」。
     expect(logo).toContain("fill={fill}");
-    // 不能退回「两个分支各自写死 fill」
     expect(logo).not.toContain('fill="#07C160"');
     expect(logo).not.toContain('fill="#1677FF"');
+    // currentColor 正是上一次把 logo 洗成黑白的原因。
+    expect(logo).not.toContain("currentColor");
   });
 });
 

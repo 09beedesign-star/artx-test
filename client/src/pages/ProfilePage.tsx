@@ -261,7 +261,7 @@ export default function ProfilePage() {
     <div
       className="flex h-screen flex-col overflow-hidden"
       style={{
-        background: "#222222",
+        background: isDark ? "#222222" : "var(--design-surface-soft)",
         color: textPrimary,
       }}
     >
@@ -277,7 +277,7 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="h-40" style={{ background: "#222222" }} />
+            <div className="h-40" style={{ background: isDark ? "#222222" : "rgba(20,20,36,0.06)" }} />
             <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
@@ -321,9 +321,9 @@ export default function ProfilePage() {
                     onClick={openPasswordDialog}
                     className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                     style={{
-                      background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
-                      border: `1px solid ${border}`,
-                      color: textPrimary,
+                      background: "var(--artx-action-bg)",
+                      border: "1px solid var(--artx-action-border)",
+                      color: "var(--artx-action-fg)",
                     }}
                   >
                     <KeyRound size={14} />
@@ -333,9 +333,9 @@ export default function ProfilePage() {
                     onClick={openEdit}
                     className="flex items-center gap-2 rounded-[var(--radius-lg-design)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                     style={{
-                      background: isDark ? "#222222" : "rgba(20,20,36,0.06)",
-                      border: `1px solid ${border}`,
-                      color: textPrimary,
+                      background: "var(--artx-action-bg)",
+                      border: "1px solid var(--artx-action-border)",
+                      color: "var(--artx-action-fg)",
                     }}
                   >
                     <Pencil size={14} />
@@ -347,7 +347,7 @@ export default function ProfilePage() {
               <div className="mt-7 grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.66)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.92)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-3" style={{ color: textPrimary, fontWeight: 560 }}>个人简介</p>
                   <p className="type-body-sm leading-7" style={{ color: textSecondary }}>
@@ -358,7 +358,11 @@ export default function ProfilePage() {
                       <span
                         key={tag}
                         className="rounded-[var(--radius-pill)] px-3 py-1 type-caption"
-                        style={{ background: isDark ? "#222222" : "rgba(20,20,36,0.06)", color: textSecondary }}
+                        style={{
+                          background: "var(--artx-action-bg)",
+                          border: "1px solid var(--artx-action-border)",
+                          color: "var(--artx-action-fg)",
+                        }}
                       >
                         {tag}
                       </span>
@@ -368,7 +372,7 @@ export default function ProfilePage() {
 
                 <div
                   className="rounded-[var(--radius-lg-design)] p-5"
-                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.66)", border: `1px solid ${border}` }}
+                  style={{ background: isDark ? "#222222" : "rgba(255,255,255,0.92)", border: `1px solid ${border}` }}
                 >
                   <p className="type-body-sm mb-4" style={{ color: textPrimary, fontWeight: 560 }}>账号信息</p>
                   <div className="space-y-3 type-caption" style={{ color: textSecondary }}>
@@ -403,17 +407,17 @@ export default function ProfilePage() {
                     className="flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-all"
                     style={{
                       background: isActive
-                        ? (isDark ? "rgba(255,255,255,0.12)" : "rgba(20,20,36,0.08)")
-                        : "transparent",
-                      border: `1px solid ${isActive ? border : "transparent"}`,
-                      color: isActive ? textPrimary : textSecondary,
+                        ? "var(--artx-action-active-bg)"
+                        : "var(--artx-action-bg)",
+                      border: `1px solid ${isActive ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`,
+                      color: isActive ? "var(--artx-action-active-fg)" : "var(--artx-action-fg)",
                       letterSpacing: 0,
                       textTransform: "none",
                     }}
                   >
                     <tab.Icon size={14} />
                     {tab.label}
-                    <span style={{ color: textMuted }}>{tab.count}</span>
+                    <span style={{ color: isActive ? "var(--artx-action-active-fg)" : textMuted, opacity: isActive ? 0.64 : 1 }}>{tab.count}</span>
                   </button>
                 );
               })}
@@ -728,14 +732,14 @@ function ProfilePasswordInput({
 }) {
   return (
     <label className="grid gap-1.5">
-      <span className="type-caption" style={{ color: "rgba(255,255,255,0.64)" }}>{label}</span>
+      <span className="type-caption" style={{ color: "rgba(20,20,36,0.56)" }}>{label}</span>
       <input
         type="password"
         value={value}
         onChange={event => onChange(event.target.value)}
         autoComplete={autoComplete}
         placeholder={placeholder}
-        className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none placeholder:text-white/32"
+        className="h-10 rounded-[var(--radius-md-design)] px-3 outline-none placeholder:text-[rgba(20,20,36,0.35)]"
         style={{ background: inputBg, border: `1px solid ${border}`, color: textPrimary, fontSize: 13 }}
       />
     </label>
@@ -1002,7 +1006,7 @@ function ProfileInput({
 }) {
   return (
     <label className="grid gap-1.5">
-      <span className="type-caption" style={{ color: "rgba(255,255,255,0.64)" }}>{label}</span>
+      <span className="type-caption" style={{ color: "rgba(20,20,36,0.56)" }}>{label}</span>
       {multiline ? (
         <textarea
           value={value}

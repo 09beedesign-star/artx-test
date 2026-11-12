@@ -307,7 +307,7 @@ export default function SkillsPage() {
                       className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
                       style={{
                         background: "var(--artx-action-bg)",
-                        color: "var(--artx-action-text)",
+                        color: "var(--artx-action-fg)",
                         border: "1px solid var(--artx-action-border)",
                       }}
                     >

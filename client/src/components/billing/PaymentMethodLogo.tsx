@@ -10,17 +10,16 @@ export default function PaymentMethodLogo({
   const size = compact ? 18 : 34;
   const iconSize = compact ? 15 : 27;
   /**
-   * 【2026-11-10】随「订阅/充值页全黑白」调整。
+   * 品牌 logo 恒为彩色，不跟随容器文字色。
    *
-   * 微信那一支的品牌绿 #07C160 全部下线，改用 currentColor 跟随容器文字色：
-   * 用户要的是「所有绿色系 → 黑白色系」，logo 也是绿色，不能例外 ——
-   * 留一个绿点在页面上，整页黑白就不成立。
+   * 【2026-11-12 用户反转】上一轮「整页黑白」把这里改成 currentColor，
+   * 微信绿被洗成白色，支付宝蓝在 compact 分支（套餐卡 / 充值按钮）也变白，
+   * 用户明确要求支付方式 logo 保持彩色。故恢复两支品牌色，且不再按 compact
+   * 分叉 —— 图标自带 bg-white 白底板，落在黑底按钮上也不会隐形。
    *
-   * 支付宝的品牌蓝 #1677FF 保留：用户点名的是「绿色系」，蓝色不在范围内。
-   * 但 compact（按钮内 15px）必须也用 currentColor —— 蓝按钮上挂蓝图标等于隐形，
-   * 小尺寸图标在实心按钮里本来就该跟随文字色。
+   * 这是「按钮/卡片黑白」范围内唯一保留彩色的地方，仅指 logo 本身。
    */
-  const fill = !compact && method === "alipay" ? "#1677FF" : "currentColor";
+  const fill = method === "alipay" ? "#1677FF" : "#07C160";
   if (method === "alipay") {
     return (
       <span

@@ -52,14 +52,14 @@ describe("BillingPage payment method selection", () => {
     expect(logo).toContain("M12 2c3.713 0 6.993 1.534");
     expect(logo).toContain("M10.5 2h2v2.788h7.002");
     /**
-     * 【2026-11-10】微信的品牌绿已下线，改用 currentColor 跟随容器文字色 ——
-     * 用户要求「所有绿色系改为黑白色系」，logo 不能例外。
-     * 支付宝的品牌蓝保留（用户点名的是绿色系）。
-     * 但 fill 必须走变量、不能在两支里各写死一份，否则 compact 版又会变回彩色。
+     * 【2026-11-12 用户反转】支付方式 logo 必须保持彩色：
+     * 上一轮把 fill 改成 currentColor，logo 在黑底白字按钮上被洗成白色，
+     * compact 两处（套餐卡 / 充值按钮）连支付宝蓝也一起没了。
+     * fill 仍必须走同一个变量（四个出口共用），两支色值都恢复品牌色。
      */
-    expect(logo).not.toContain("#07C160");
+    expect(logo).toContain('"#07C160"');
     expect(logo).toContain('"#1677FF"');
     expect(logo).toContain("fill={fill}");
-    expect(logo).toContain("currentColor");
+    expect(logo).not.toContain("currentColor");
   });
 });
