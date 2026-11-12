@@ -508,7 +508,7 @@ function AdminAccessRequired() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light" switchable>
+      <ThemeProvider defaultTheme="light" switchable={false}>
         <AuthProvider>
           <TooltipProvider>
             <Toaster />

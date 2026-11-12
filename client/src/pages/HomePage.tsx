@@ -702,7 +702,9 @@ export default function HomePage() {
           isDark={isDark}
         />
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {/* 主题切换按钮暂时屏蔽，仅保留白天模式
           <ThemeModeSwitcher />
+          */}
           <button
             type="button"
             onClick={handleStartExperience}

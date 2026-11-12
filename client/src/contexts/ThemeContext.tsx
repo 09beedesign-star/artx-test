@@ -31,6 +31,8 @@ export function ThemeProvider({
   switchable = true,
 }: ThemeProviderProps) {
   const [mode, setModeState] = useState<ThemeMode>(() => {
+    // switchable=false → 强制使用 defaultTheme，忽略 localStorage（用户之前可能已存了 "dark"）
+    if (!switchable) return defaultTheme;
     const stored = localStorage.getItem("theme-mode");
     if (stored === "dark" || stored === "light" || stored === "system") return stored;
     return defaultTheme;
