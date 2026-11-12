@@ -9,6 +9,7 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization } from "./server/auth-store";
 import { resolveBackgroundImageTaskCapability } from "./server/background-image-capability";
 import { editImageWithPrompt, eraseImageObjects, extractImageText, generateImages, listImageModelCatalog, removeImageBackground } from "./server/image-generation";
+import { getInspirationReferences } from "./server/inspiration-references";
 import { searchReferenceImages } from "./server/reference-search";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "./shared/image-expansion";
 import { generateText } from "./server/text-generation";
@@ -1043,6 +1044,34 @@ function sendJson(res: import("node:http").ServerResponse, status: number, paylo
   res.end(JSON.stringify(payload));
 }
 
+function vitePluginInspirationApi(): Plugin {
+  return {
+    name: "artx-inspiration-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/inspiration/references", (req, res) => {
+        try {
+          const url = new URL(req.url || "/", "http://localhost");
+          const group = url.searchParams.get("group") ?? undefined;
+          const subcategory = url.searchParams.get("subcategory") ?? undefined;
+          const sourceSite = url.searchParams.get("sourceSite") ?? undefined;
+          const limitParam = url.searchParams.get("limit");
+          const offsetParam = url.searchParams.get("offset");
+          const limit = limitParam !== null ? Number(limitParam) : undefined;
+          const offset = offsetParam !== null ? Number(offsetParam) : undefined;
+          const verifiedPromptOnly =
+            url.searchParams.get("verifiedPromptOnly") === "1" ||
+            url.searchParams.get("verifiedPromptOnly") === "true";
+          const result = getInspirationReferences({ group, subcategory, sourceSite, limit, offset, verifiedPromptOnly });
+          sendJson(res, 200, result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Inspiration API failed";
+          sendJson(res, 500, { error: message });
+        }
+      });
+    },
+  };
+}
+
 function vitePluginDeveloperApi(): Plugin {
   // Align with server/index.ts getMcpTools() for dev/prod consistency
   const tools = [
@@ -1231,6 +1260,7 @@ const plugins = [
   vitePluginUserMemoryApi(),
   vitePluginDeveloperApi(),
   vitePluginAiOrchestratorApi(),
+  vitePluginInspirationApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),

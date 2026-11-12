@@ -114,10 +114,9 @@ export default function InspirationPage() {
   const handleInspirationCardMouseEnter = (itemKey: string) => {
     if (hoveredItemKey === itemKey) return;
     if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = window.setTimeout(() => {
-      setHoveredItemKey(itemKey);
-      hoverTimerRef.current = null;
-    }, 500);
+    // 零延迟：立即显示 hover 覆盖层，无需 500ms 确认期
+    setHoveredItemKey(itemKey);
+    hoverTimerRef.current = null;
   };
 
   const handleInspirationCardMouseLeave = () => {
@@ -344,7 +343,7 @@ export default function InspirationPage() {
             <div
               className="flex items-center gap-1 overflow-x-auto pb-1"
               role="tablist"
-              aria-label="灵感模板分类"
+              aria-label="主分类筛选"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               {/* 主分类 tab */}
@@ -375,7 +374,7 @@ export default function InspirationPage() {
 
             {/* 子分类 pill */}
             {availableSubcategories.length > 1 && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="细分类筛选">
                 {availableSubcategories.map((subcategory) => {
                   const active = subcategory === activeSubcategory;
                   return (
@@ -484,27 +483,32 @@ export default function InspirationPage() {
                         visible={hoveredItemKey === `featured-${item.rank}-${item.title}`}
                         dim={0.18}
                       />
-                      {/* 右上角「一键同款」：与网格卡片一致，只在 hover 时出现 */}
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          applySameStyle(item);
-                        }}
-                        className="absolute right-2 top-2 z-30 whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all duration-200 hover:scale-105 active:scale-95"
-                        style={{
-                          background: "#ffffff",
-                          color: "#161616",
-                          boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
-                          opacity: hoveredItemKey === `featured-${item.rank}-${item.title}` ? 1 : 0,
-                          pointerEvents: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "auto" : "none",
-                        }}
-                        tabIndex={hoveredItemKey === `featured-${item.rank}-${item.title}` ? 0 : -1}
-                        aria-label="一键同款"
-                        title="一键同款"
+                      {/* 封面正中央「一键同款」：与网格卡片一致，零延迟淡入，居中覆盖 */}
+                      <div
+                        className="absolute inset-0 z-30 flex items-center justify-center"
+                        style={{ pointerEvents: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "auto" : "none" }}
                       >
-                        一键同款
-                      </button>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            applySameStyle(item);
+                          }}
+                          className="whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-1.5 text-[12px] font-medium transition-all duration-150 hover:scale-105 active:scale-95"
+                          style={{
+                            background: "#ffffff",
+                            color: "#161616",
+                            boxShadow: "0 2px 12px rgba(0,0,0,0.22)",
+                            opacity: hoveredItemKey === `featured-${item.rank}-${item.title}` ? 1 : 0,
+                            transform: hoveredItemKey === `featured-${item.rank}-${item.title}` ? "scale(1)" : "scale(0.92)",
+                          }}
+                          tabIndex={hoveredItemKey === `featured-${item.rank}-${item.title}` ? 0 : -1}
+                          aria-label="一键同款"
+                          title="一键同款"
+                        >
+                          一键同款
+                        </button>
+                      </div>
                     </div>
                     {/* 底部元信息 */}
                     <div className="flex items-center justify-between px-3 py-2.5">
@@ -694,7 +698,7 @@ export default function InspirationPage() {
             <div className="p-4 pr-14" style={{ borderBottom: `1px solid ${border}` }}>
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-[var(--radius-pill)] px-2.5 py-1 type-caption" style={{ background: activeBg, color: "#f5f6f8", letterSpacing: 0, textTransform: "none" }}>
+                  <span className="rounded-[var(--radius-pill)] border px-2.5 py-1 type-caption" style={{ background: "transparent", color: "var(--artx-action-fg)", borderColor: "var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}>
                     {selectedItem.field}
                   </span>
                 </div>

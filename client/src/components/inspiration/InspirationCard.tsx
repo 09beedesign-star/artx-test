@@ -110,31 +110,38 @@ export function InspirationCard({
 
         {onApplySameStyle && (
           /*
-           * 右上角「一键同款」，**只在 hover 时出现**（用户要求）。
+           * 封面正中央「一键同款」，**只在 hover 时出现**（用户要求）。
+           * - 位置：absolute 居中（inset-0 + flex 对齐），不再钉右上角
+           * - 延迟：父组件 handleInspirationCardMouseEnter 有 500ms setTimeout，
+           *   卡片内部不再叠加 transition delay，改为 duration-150 零感延迟淡入。
            * ⚠️ 隐藏时必须连点击一起关掉：opacity:0 的元素照样接点击，
            *    否则鼠标扫过卡片任意位置都可能误触「一键同款」。
            */
-          <button
-            type="button"
-            onClick={event => {
-              event.stopPropagation();
-              onApplySameStyle();
-            }}
-            className="absolute right-2 top-2 z-30 whitespace-nowrap rounded-[var(--radius-pill)] px-3 py-1 text-[11px] font-medium transition-all duration-200 hover:scale-105 active:scale-95"
-            style={{
-              background: "#ffffff",
-              color: "#161616",
-              boxShadow: "0 2px 10px rgba(0,0,0,0.18)",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-              transform: hovered ? "translateY(0)" : "translateY(-2px)",
-            }}
-            tabIndex={hovered ? 0 : -1}
-            aria-label="一键同款"
-            title="一键同款"
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center"
+            style={{ pointerEvents: hovered ? "auto" : "none" }}
           >
-            一键同款
-          </button>
+            <button
+              type="button"
+              onClick={event => {
+                event.stopPropagation();
+                onApplySameStyle();
+              }}
+              className="whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-1.5 text-[12px] font-medium transition-all duration-150 hover:scale-105 active:scale-95"
+              style={{
+                background: "#ffffff",
+                color: "#161616",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.22)",
+                opacity: hovered ? 1 : 0,
+                transform: hovered ? "scale(1)" : "scale(0.92)",
+              }}
+              tabIndex={hovered ? 0 : -1}
+              aria-label="一键同款"
+              title="一键同款"
+            >
+              一键同款
+            </button>
+          </div>
         )}
       </div>
 
@@ -151,10 +158,11 @@ export function InspirationCard({
         {/* 分类标签 + 点赞 */}
         <div className="mt-1.5 flex items-center justify-between gap-2">
           <span
-            className="shrink-0 truncate rounded-[var(--radius-pill)] px-2 py-0.5 text-[11px]"
+            className="shrink-0 truncate rounded-[var(--radius-pill)] border px-2 py-0.5 text-[11px]"
             style={{
-              background: activeBg,
-              color: isDark ? "rgba(255,255,255,0.6)" : "#555555",
+              background: "transparent",
+              color: "var(--artx-action-fg)",
+              borderColor: "var(--artx-action-border)",
               maxWidth: "70%",
             }}
           >
