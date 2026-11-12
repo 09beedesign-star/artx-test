@@ -342,11 +342,11 @@ export function ModelSelector({
   const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);
   const selectedBg = surface?.hoverBackground
-    ?? (isDark ? "#161616" : "#161616");
+    ?? (isDark ? "#161616" : "rgba(255,255,255,0.97)");
   const border = surface ? surface.border : getMinimapSurfaceBorder(isDark);
-  const selectedBorder = surface?.openBorder ?? "#161616";
+  const selectedBorder = surface?.openBorder ?? (isDark ? "#161616" : "rgba(20,20,36,0.22)");
   const text = surface ? surface.text : (isDark ? "#bbbbbb" : "#161616");
-  const selectedText = surface?.hoverText ?? "white";
+  const selectedText = surface?.hoverText ?? (isDark ? "white" : "#161616");
   /**
    * 触发按钮上图标的颜色。
    *

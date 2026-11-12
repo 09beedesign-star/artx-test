@@ -386,13 +386,9 @@ export default function InspirationPage() {
                       onClick={() => updateSubcategory(subcategory)}
                       className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-1.5 text-[12px] transition-all active:scale-95"
                       style={{
-                        background: active
-                          ? (isDark ? "rgba(255,255,255,0.14)" : "rgba(22,22,22,0.10)")
-                          : "transparent",
-                        border: `1px solid ${active
-                          ? (isDark ? "rgba(255,255,255,0.25)" : "rgba(22,22,22,0.20)")
-                          : (isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)")}`,
-                        color: active ? (isDark ? "white" : "#161616") : sub,
+                        background: active ? (isDark ? "#ffffff" : "#161616") : "transparent",
+                        border: "1px solid var(--artx-action-border)",
+                        color: active ? (isDark ? "#161616" : "#ffffff") : sub,
                         fontWeight: active ? 600 : 400,
                       }}
                     >

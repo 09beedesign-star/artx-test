@@ -183,168 +183,57 @@ export default function SkillsPage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-6 pb-10 pt-5">
-          <section className="grid gap-3">
-            <div
-              className="relative overflow-hidden rounded-[var(--radius-lg-design)] border p-5"
+          {/* 搜索框 — 置顶全宽，无底托 */}
+          <div
+            data-tour-id={TOUR_ANCHORS.skillsSearch}
+            className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
+            style={{ borderColor: border, background: panel }}
+          >
+            <Search size={14} style={{ color: faint, flexShrink: 0 }} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索技能、尺寸"
+              className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
+              style={{ color: text }}
+            />
+          </div>
+
+          {/* 分类标签 — 横向单行滚动，无底托 */}
+          <div
+            data-tour-id={TOUR_ANCHORS.skillsCategoryBar}
+            className="flex gap-2 overflow-x-auto"
+            style={{ scrollbarWidth: "none" }}
+          >
+            <button
+              type="button"
+              onClick={() => setActiveCategory("all")}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[var(--radius-md-design)] px-3 text-sm transition-opacity hover:opacity-85"
               style={{
-                background: isDark
-                  ? "linear-gradient(135deg, rgba(144,88,252,0.16), rgba(255,255,255,0.055) 42%, rgba(0,208,255,0.09))"
-                  : "linear-gradient(135deg, rgba(144,88,252,0.12), rgba(255,255,255,0.86) 42%, rgba(0,208,255,0.10))",
-                borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(20,20,36,0.10)",
-                backdropFilter: "blur(18px)",
+                background: activeCategory === "all" ? (isDark ? "#ffffff" : "#161616") : "transparent",
+                color: activeCategory === "all" ? (isDark ? "#161616" : "#ffffff") : sub,
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.3)" : "rgba(20,20,36,0.25)"}`,
               }}
             >
-              <div
-                className="pointer-events-none absolute right-6 top-2 h-24 w-24 rounded-full"
-                style={{ background: "rgba(144,88,252,0.16)", filter: "blur(30px)" }}
-              />
-              <div
-                className="pointer-events-none absolute bottom-0 right-28 h-16 w-36 rounded-full"
-                style={{ background: "rgba(0,208,255,0.10)", filter: "blur(26px)" }}
-              />
-
-              <div className="relative grid gap-4 xl:grid-cols-[minmax(0,0.72fr)_minmax(520px,1fr)] xl:items-start">
-                <div className="flex min-h-[214px] flex-col justify-between gap-4">
-                  <div>
-                    <div className="mb-3 flex flex-wrap items-center gap-2">
-                      <span
-                        className="inline-flex h-7 items-center gap-2 rounded-[var(--radius-md-design)] border px-2.5 type-caption"
-                        style={{
-                          color: isDark ? "rgba(255,255,255,0.82)" : "rgba(20,20,36,0.76)",
-                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.10)",
-                          background: isDark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.72)",
-                        }}
-                      >
-                        <Sparkles size={13} style={{ color: "#c5ed47" }} />
-                        Skill Store
-                      </span>
-                    </div>
-
-                    <h1 className="max-w-[720px] text-[38px] font-semibold leading-[1.04]" style={{ color: text, letterSpacing: 0 }}>
-                      设计图片类 Skills
-                    </h1>
-                    <p className="mt-2 max-w-[580px] text-sm leading-6" style={{ color: sub }}>
-                      使用技能，让你的创意效率即刻提速翻倍。
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-3">
-                    {heroStats.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <div
-                          key={item.label}
-                          className="flex min-h-[86px] flex-col items-center justify-center gap-1 text-center"
-                        >
-                          <Icon size={20} style={{ color: item.accent }} />
-                          <p className="text-[30px] font-semibold leading-none" style={{ color: text }}>{item.value}</p>
-                          <p className="text-xs" style={{ color: faint }}>{item.label}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                  <div className="rounded-[var(--radius-md-design)] border p-3" style={{ borderColor: border, background: isDark ? "#222222" : "rgba(255,255,255,0.62)" }}>
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2" style={{ color: text }}>
-                        <Boxes size={15} />
-                        <span className="text-sm font-medium">分类覆盖</span>
-                      </div>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {visibleCategories.map((category, index) => {
-                        const meta = skillCategoryMeta[category];
-                        const accent = getCategoryAccent(category, index);
-                        return (
-                          <button
-                            key={category}
-                            type="button"
-                            onClick={() => setActiveCategory(category)}
-                            className="group flex w-full items-center gap-2.5 rounded-[var(--radius-md-design)] px-2 py-1 text-left transition-opacity hover:opacity-85"
-                            style={{
-                              background: activeCategory === category ? "rgba(144,88,252,0.16)" : "transparent",
-                            }}
-                          >
-                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: accent }} />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-medium" style={{ color: text }}>{meta.label}</span>
-                                <span className="text-xs font-semibold" style={{ color: activeCategory === category ? skillButtonPurple : faint }}>{categoryCounts[category]}</span>
-                              </span>
-                              <span className="mt-0.5 block h-1.5 overflow-hidden rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(20,20,36,0.08)" }}>
-                                <span
-                                  className="block h-full rounded-full"
-                                  style={{
-                                    width: `${Math.max(14, (categoryCounts[category] / skillStoreStats.total) * 100)}%`,
-                                    background: accent,
-                                  }}
-                                />
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-              </div>
-            </div>
-          </section>
-
-          <section
-            className="flex flex-col gap-3 rounded-[var(--radius-lg-design)] border p-3 md:flex-row md:items-center md:justify-between"
-            style={{ background: panel, borderColor: border, backdropFilter: "blur(18px)" }}
-          >
-            <div data-tour-id={TOUR_ANCHORS.skillsCategoryBar} className="flex min-w-0 flex-1 flex-wrap gap-2">
+              <Filter size={14} />
+              全部
+            </button>
+            {visibleCategories.map((category) => (
               <button
+                key={category}
                 type="button"
-                onClick={() => setActiveCategory("all")}
-                className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-md-design)] border px-3 text-sm transition-opacity hover:opacity-85"
+                onClick={() => setActiveCategory(category)}
+                className="h-9 shrink-0 rounded-[var(--radius-md-design)] px-3 text-sm transition-opacity hover:opacity-85"
                 style={{
-                  color: activeCategory === "all" ? "white" : sub,
-                  borderColor: activeCategory === "all" ? skillButtonPurpleBorder : border,
-                  background: activeCategory === "all" ? skillButtonPurple : "transparent",
-                  boxShadow: activeCategory === "all" ? skillButtonPurpleShadow : "none",
+                  background: activeCategory === category ? (isDark ? "#ffffff" : "#161616") : "transparent",
+                  color: activeCategory === category ? (isDark ? "#161616" : "#ffffff") : sub,
+                  border: `1px solid ${isDark ? "rgba(255,255,255,0.3)" : "rgba(20,20,36,0.25)"}`,
                 }}
               >
-                <Filter size={14} />
-                全部
+                {skillCategoryMeta[category].label}
               </button>
-              {visibleCategories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => setActiveCategory(category)}
-                  className="h-9 rounded-[var(--radius-md-design)] border px-3 text-sm transition-opacity hover:opacity-85"
-                  style={{
-                    color: activeCategory === category ? "white" : sub,
-                    borderColor: activeCategory === category ? skillButtonPurpleBorder : border,
-                    background: activeCategory === category ? skillButtonPurple : "transparent",
-                    boxShadow: activeCategory === category ? skillButtonPurpleShadow : "none",
-                  }}
-                >
-                  {skillCategoryMeta[category].label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex w-full shrink-0 justify-end md:ml-auto md:w-[360px]">
-              <div
-                data-tour-id={TOUR_ANCHORS.skillsSearch}
-                className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
-                style={{ borderColor: border, background: panelStrong }}
-              >
-                <Search size={14} style={{ color: faint, flexShrink: 0 }} />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索技能、尺寸"
-                  className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
-                  style={{ color: text }}
-                />
-              </div>
-            </div>
-          </section>
+            ))}
+          </div>
 
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {filteredItems.map((skill, skillIndex) => {

@@ -280,22 +280,16 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("index * (size.w + imageGenerationGap)");
   });
 
-  it("mounts the smart commerce workflow without replacing the existing canvas generation owner", () => {
+  it("canvas no longer mounts the smart commerce product dialog, while preserving other generation owners", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
-    expect(source).toContain("SmartCommerceProductDialog");
-    expect(source).toContain('label: "智能产品图"');
-    expect(source).toContain('<AiProductIcon size={17} cutoutBg={bg} />');
-    expect(source).toContain('"smart-commerce-product-create"');
-    expect(source).toContain("CustomEvent<SmartCommerceProductCreateDetail>");
-    expect(source).toContain("Math.min(Number(detail.count) || 1, 9)");
-    expect(source).toContain('tags: ["智能产品图", detail.style]');
-    expect(source).toContain('style: "智能产品图结果"');
-    expect(source).toContain("maxResultCount = 4");
-    expect(source).toContain("Math.min(Number(resultCount) || 1, maxResultCount)");
-    expect(source).toContain("maxResultCount: 9");
+    // 智能产品图板块已从画布工具栏与弹窗中移除（2026-11-12 用户需求）
+    expect(source).not.toContain('label: "智能产品图"');
+    expect(source).not.toContain("<SmartCommerceProductDialog");
+    expect(source).not.toContain("<AiProductIcon");
+
+    // 其它画布出图入口未被顶替
     expect(source).toContain('new CustomEvent("canvas-assistant-external-message"');
-    expect(source).toContain('content: detail.userPrompt || "未填写"');
     expect(source).not.toContain("commerceContext: {");
     expect(source).not.toContain("commerceContext: detail.commerceContext");
     expect(source).not.toContain("detail.platformLabel");
@@ -742,8 +736,6 @@ describe("InfiniteCanvas prompt controls", () => {
 
     expect(source).toContain("backgroundTaskInput?: ImageGenerationTaskInput");
     expect(source).toContain("runImageGenerationTask({");
-    expect(source).toContain('capability: "smart_background"');
-    expect(source).toContain('operation: "create-background"');
     expect(source).toContain('capability: "image_erase"');
     expect(source).toContain('capability: "element_background"');
     expect(source).toContain('foregroundLayerSrc: foregroundImage.src');

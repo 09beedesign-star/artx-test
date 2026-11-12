@@ -386,20 +386,6 @@ function AiAnnotationIcon({
  * 它当时只服务于那一个入口，入口删掉后就是死组件。
  */
 
-function AiProductIcon({
-  size = 17,
-  cutoutBg = "rgba(22,22,30,0.96)",
-}: {
-  size?: number;
-  cutoutBg?: string;
-}) {
-  return (
-    <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
-      <Box size={size} />
-    </AiDecoratedIcon>
-  );
-}
-
 /**
  * 视角（相机方位立方）图标。
  *
@@ -620,10 +606,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { defaultApiBaseUrlForCurrentHost, normalizeApiBaseUrl } from "@/lib/api-base-url";
 import CropEditor from "@/components/canvas/CropEditor";
 import RotateEditor from "@/components/canvas/RotateEditor";
-import {
-  SmartCommerceProductDialog,
-  type SmartCommerceProductCreateDetail,
-} from "@/components/canvas/SmartCommerceProductDialog";
 // 引用标签的尺寸/配色唯一事实源。
 // ⚠️ 智能产品图的风格参考图标签也 import 同一份，禁止任何一侧再硬编码副本——
 //    同一份视觉规格一旦有两个出口，改一处另一处不动，且零报错。
@@ -644,7 +626,6 @@ import {
 } from "@/components/inspiration/InspirationPromptDialog";
 import {
   callLLM,
-  createProductBackground,
   editImageWithPrompt,
   enhanceImageToHd,
   eraseImageObjects,
@@ -20521,7 +20502,6 @@ function CanvasTopToolPalette({
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
   const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
-  const [productBackgroundOpen, setProductBackgroundOpen] = useState(false);
   const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -20571,11 +20551,6 @@ function CanvasTopToolPalette({
   // 只是触发入口换到了图片命令条。
   const tools = [
     // { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
-    {
-      id: "product-bg",
-      label: "智能产品图",
-      icon: <AiProductIcon size={17} cutoutBg={bg} />,
-    },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
     { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
     // 2026-10-30：3D 入口紧跟「上传图片」，图标用立方体（原 Zap 闪电不直观，用户找不到）
@@ -20605,7 +20580,6 @@ function CanvasTopToolPalette({
       setShapeOpen(v => !v);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
-      setProductBackgroundOpen(false);
       setActive(id);
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: id } })
@@ -20616,7 +20590,6 @@ function CanvasTopToolPalette({
       setDrawOpen(v => !v);
       setShapeOpen(false);
       setImageGeneratorOpen(false);
-      setProductBackgroundOpen(false);
       setActive(id);
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: id } })
@@ -20633,21 +20606,9 @@ function CanvasTopToolPalette({
       setImageGeneratorOpen(v => !v);
       setShapeOpen(false);
       setDrawOpen(false);
-      setProductBackgroundOpen(false);
       setActive(id);
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: id } })
-      );
-      return;
-    }
-    if (id === "product-bg") {
-      setProductBackgroundOpen(v => !v);
-      setImageGeneratorOpen(false);
-      setShapeOpen(false);
-      setDrawOpen(false);
-      setActive(id);
-      window.dispatchEvent(
-        new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
       );
       return;
     }
@@ -20655,7 +20616,6 @@ function CanvasTopToolPalette({
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
-      setProductBackgroundOpen(false);
       setActive("move");
       window.dispatchEvent(
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
@@ -20667,7 +20627,6 @@ function CanvasTopToolPalette({
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
-      setProductBackgroundOpen(false);
       // 放置一个空的 3D 画布容器；画布保持 move 模式。
       // ⚠️ 画布没有 "model3d" 工具模式，广播它会让画布卡在未知模式里。
       setActive("move");
@@ -20680,7 +20639,6 @@ function CanvasTopToolPalette({
     setShapeOpen(false);
     setDrawOpen(false);
     setImageGeneratorOpen(false);
-    setProductBackgroundOpen(false);
     setActive(id);
     // 向 InnerCanvas 广播工具模式变化
     window.dispatchEvent(
@@ -20881,14 +20839,6 @@ function CanvasTopToolPalette({
           canvasRightInset={canvasRightInset}
           allowedAiModels={allowedAiModels}
           onClose={() => setImageGeneratorOpen(false)}
-        />
-      )}
-
-      {productBackgroundOpen && (
-        <SmartCommerceProductDialog
-          isDark={isDark}
-          canvasRightInset={canvasRightInset}
-          onClose={() => setProductBackgroundOpen(false)}
         />
       )}
 
@@ -21484,15 +21434,6 @@ function isAssistantTokenSegment(segment: AssistantComposerSegment) {
  * 不在这里硬编码字符串 —— 免得哪天 gem 的通道 id 改了，这里成为漏网之鱼。
  */
 const COMPOSED_REFERENCE_IMAGE_MODEL_ID = normalizeImageModelId("gem");
-
-/**
- * 智能电商产品图「提示词生图」模式使用的图片模型（用户指定的「gem」）。
- *
- * 与 COMPOSED_REFERENCE_IMAGE_MODEL_ID 同为 gem，但语义来源不同：
- * 那个是提示词框图文混排出图，这个是电商产品图自定义背景，
- * 二者未来可能各自调整，因此不复用同一个常量，避免改一处误伤另一处。
- */
-const SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID = normalizeImageModelId("gem");
 
 /**
  * 在多张引用图里挑出「要被改造的底图」的下标。
@@ -30089,233 +30030,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setNodes,
   ]);
 
-  useEffect(() => {
-    const handler = async (event: Event) => {
-      const detail = (event as CustomEvent<SmartCommerceProductCreateDetail>)
-        .detail;
-      if (!detail?.imageSrc) return;
-      if (!requireAiAccess()) return;
-      const container = containerRef.current;
-      const rect = container?.getBoundingClientRect();
-      const center = rect
-        ? screenToFlowPosition({
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-          })
-        : { x: 160, y: 120 };
-      const ratioSize = getImageDisplaySizeForRatio(detail.ratio);
-      const displayW =
-        detail.customWidth && detail.customHeight
-          ? Math.min(560, Math.max(220, Math.round(detail.customWidth / 5)))
-          : ratioSize.w;
-      const displayH =
-        detail.customWidth && detail.customHeight
-          ? Math.min(560, Math.max(220, Math.round(detail.customHeight / 5)))
-          : ratioSize.h;
-      const sourceId = `product-bg-source-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const sourcePosition = resolveNonOverlappingCanvasPosition(
-        nodesRef.current,
-        { x: center.x - displayW / 2, y: center.y - displayH / 2 },
-        { width: displayW, height: displayH }
-      );
-      const sourceNode: Node = {
-        id: sourceId,
-        type: "asset",
-        position: sourcePosition,
-        style: { width: displayW, height: displayH },
-        selected: true,
-        data: {
-          id: sourceId,
-          assetId: "default",
-          localSrc: detail.imageSrc,
-          title: detail.fileName || "产品图",
-          assetType: "产品图",
-          tags: ["智能产品图", detail.style],
-          imgW: displayW,
-          imgH: displayH,
-        },
-      };
-      pushHistory(nodesRef.current, edgesRef.current);
-      setNodes(nds => [
-        ...nds.map(n => ({ ...n, selected: false })),
-        sourceNode,
-      ]);
-      setSelectedNodeIds([sourceId]);
-      toast("智能产品图生成中", {
-        description: `${detail.ratio} · ${detail.resolution.toUpperCase()} · ${detail.count} 张，结果会在旁边生成`,
-      });
-      /**
-       * 提示词模式：用户自己写背景描述，交给 gem 图片大模型按产品图生成。
-       *
-       * 为什么不能复用 createProductBackground：
-       * 那条链路是**纯 PicWish 管线**（server/image-generation.ts:4339），
-       * 先 removeBackgroundWithPicWish 抠图、再 createBackgroundWithPicWish 按
-       * sceneType 套模板出图，全程不经过任何图片大模型；
-       * server/image-generation.smart-product.test.ts 还专门断言它
-       * `not.toContain("generateImages(")`。
-       * 硬把自定义提示词塞进去，只会被 PicWish 当作模板描述词，
-       * 用户写的内容基本不起作用。
-       *
-       * 所以提示词模式改走 editImageWithPrompt（image_edit 链路），
-       * 它支持传 model，能真正把提示词交给 gem 理解产品图后生成。
-       */
-      const isPromptMode = detail.backgroundMode === "prompt";
-      const smartProductPrompt = [
-        "强约束：必须以左侧上传的产品图作为唯一商品主体，保留原产品的品类、外形、颜色、材质、比例和可见细节；只改变背景、光影、空间和商业拍摄氛围，不能替换成其他商品。",
-        // 提示词模式下 style 是固定文案「自定义提示词背景」，把它当风格名喂给模型
-        // 只会污染描述，真正的用户意图已经在 detail.prompt 里了。
-        !isPromptMode && detail.style ? `背景风格：${detail.style}` : "",
-        detail.prompt || "生成高清商业产品图",
-        `输出规格：${detail.customWidth && detail.customHeight ? `${detail.customWidth}x${detail.customHeight}` : `${detail.ratio} ${detail.resolution.toUpperCase()}`}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      window.dispatchEvent(
-        new CustomEvent("canvas-assistant-external-message", {
-          detail: {
-            role: "user",
-            content: detail.userPrompt || "未填写",
-          },
-        })
-      );
-      const smartProductCount = Math.max(1, Math.min(Number(detail.count) || 1, 9));
-      /**
-       * 提示词模式可恢复（2026-10-18）。
-       *
-       * 每张图用独立子任务 id `${generationId}-img${i}` 传给 editImageWithPrompt → 走异步任务链路，
-       * 服务端有记录。刷新重进时 ensureBackgroundImageGeneration 识别 subTaskIds，**静默**轮询：
-       * 拿到图就回填；一张都拿不到就直接把节点删掉、不给任何提示（用户 2026-10-18 拍板）。
-       * ⚠️ 恢复只轮询、绝不重发（防重复扣费）：刷新时还没轮到的子任务服务端查无此任务，按「无图」处理。
-       */
-      const smartGenerationId = `智能产品图结果-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const promptModeSubTaskIds = isPromptMode
-        ? Array.from(
-            { length: smartProductCount },
-            (_, index) => `${smartGenerationId}-img${index}`
-          )
-        : undefined;
-      await runDerivedImageGeneration({
-        generationId: smartGenerationId,
-        subTaskIds: promptModeSubTaskIds,
-        sourceNode,
-        prompt: smartProductPrompt,
-        style: "智能产品图结果",
-        nextW: detail.customWidth || ratioSize.w,
-        nextH: detail.customHeight || ratioSize.h,
-        preserveSourceDisplaySize: false,
-        displayW,
-        displayH,
-        resultCount: detail.count,
-        maxResultCount: 9,
-        // 提示词模式固定用 gem。
-        model: isPromptMode
-          ? SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID
-          : DEFAULT_IMAGE_AI_MODEL_ID,
-        // 提示词模式不能带单个 backgroundTaskInput（会被后台任务链路接管、回到 PicWish 分支）；
-        // 改为传多任务输入数组 promptModeTaskInputs，让 runDerivedImageGeneration 在 run() 里逐张调用。
-        backgroundTaskInput: isPromptMode
-          ? undefined
-          : {
-              capability: "smart_background",
-              operation: "create-background",
-              imageSrc: detail.imageSrc,
-              prompt: detail.prompt,
-              style: detail.style,
-              composition: detail.composition,
-              sceneType: detail.sceneType,
-              ratio: detail.ratio,
-              resolution: detail.resolution,
-              count: detail.count,
-              // 电商平台预设最终就体现为这两个值——服务端 getBackgroundOutputSize
-              // 的第一分支优先吃 customWidth/customHeight，所以平台规格是硬生效的。
-              customWidth: detail.customWidth,
-              customHeight: detail.customHeight,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
-            },
-        run: async () => {
-          if (!isPromptMode) {
-            return createProductBackground({
-              imageSrc: detail.imageSrc,
-              prompt: detail.prompt,
-              style: detail.style,
-              composition: detail.composition,
-              sceneType: detail.sceneType,
-              ratio: detail.ratio,
-              resolution: detail.resolution,
-              count: detail.count,
-              customWidth: detail.customWidth,
-              customHeight: detail.customHeight,
-              model: DEFAULT_IMAGE_AI_MODEL_ID,
-            });
-          }
-          /**
-           * 提示词模式：逐张调用 image_edit。
-           *
-           * editImageWithPrompt 一次只回 1 张（服务端没有 count 参数），
-           * 所以要生成 N 张就得循环 N 次，不能指望传个 count 了事。
-           *
-           * 逐张容错：某一张失败不整批中断，只要最终拿到至少 1 张就算成功；
-           * 全军覆没时才抛错，让 runDerivedImageGeneration 走失败分支提示用户。
-           */
-          const collected: GeneratedImagesResponse["images"] = [];
-          let lastError: unknown = null;
-          for (let index = 0; index < smartProductCount; index += 1) {
-            try {
-              const single = await editImageWithPrompt({
-                // 独立子任务 id → 走异步任务链路，刷新后可按 subTaskIds 静默恢复。
-                generationId: promptModeSubTaskIds?.[index],
-                imageSrc: detail.imageSrc,
-                model: SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID,
-                // 多张时给每张加差异化指令，否则同一提示词会得到几乎一样的图。
-                prompt:
-                  smartProductCount > 1
-                    ? `${smartProductPrompt}\n这是第 ${index + 1} / ${smartProductCount} 个方案，请在保持上述要求不变的前提下，更换背景的构图角度、道具搭配与光影氛围，与其他方案形成明显差异。`
-                    : smartProductPrompt,
-                targetWidth: detail.customWidth || ratioSize.w,
-                targetHeight: detail.customHeight || ratioSize.h,
-                /**
-                 * 风格参考图。
-                 *
-                 * ⚠️ 必须真的接到 referencedAssets 上，光在 detail 里加字段是死的
-                 *    —— 「透传 ≠ 被消费」是本项目踩过十一次的坑。
-                 *    链路：referencedAssets → ai.ts 的 images → 服务端
-                 *    image-generation.ts 的 referenceImages → VOD FileInfos（:5466）。
-                 *
-                 * ⚠️ title 写成「style reference」而不是空：服务端会把
-                 *    `Reference image N: <title>` 拼进提示词，留空就变成
-                 *    "untitled"，模型不知道这张图该当什么用。
-                 *    但注意 "annotation mask" 是保留 title（服务端按它挑蒙版），
-                 *    这里绝不能撞名。
-                 */
-                referencedAssets: detail.referenceSrc
-                  ? [{ src: detail.referenceSrc, title: "style reference" }]
-                  : [],
-              });
-              collected.push(...single.images.slice(0, 1));
-            } catch (error) {
-              lastError = error;
-            }
-          }
-          if (collected.length === 0) {
-            throw lastError instanceof Error
-              ? lastError
-              : new Error("图片模型未返回可用图片");
-          }
-          return { images: collected };
-        },
-      });
-    };
-    window.addEventListener("smart-commerce-product-create", handler);
-    return () =>
-      window.removeEventListener("smart-commerce-product-create", handler);
-  }, [
-    edgesRef,
-    pushHistory,
-    requireAiAccess,
-    runDerivedImageGeneration,
-    screenToFlowPosition,
-    setNodes,
-  ]);
 
   const undoCanvas = useCallback(() => {
     const previous = historyRef.current.pop();
