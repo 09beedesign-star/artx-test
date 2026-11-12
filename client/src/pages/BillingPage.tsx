@@ -119,10 +119,10 @@ export default function BillingPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="min-w-0">
                 <div
-                  className="mb-3 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-3 py-1 type-caption"
+                  className="mb-3 inline-flex items-center gap-2 type-caption"
                   style={{
-                    background: "rgba(22,22,22,0.14)",
-                    color: purple,
+                    color: "#161616",
+                    fontWeight: 640,
                   }}
                 >
                   <Crown size={13} />
@@ -183,18 +183,21 @@ export default function BillingPage() {
                     <div
                       key={item.label}
                       className="rounded-[var(--radius-lg-design)] border p-3"
-                      style={{ background: panelStrong, borderColor: border }}
+                      style={{
+                        background: isDark ? "#F2F2F2" : "#161616",
+                        borderColor: isDark ? "rgba(255,255,255,0.12)" : "#161616",
+                      }}
                     >
                       <div
                         className="mb-2 flex items-center gap-1.5 type-caption"
-                        style={{ color: faint }}
+                        style={{ color: isDark ? "rgba(22,22,22,0.55)" : "rgba(255,255,255,0.55)" }}
                       >
                         <Icon size={13} />
                         {item.label}
                       </div>
                       <div
                         style={{
-                          color: text,
+                          color: isDark ? "#161616" : "#FFFFFF",
                           fontSize: 18,
                           fontWeight: 680,
                           transform:

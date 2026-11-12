@@ -67,26 +67,27 @@ export default function PaymentMethodPicker({
                 className="flex min-h-[64px] min-w-[188px] items-center gap-3 rounded-[var(--radius-lg-design)] border px-3 py-2 text-left transition-all"
                 style={{
                   background: active
-                    ? activeSurface(method.id === "wechat")
-                    : panelStrong,
+                    ? (isDark ? "#F2F2F2" : "#161616")
+                    : (isDark ? "rgba(255,255,255,0.08)" : "#161616"),
                   borderColor: active
-                    ? activeBorder(method.id === "wechat")
-                    : border,
-                  color: text,
+                    ? (isDark ? "rgba(255,255,255,0.3)" : "#161616")
+                    : (isDark ? "rgba(255,255,255,0.12)" : "#161616"),
+                  color: isDark ? "#161616" : "#FFFFFF",
+                  opacity: active ? 1 : 0.72,
                 }}
               >
                 <PaymentMethodLogo method={method.id} />
                 <span className="min-w-0">
                   <span
                     className="block type-caption"
-                    style={{ color: text, fontWeight: 720 }}
+                    style={{ color: isDark ? "#161616" : "#FFFFFF", fontWeight: 720 }}
                   >
                     {method.label}
                   </span>
                   <span
                     className="mt-0.5 block type-caption"
                     style={{
-                      color: faint,
+                      color: isDark ? "rgba(22,22,22,0.55)" : "rgba(255,255,255,0.65)",
                       letterSpacing: 0,
                       textTransform: "none",
                     }}
