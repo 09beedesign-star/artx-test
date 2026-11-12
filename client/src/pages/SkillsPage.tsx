@@ -251,7 +251,6 @@ export default function SkillsPage() {
                         <Boxes size={15} />
                         <span className="text-sm font-medium">分类覆盖</span>
                       </div>
-                      <span className="text-xs" style={{ color: faint }}>商店结构</span>
                     </div>
                     <div className="grid gap-2 md:grid-cols-2">
                       {visibleCategories.map((category, index) => {
@@ -418,9 +417,9 @@ export default function SkillsPage() {
                       data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsQuickLoad : undefined}
                       className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
                       style={{
-                        background: skillButtonPurple,
-                        color: "white",
-                        boxShadow: skillButtonPurpleShadow,
+                        background: "var(--artx-action-bg)",
+                        color: "var(--artx-action-text)",
+                        border: "1px solid var(--artx-action-border)",
                       }}
                     >
                       快速加载
