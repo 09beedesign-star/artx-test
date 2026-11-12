@@ -62,4 +62,19 @@ describe("BillingPage payment method selection", () => {
     expect(logo).toContain("fill={fill}");
     expect(logo).not.toContain("currentColor");
   });
+
+  it("未选中是白底灰线框，选中是黑底白字，不用透明度区分", () => {
+    /**
+     * 【2026-11-12】未选中原本是「黑底 + opacity 0.72」洗出来的深灰，
+     * 区分度差，且 opacity 作用于整棵子树会把品牌彩色 logo 一起洗淡。
+     * 现在两态各自独立配色，文字色也必须跟着 active 翻 —— 否则白底白字。
+     */
+    const picker = read("PaymentMethodPicker.tsx");
+    expect(picker).toContain('const surfaceIdle = isDark ? "rgba(255,255,255,0.08)" : "#FFFFFF"');
+    expect(picker).toContain('const borderIdle = isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)"');
+    expect(picker).toContain("active ? surfaceActive : surfaceIdle");
+    expect(picker).toContain("active ? titleActive : titleIdle");
+    expect(picker).toContain("active ? hintActive : hintIdle");
+    expect(picker).not.toContain("opacity: active");
+  });
 });

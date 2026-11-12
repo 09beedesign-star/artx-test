@@ -159,6 +159,7 @@ export default function BillingDialog({
         </div>
 
         <div className="flex flex-col gap-4 p-5">
+          {/* 【2026-11-12】与 /billing 页保持同一套：三项统计只显示文字，不带容器。 */}
           <div className="grid gap-2 sm:grid-cols-3">
             {[
               { label: "当前计划", value: currentPlan, icon: Crown },
@@ -172,11 +173,7 @@ export default function BillingDialog({
             ].map(item => {
               const Icon = item.icon;
               return (
-                <div
-                  key={item.label}
-                  className="rounded-[var(--radius-lg-design)] border p-3"
-                  style={{ background: panelStrong, borderColor: border }}
-                >
+                <div key={item.label}>
                   <div
                     className="mb-2 flex items-center gap-1.5 type-caption"
                     style={{ color: faint }}

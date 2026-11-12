@@ -167,6 +167,8 @@ export default function BillingPage() {
                 </button>
               </div>
 
+              {/* 【2026-11-12】统计卡只保留文字：去掉黑色圆底容器。
+                  ⚠️ 文字色必须同时反转为深色，否则白字落在页面浅底上不可见。 */}
               <div className="grid min-w-[min(100%,520px)] grid-cols-3 gap-2">
                 {[
                   { label: "当前计划", value: currentPlan, icon: Crown },
@@ -180,24 +182,17 @@ export default function BillingPage() {
                 ].map(item => {
                   const Icon = item.icon;
                   return (
-                    <div
-                      key={item.label}
-                      className="rounded-[var(--radius-lg-design)] border p-3"
-                      style={{
-                        background: isDark ? "#F2F2F2" : "#161616",
-                        borderColor: isDark ? "rgba(255,255,255,0.12)" : "#161616",
-                      }}
-                    >
+                    <div key={item.label}>
                       <div
                         className="mb-2 flex items-center gap-1.5 type-caption"
-                        style={{ color: isDark ? "rgba(22,22,22,0.55)" : "rgba(255,255,255,0.55)" }}
+                        style={{ color: isDark ? "rgba(255,255,255,0.58)" : "rgba(22,22,22,0.56)" }}
                       >
                         <Icon size={13} />
                         {item.label}
                       </div>
                       <div
                         style={{
-                          color: isDark ? "#161616" : "#FFFFFF",
+                          color: isDark ? "#FFFFFF" : "#161616",
                           fontSize: 18,
                           fontWeight: 680,
                           transform:
