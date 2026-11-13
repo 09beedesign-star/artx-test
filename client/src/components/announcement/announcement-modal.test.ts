@@ -126,11 +126,11 @@ describe("AnnouncementModal 阻断语义", () => {
     // 正向锚点：onClick 确实存在（右下角按钮）
     expect(code).toContain("onClick={onClose}");
     /**
-     * ⚠️ 口径变更（2026-09-19）：右上角 ✕ 已移除，关闭出口从 2 个减为 1 个。
-     *    所以这里必须是**恰好 1 个** —— 多出来的就是遮罩或其它意外出口。
+     * ⚠️ 口径变更（2026-11-13）：右上角 ✕ 按用户要求加回，关闭出口 = 右下按钮 + 右上 icon。
+     *    所以这里必须是**恰好 2 个** —— 多出来的就是遮罩或其它意外出口。
      */
     const onClickCount = (code.match(/onClick=\{onClose\}/g) ?? []).length;
-    expect(onClickCount).toBe(1);
+    expect(onClickCount).toBe(2);
   });
 });
 
@@ -571,7 +571,20 @@ describe("公告弹窗轮播", () => {
     expect(code).toContain('marginLeft: "auto"');
     // 各页叠放同一网格单元，容器高度=最长页
     expect(code).toContain('gridArea: "1 / 1"');
-    // 仍只有一个关闭出口
-    expect((code.match(/onClick=\{onClose\}/g) ?? []).length).toBe(1);
+    // 关闭出口仍只有右下按钮 + 右上 icon 两个
+    expect((code.match(/onClick=\{onClose\}/g) ?? []).length).toBe(2);
+  });
+
+  it("右上角关闭 icon：两种版式都渲染，且绝对定位在右上角", () => {
+    const code = readCode(MODAL_PATH);
+    expect(code).toContain('aria-label="关闭公告"');
+    expect(code).toContain('from "lucide-react"');
+    // 卡片版 + 整图版各调用一次
+    expect((code.match(/\{renderCloseIcon\(\)\}/g) ?? []).length).toBe(2);
+    const def = code.slice(code.indexOf("const renderCloseIcon"), code.indexOf("const renderCloseIcon") + 800);
+    expect(def).toContain("onClick={onClose}");
+    expect(def).toContain('position: "absolute"');
+    expect(def).toMatch(/top: \d+/);
+    expect(def).toMatch(/right: \d+/);
   });
 });

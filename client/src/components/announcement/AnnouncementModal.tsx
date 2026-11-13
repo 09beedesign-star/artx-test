@@ -1,5 +1,6 @@
 import { useEffect, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import { MAX_ANNOUNCEMENT_SLIDES, type AnnouncementContent, type AnnouncementSlide } from "./announcement-content";
 import { useAnnouncementCarousel } from "./use-announcement-carousel";
 
@@ -155,6 +156,42 @@ export default function AnnouncementModal({
   );
 
   /*
+   * 右上角关闭 icon（2026-11-13 用户要求加回）= 第二个关闭出口。
+   * 两种版式共用这一个定义 → onClick={onClose} 在文件里恰好出现 2 次
+   * （右下按钮 + 右上 ✕），遮罩依旧不绑点击。
+   */
+  const renderCloseIcon = () => (
+    <button
+      type="button"
+      aria-label="关闭公告"
+      data-announcement-close-icon="true"
+      onClick={onClose}
+      style={{
+        position: "absolute",
+        top: 18,
+        right: 18,
+        zIndex: 2,
+        width: 28,
+        height: 28,
+        padding: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.28)",
+        background: "rgba(0,0,0,0.55)",
+        color: "#fff",
+        cursor: "pointer",
+        transition: "background 0.15s ease",
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(0,0,0,0.8)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.55)")}
+    >
+      <X size={16} strokeWidth={2.2} aria-hidden="true" />
+    </button>
+  );
+
+  /*
    * ── 整图模式（2026-10-13：nano banana 2.1 弹窗）──
    * 设计稿是一张成品图，弹窗 = 图本身：无白描边、无内边距、无额外文字。
    * 真按钮（唯一关闭出口）绝对定位叠在图中绿色按钮上，按百分比走，随图缩放。
@@ -210,6 +247,7 @@ export default function AnnouncementModal({
             fontSize: 13,
             fontWeight: 700,
           })}
+          {renderCloseIcon()}
         </div>
       </div>,
       document.body
@@ -250,6 +288,7 @@ export default function AnnouncementModal({
           boxSizing: "border-box",
         }}
       >
+        {renderCloseIcon()}
         {/*
           图片区（设计稿里的灰色占位块）—— 轮播：各页图片叠放，只切透明度。
           锚点不放在图上，放在弹窗底部行（绿色小标签右侧、靠右下角），见下方。
