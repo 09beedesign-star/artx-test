@@ -43,12 +43,12 @@ describe("灵感模板一键同款默认模型（2026-11-13 用户拍板：≤90
       canvas.indexOf("const handleInspirationSameStyle = useCallback("),
       canvas.indexOf("const setComposerTextSegment = useCallback(")
     );
-    expect(handler).toContain("applyInspirationSameStyleModel();");
+    expect(handler).toContain("applyInspirationSameStyleModel(imported);");
     const handoff = canvas.slice(
       canvas.indexOf("if (!payload.shouldAutoRun) {"),
       canvas.indexOf("if (!submittedText) return;")
     );
-    expect(handoff).toContain("applyInspirationSameStyleModel();");
+    expect(handoff).toContain("applyInspirationSameStyleModel(imported);");
     expect(lib).toContain("model: INSPIRATION_SAME_STYLE_MODEL_ID");
   });
 });

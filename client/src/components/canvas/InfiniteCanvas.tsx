@@ -627,6 +627,10 @@ import {
 } from "@/components/inspiration/InspirationPromptDialog";
 import { resolveSameStyleImageSrc } from "@/lib/inspiration-same-style";
 import {
+  buildSameStyleImagePrompt,
+  isSameStyleGeneration,
+} from "@/lib/same-style-generation";
+import {
   callLLM,
   editImageWithPrompt,
   enhanceImageToHd,
@@ -22084,7 +22088,19 @@ function CanvasAssistantPanel({
    * 账号白名单里没有该模型时不硬切（会被 resolveAllowedAiModelId 立刻改回且关掉 auto
    * 后落到白名单首个模型，比不切更糟），保持原状。
    */
-  const applyInspirationSameStyleModel = useCallback(() => {
+  /**
+   * 本会话里由「一键同款」导入的模板图（画布节点 id）。
+   * handleSubmit 用它判定 isSameStyleGeneration → 走 ≤90 积分的同款计费护栏
+   * （见 client/src/lib/same-style-generation.ts）。
+   */
+  const sameStyleReferenceIdsRef = useRef<Set<string>>(new Set());
+  const applyInspirationSameStyleModel = useCallback((
+    importedReferences: ReadonlyArray<{ id: string }> = []
+  ) => {
+    // 先登记模板图：即便账号白名单没有同款模型，也不影响登记（判定时会再核模型）。
+    importedReferences.forEach(reference =>
+      sameStyleReferenceIdsRef.current.add(reference.id)
+    );
     const target = availableAssistantImageModels.find(
       model => model.id === INSPIRATION_SAME_STYLE_MODEL_ID && !model.disabled
     );
@@ -22799,7 +22815,7 @@ function CanvasAssistantPanel({
           toast("同款参考图未能载入", { description: "你可以在画布上手动添加这张参考图" });
           return;
         }
-        applyInspirationSameStyleModel();
+        applyInspirationSameStyleModel(imported);
         focusComposerSegment();
         toast("已导入同款参考图", { description: "在提示词框里写下你的想法，即可生成同款" });
       } catch {
@@ -24822,7 +24838,7 @@ function CanvasAssistantPanel({
           }
           if (imported.length > 0) {
             // 不自动跑的交接目前只有「一键同款」一种来源（inspiration-same-style.ts）。
-            applyInspirationSameStyleModel();
+            applyInspirationSameStyleModel(imported);
             focusComposerSegment();
           }
         })();
@@ -25356,9 +25372,23 @@ function CanvasAssistantPanel({
       // 但下面会把结果强制钳到 image，绝不允许回落成文字。
       const needsReferenceComprehension =
         hasExplicitImageModel && submittedImages.length > 0;
+      /**
+       * 「一键同款」计费护栏（2026-11-14 用户要求：同款单张 ≤ 90 积分）。
+       * 命中时：不走大模型路由（省 20）、不下发目标像素（锁 1k）、不走 image_edit（避开 180），
+       * 单张恒为同款模型单价 70（带长期记忆 75）。详见 same-style-generation.ts 头注释。
+       */
+      const isSameStyle = isSameStyleGeneration({
+        modelTab: assistantModelTab,
+        autoMode: assistantAutoMode,
+        imageModelId: assistantImageModel?.id,
+        referenceIds: assistantImages.map(asset => asset.id),
+        sameStyleReferenceIds: sameStyleReferenceIdsRef.current,
+        hasActiveSkill: Boolean(activeSkill),
+      });
       const shouldRouteIntent =
-        (assistantAutoMode && availableAssistantImageModels.length > 0) ||
-        (assistantModelTab === "image" && (!hasExplicitImageModel || needsReferenceComprehension));
+        !isSameStyle &&
+        ((assistantAutoMode && availableAssistantImageModels.length > 0) ||
+          (assistantModelTab === "image" && (!hasExplicitImageModel || needsReferenceComprehension)));
       const routedDecision = shouldRouteIntent
         ? await routeCreativeIntent({
             module: "right-ai-assistant",
@@ -25394,9 +25424,21 @@ function CanvasAssistantPanel({
         ? {
             ...(routedDecision ?? {}),
             mode: "image" as const,
-            imagePrompt:
-              (routedDecision?.mode === "image" ? routedDecision.imagePrompt : undefined)?.trim() ||
-              routedPrompt,
+            imagePrompt: isSameStyle
+              ? buildSameStyleImagePrompt({
+                  // 只取用户手写的文字段：composerText 会把图片标签拼成「引用图：xxx」混进需求里。
+                  userText: composerSegments
+                    .map(segment => (segment.type === "text" ? segment.text : ""))
+                    .join(" ")
+                    .trim(),
+                  referenceTitles: assistantImages.map(asset => asset.title || ""),
+                  templateIndexes: assistantImages.flatMap((asset, index) =>
+                    sameStyleReferenceIdsRef.current.has(asset.id) ? [index] : []
+                  ),
+                  extraContext: annotationContext,
+                })
+              : (routedDecision?.mode === "image" ? routedDecision.imagePrompt : undefined)?.trim() ||
+                routedPrompt,
           }
         : routedDecision;
 
@@ -25463,7 +25505,9 @@ function CanvasAssistantPanel({
           imagePrompt,
         });
         const generationId = `right-assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const shouldEditTargetReference = assistantImages.length >= 2;
+        // 同款模式下多图也不走 image_edit（按能力固定价 180），改按文生图 + 参考图（模型单价 70）。
+        const shouldEditTargetReference =
+          !isSameStyle && assistantImages.length >= 2;
         /**
          * 底图下标由 claude 的语义裁决决定，不再写死最后一张。
          * decision 缺失（比如没走大模型分支）时 resolveTargetReferenceIndex
@@ -25596,10 +25640,12 @@ function CanvasAssistantPanel({
             : promptSizeDecision.ratio,
           // 提示词提到尺寸时才带像素；没提到就是 undefined，
           // 服务端行为与改造前逐位一致（不做任何多余重编码）。
-          targetWidth: shouldEditTargetReference
+          // ⚠️ 同款模式不下发目标像素：服务端只在收到 targetWidth/Height 时才向上游要
+          // 2K/4K（image-generation.ts hasPromptSizeTarget），出图档位 1k → 70 积分不翻倍。
+          targetWidth: shouldEditTargetReference || isSameStyle
             ? undefined
             : promptSizeDecision.width,
-          targetHeight: shouldEditTargetReference
+          targetHeight: shouldEditTargetReference || isSameStyle
             ? undefined
             : promptSizeDecision.height,
           count: requestedImageCount,
