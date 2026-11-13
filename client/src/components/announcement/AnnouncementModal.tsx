@@ -1,6 +1,7 @@
 import { useEffect, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { AnnouncementContent } from "./announcement-content";
+import { MAX_ANNOUNCEMENT_SLIDES, type AnnouncementContent, type AnnouncementSlide } from "./announcement-content";
+import { useAnnouncementCarousel } from "./use-announcement-carousel";
 
 /**
  * ── 公共公告弹窗（常驻骨架）──────────────────────────────────────
@@ -73,6 +74,22 @@ const VISUALLY_HIDDEN: CSSProperties = {
 /** 蒙层遮罩 —— 压暗首页背景，与弹窗形成层次 */
 const MASK_SCRIM = "rgba(0,0,0,0.55)";
 
+/**
+ * 轮播各页叠放在同一个网格单元里（gridArea 1/1），只切 opacity / visibility。
+ *
+ * ⚠️ 为什么不只渲染当前页：各页正文长短不一，只渲染当前页的话卡片高度每 5 秒跳一次，
+ *    右下角「我知道了」也跟着上下跳（用户要求不改变弹窗布局）。
+ *    叠放后容器高度 = 最长那一页，切换时布局纹丝不动。
+ * ⚠️ 非当前页必须 visibility:hidden + aria-hidden，否则读屏会把几页文字连着念。
+ */
+const STACK_CELL: CSSProperties = { gridArea: "1 / 1" };
+const slideLayer = (active: boolean): CSSProperties => ({
+  ...STACK_CELL,
+  opacity: active ? 1 : 0,
+  visibility: active ? "visible" : "hidden",
+  transition: "opacity 0.45s ease, visibility 0.45s ease",
+});
+
 export interface AnnouncementModalProps {
   open: boolean;
   content: AnnouncementContent;
@@ -85,6 +102,22 @@ export default function AnnouncementModal({
   content,
   onClose,
 }: AnnouncementModalProps) {
+  /* 轮播页：没配 slides 时退回顶层字段组成的单页 */
+  const slides: AnnouncementSlide[] =
+    content.slides && content.slides.length > 0
+      ? content.slides.slice(0, MAX_ANNOUNCEMENT_SLIDES)
+      : [
+          {
+            image: content.image,
+            imageAlt: content.imageAlt,
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
+            tag: content.tag,
+          },
+        ];
+  const { index: activeSlide, goTo } = useAnnouncementCarousel(slides.length, open);
+
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     const previousOverflow = document.body.style.overflow;
@@ -217,75 +250,97 @@ export default function AnnouncementModal({
           boxSizing: "border-box",
         }}
       >
-        {/* 图片区（设计稿里的灰色占位块） */}
-        <img
-          src={content.image}
-          alt={content.imageAlt}
-          style={{
-            display: "block",
-            width: "100%",
-            aspectRatio: "865 / 308",
-            objectFit: "cover",
-            borderRadius: 8,
-            background: "#3a3a3a",
-          }}
-        />
+        {/*
+          图片区（设计稿里的灰色占位块）—— 轮播：各页图片叠放，只切透明度。
+          锚点不放在图上，放在弹窗底部行（绿色小标签右侧、靠右下角），见下方。
+        */}
+        <div style={{ position: "relative", display: "grid" }}>
+          {slides.map((slide, i) => (
+            <img
+              key={`img-${i}`}
+              src={slide.image}
+              alt={slide.imageAlt}
+              aria-hidden={i === activeSlide ? undefined : true}
+              draggable={false}
+              style={{
+                ...slideLayer(i === activeSlide),
+                display: "block",
+                width: "100%",
+                aspectRatio: "865 / 308",
+                objectFit: "cover",
+                borderRadius: 8,
+                background: "#3a3a3a",
+              }}
+            />
+          ))}
+        </div>
 
         {/*
-          标题行 = 主标题 + 右侧副标题（设计稿：ArtXStudio + 全场景图片生成Agent）。
+          标题 + 正文：各页叠放在同一网格单元，容器高度 = 最长那一页，切换时布局不跳。
 
+          标题行 = 主标题 + 右侧副标题（设计稿：ArtXStudio + 全场景图片生成Agent）。
           ⚠️ 用 baseline 对齐，不是 center：两者字号差近一倍（22 vs 13），
              center 会让小字浮在大字的视觉中线上方，看着像没对齐。
           ⚠️ flexWrap 必须允许换行：副标题在窄视口会和主标题挤在一行放不下，
              不允许换行的话它会被压缩甚至溢出卡片，且不报任何错。
+          ⚠️ aria-labelledby 只能指向一个元素 → 只有当前页的 h2 带 id。
         */}
-        <div
-          style={{
-            margin: "14px 0 0",
-            display: "flex",
-            alignItems: "baseline",
-            flexWrap: "wrap",
-            columnGap: 10,
-            rowGap: 2,
-          }}
-        >
-          <h2
-            id="artx-announcement-title"
-            style={{
-              margin: 0,
-              fontSize: 22,
-              lineHeight: 1.2,
-              fontWeight: 700,
-              color: "#fff",
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {content.title}
-          </h2>
-          {content.subtitle ? (
-            <span
-              style={{
-                fontSize: 13,
-                lineHeight: 1.2,
-                fontWeight: 500,
-                color: "rgba(255,255,255,0.88)",
-              }}
-            >
-              {content.subtitle}
-            </span>
-          ) : null}
-        </div>
+        <div style={{ display: "grid" }}>
+          {slides.map((slide, i) => {
+            const isActive = i === activeSlide;
+            return (
+              <div key={`text-${i}`} aria-hidden={isActive ? undefined : true} style={slideLayer(isActive)}>
+                <div
+                  style={{
+                    margin: "14px 0 0",
+                    display: "flex",
+                    alignItems: "baseline",
+                    flexWrap: "wrap",
+                    columnGap: 10,
+                    rowGap: 2,
+                  }}
+                >
+                  <h2
+                    id={isActive ? "artx-announcement-title" : undefined}
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      lineHeight: 1.2,
+                      fontWeight: 700,
+                      color: "#fff",
+                      letterSpacing: "-0.01em",
+                    }}
+                  >
+                    {slide.title}
+                  </h2>
+                  {slide.subtitle ? (
+                    <span
+                      style={{
+                        fontSize: 13,
+                        lineHeight: 1.2,
+                        fontWeight: 500,
+                        color: "rgba(255,255,255,0.88)",
+                      }}
+                    >
+                      {slide.subtitle}
+                    </span>
+                  ) : null}
+                </div>
 
-        <p
-          style={{
-            margin: "11px 0 0",
-            fontSize: 12,
-            lineHeight: 1.75,
-            color: "rgba(255,255,255,0.72)",
-          }}
-        >
-          {content.body}
-        </p>
+                <p
+                  style={{
+                    margin: "11px 0 0",
+                    fontSize: 12,
+                    lineHeight: 1.75,
+                    color: "rgba(255,255,255,0.72)",
+                  }}
+                >
+                  {slide.body}
+                </p>
+              </div>
+            );
+          })}
+        </div>
 
         {/* 底部：左下角小标签 + 右下角绿色主按钮（唯一关闭出口） */}
         <div
@@ -297,53 +352,112 @@ export default function AnnouncementModal({
             marginTop: 18,
           }}
         >
-          {/* tag 为 null 时用占位撑开，保证按钮始终靠右且高度不塌 */}
-          {content.tag ? (
+          {/* 小标签同样按页叠放；tag 为 null 的页用空占位，保证按钮始终靠右且高度不塌 */}
+          <div style={{ display: "grid", minWidth: 0 }}>
+            {slides.map((slide, i) => {
+              const isActive = i === activeSlide;
+              return slide.tag ? (
+                <div
+                  key={`tag-${i}`}
+                  aria-hidden={isActive ? undefined : true}
+                  style={{
+                    ...slideLayer(isActive),
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 3,
+                      alignSelf: "stretch",
+                      minHeight: 30,
+                      borderRadius: 2,
+                      background: ACCENT_LIME,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        fontStyle: "italic",
+                        color: ACCENT_LIME,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {slide.tag.line1}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: ACCENT_LIME,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {slide.tag.line2}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <span key={`tag-${i}`} style={STACK_CELL} />
+              );
+            })}
+          </div>
+
+          {/* 轮播锚点：底部行、绿色小标签右侧靠右下角（2026-11-13 用户指定位置） */}
+          {slides.length > 1 ? (
             <div
+              role="tablist"
+              aria-label="公告轮播切换"
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
-                minWidth: 0,
+                gap: 2,
+                flexShrink: 0,
+                marginLeft: "auto",
               }}
             >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 3,
-                  alignSelf: "stretch",
-                  minHeight: 30,
-                  borderRadius: 2,
-                  background: ACCENT_LIME,
-                  flexShrink: 0,
-                }}
-              />
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    fontStyle: "italic",
-                    color: ACCENT_LIME,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  {content.tag.line1}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: ACCENT_LIME,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  {content.tag.line2}
-                </div>
-              </div>
+              {slides.map((slide, i) => {
+                const selected = i === activeSlide;
+                return (
+                  <button
+                    key={`dot-${i}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-label={`第 ${i + 1} 张：${slide.imageAlt}`}
+                    onClick={() => goTo(i)}
+                    style={{
+                      /* 按钮本身是 6px 高的透明热区外壳，视觉圆点画在内层 span 上 */
+                      display: "flex",
+                      alignItems: "center",
+                      height: 18,
+                      padding: "0 2px",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        display: "block",
+                        width: selected ? 18 : 6,
+                        height: 6,
+                        borderRadius: 999,
+                        background: selected ? "#fff" : "rgba(255,255,255,0.35)",
+                        transition: "width 0.3s ease, background 0.3s ease",
+                      }}
+                    />
+                  </button>
+                );
+              })}
             </div>
-          ) : (
-            <span />
-          )}
+          ) : null}
 
           {renderActionButton({
             flexShrink: 0,

@@ -373,7 +373,8 @@ describe("弹窗内容与骨架分离", () => {
          肉眼就是「没对齐」，同样零报错。
     */
     const code = readCode(MODAL_PATH);
-    expect(code).toContain("content.subtitle ?");
+    // 2026-11-13 改轮播后按页渲染，变量名从 content 变为 slide，语义不变
+    expect(code).toContain("slide.subtitle ?");
     expect(code).toContain('alignItems: "baseline"');
     // 窄视口要能换行，否则副标题被压缩甚至溢出卡片
     expect(code).toContain('flexWrap: "wrap"');
@@ -388,10 +389,18 @@ describe("弹窗内容与骨架分离", () => {
       ⚠️ 这里锁的是**当期 id**。下次换文案时这条断言会失败，
          那不是回归，是提醒你「id 也要跟着改」。改完把这行更新即可。
     */
+    /*
+      2026-11-13 改为通用判据（换弹窗已脚本化）：不再写死当期 id，
+      而是要求「当期 id 不在已下线列表里」+「历史期 id 都在列表里」。
+    */
     const code = readCode(CONTENT_PATH);
-    expect(code).toContain('id: "artxstudio-nanobanana21-2026-10"');
-    // 上一期 id 不得残留
-    expect(code).not.toContain('id: "artxstudio-agent25-2026-09"');
+    const current = code.match(/\n  id: "([^"]+)"/)?.[1];
+    expect(current).toBeTruthy();
+    const retiredBlock = code.slice(code.indexOf("RETIRED_ANNOUNCEMENT_IDS"), code.indexOf("];", code.indexOf("RETIRED_ANNOUNCEMENT_IDS")));
+    const retired = [...retiredBlock.matchAll(/"([^"]+)"/g)].map(m => m[1]);
+    expect(retired).toContain("artxstudio-agent25-2026-09");
+    expect(retired).toContain("artxstudio-nanobanana21-2026-10");
+    expect(retired).not.toContain(current);
   });
 
   it("图片走 import 而非 public 绝对路径（换图必须换 URL）", () => {
@@ -495,5 +504,74 @@ describe("与新手引导互斥", () => {
   it("首页在卸载时复位闸门", () => {
     const code = readCode(HOME_PATH);
     expect(code).toContain("return () => setAnnouncementBlocking(false);");
+  });
+});
+
+/* ───────────────── 轮播（2026-11-13）───────────────── */
+const CAROUSEL_PATH = "client/src/components/announcement/use-announcement-carousel.ts";
+
+describe("公告弹窗轮播", () => {
+  it("当期配置：首页与顶层字段一致，每页文案齐全且不过长（通用，不绑具体期）", () => {
+    const code = readCode(CONTENT_PATH);
+    // 生成区标记在注释里，readCode 会剥掉 → 用原文判断；标记丢了换弹窗脚本无处下手
+    const raw = readFileSync(resolve(REPO_ROOT, CONTENT_PATH), "utf-8");
+    for (const mark of ["imports:begin", "imports:end", "slides:begin", "slides:end"]) {
+      expect(raw).toContain(`@announcement-${mark}`);
+    }
+    expect(code).toContain("...SLIDE_1,");
+    const blocks = code.split(/const SLIDE_\d+: AnnouncementSlide = \{/).slice(1);
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
+    for (const block of blocks) {
+      expect(block).toMatch(/title: "[^"]+"/);
+      const body = (block.match(/body:([\s\S]*?),\n  tag:/)?.[1] ?? "")
+        .split("\n").map(l => (l.match(/"([^"]*)"/)?.[1] ?? "")).join("");
+      const len = body.replace(/\s/g, "").length;
+      expect(len).toBeGreaterThan(0);
+      // 超过 160 字会把卡片撑高、超出矮屏
+      expect(len).toBeLessThanOrEqual(160);
+    }
+  });
+
+  it("锚点数量 = 页数，最多 5 个", () => {
+    const content = readCode(CONTENT_PATH);
+    expect(content).toContain("export const MAX_ANNOUNCEMENT_SLIDES = 5;");
+    const m = content.match(/slides: \[(SLIDE_[^\]]*)\]/);
+    expect(m).not.toBeNull();
+    const n = m![1].split(",").map(v => v.trim()).filter(Boolean).length;
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(n).toBeLessThanOrEqual(5);
+    const modal = readCode(MODAL_PATH);
+    expect(modal).toContain("content.slides.slice(0, MAX_ANNOUNCEMENT_SLIDES)");
+    // 锚点按 slides 逐个生成
+    expect(modal).toContain("{slides.map((slide, i) => {\n                const selected");
+  });
+
+  it("每 5 秒自动切换，且计时器只换页、永不关闭弹窗", () => {
+    const code = readCode(CAROUSEL_PATH);
+    expect(code).toContain("ANNOUNCEMENT_AUTOPLAY_MS = 5000");
+    expect(code).toContain("setInterval");
+    expect(code).toContain("clearInterval");
+    expect(code).not.toContain("onClose");
+    // 手动点锚点后重新计时：index 必须在计时器 effect 的依赖里
+    expect(code).toContain("[active, count, index]");
+  });
+
+  it("底部右下角锚点：可点击跳页，且布局叠放不跳动", () => {
+    const code = readCode(MODAL_PATH);
+    expect(code).toContain('role="tablist"');
+    expect(code).toContain("onClick={() => goTo(i)}");
+    expect(code).toContain("aria-selected={selected}");
+    // 锚点位于底部行：在绿色小标签之后、关闭按钮之前（不在图片上）
+    const tagAt = code.indexOf("slide.tag.line2");
+    const dotsAt = code.indexOf('role="tablist"');
+    const btnAt = code.lastIndexOf("{renderActionButton(");
+    expect(tagAt).toBeGreaterThan(-1);
+    expect(dotsAt).toBeGreaterThan(tagAt);
+    expect(btnAt).toBeGreaterThan(dotsAt);
+    expect(code).toContain('marginLeft: "auto"');
+    // 各页叠放同一网格单元，容器高度=最长页
+    expect(code).toContain('gridArea: "1 / 1"');
+    // 仍只有一个关闭出口
+    expect((code.match(/onClick=\{onClose\}/g) ?? []).length).toBe(1);
   });
 });

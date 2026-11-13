@@ -1,4 +1,7 @@
-import homeAnnouncement002Banner from "@/assets/announcement/home-announcement-002-banner.jpg";
+/* @announcement-imports:begin —— 本区由 scripts/apply-announcement.mjs 生成，换弹窗请用脚本，别手改 */
+import slide1Image from "@/assets/announcement/home-announcement-003-image26-banner.jpg";
+import slide2Image from "@/assets/announcement/home-announcement-002-banner.jpg";
+/* @announcement-imports:end */
 
 /**
  * ── 公共弹窗的「可变内容」唯一事实源 ──────────────────────────────
@@ -21,6 +24,36 @@ import homeAnnouncement002Banner from "@/assets/announcement/home-announcement-0
  *    浏览器会继续用旧缓存，出现「图换了但用户看到的还是旧图」。
  */
 
+/**
+ * 轮播里的一页 = 图片 + 标题 + 副标题 + 正文 + 左下角小标签。
+ * 布局完全复用常规卡片版式，只是这几块内容按页切换。
+ */
+export interface AnnouncementSlide {
+  image: string;
+  imageAlt: string;
+  title: string;
+  subtitle?: string | null;
+  body: string;
+  tag: { line1: string; line2: string } | null;
+}
+
+/**
+ * 轮播页数（= 右下角锚点数量）上限。1 页时不显示锚点、不自动轮播。
+ * ⚠️ 超过上限的页会被弹窗静默截掉 → 由测试 + 换弹窗脚本双重拦截，别直接放宽。
+ */
+export const MAX_ANNOUNCEMENT_SLIDES = 5;
+
+/**
+ * 已下线的历史期 id。新一期的 id 不得与其中任何一个相同（否则看过的老用户不弹）。
+ * 换弹窗脚本会自动把被替换掉的 id 追加进来。
+ */
+/* @announcement-retired:begin */
+export const RETIRED_ANNOUNCEMENT_IDS: readonly string[] = [
+  "artxstudio-agent25-2026-09",
+  "artxstudio-nanobanana21-2026-10",
+];
+/* @announcement-retired:end */
+
 export interface AnnouncementContent {
   /** 这一期公告的唯一标识；换内容必须换 id，否则老用户看不到 */
   id: string;
@@ -39,6 +72,12 @@ export interface AnnouncementContent {
   /** 右下角绿色按钮文案 */
   actionLabel: string;
   /**
+   * 轮播页（2026-11-13）。传了且多于 1 页时：每 5 秒自动切换，底部右下角出现锚点可手动切；最多 MAX_ANNOUNCEMENT_SLIDES 页。
+   * 不传时退回只显示上面那一组 image/title/body/tag（单页）。
+   * ⚠️ 换期时第一页应与上面的顶层字段保持一致（顶层字段仍被整图模式和无障碍文本使用）。
+   */
+  slides?: AnnouncementSlide[];
+  /**
    * 整图模式：设计稿是一整张成品图（标题/正文/标签都画在图里）时使用。
    * 传了它，弹窗就**只渲染这张图 + 叠在图上的真按钮**，无白描边、无内边距；
    * title/body/tag 只作无障碍文本，不再显示。
@@ -51,13 +90,22 @@ export interface AnnouncementContent {
   } | null;
 }
 
-/* 文案以 Figma「Bk page / 首页弹窗模板」为准逐字照抄，全角标点是设计稿的排版节奏，别改半角 */
-/* 上一期（2026-09-20 agent25）的内容保留在 git 历史；图片 home-announcement-001.png 仍在 assets 里 */
-export const HOME_ANNOUNCEMENT: AnnouncementContent = {
-  /* 2026-10-13 换成 nano banana 2.1 整图弹窗，id 同步换，否则看过上一期的老用户看不到且不报错 */
-  id: "artxstudio-nanobanana21-2026-10",
-  /* 2026-10-14：回到上一版的「图 + 文字」常规卡片版式（480 宽），图只取原整图上半部分的照片区 */
-  image: homeAnnouncement002Banner,
+/* @announcement-slides:begin —— 本区由 scripts/apply-announcement.mjs 生成，换弹窗请用脚本，别手改 */
+/* 2026-11-13：image2.6 上架页（image2.6_sunburst_high 生成，主打 SVG 矢量 / GIF 动图）在前，原 nano banana 2.1 页在后 */
+const SLIDE_1: AnnouncementSlide = {
+  image: slide1Image,
+  imageAlt: "ArtXStudio x image2.6 正上架",
+  title: "ArtXStudio",
+  subtitle: "x image2.6 正上架",
+  body:
+    "image2.6 正式上架 ArtXStudio，带来两项独家新能力：一键导出 SVG 矢量文件，" +
+    "无限放大不失真，可直接放进设计稿；一句话生成 GIF 动图，9 帧流畅循环，让画面动起来。" +
+    "双风格、三档画质按需切换，海报、图标、表情包一站搞定。",
+  tag: { line1: "SVG 矢量 · GIF 动图", line2: "image2.6 独家，一句话直出" },
+};
+
+const SLIDE_2: AnnouncementSlide = {
+  image: slide2Image,
   imageAlt: "ArtX Studio x nano banana 2.1",
   title: "ArtXStudio",
   subtitle: "x nano banana 2.1",
@@ -66,7 +114,15 @@ export const HOME_ANNOUNCEMENT: AnnouncementContent = {
     "六大核心能力：指令精准跟随、角色一致性保持、多语言文字清晰渲染、14 图多参考融合、" +
     "联网实时搜索、4K 全比例输出（支持 8:1 超宽/超长）。所想即所见，所说即所得。",
   tag: { line1: "4k 直出，更便宜", line2: "中文识别更精准，一致性更高" },
+};
+
+export const HOME_ANNOUNCEMENT: AnnouncementContent = {
+  /* 换内容必须换 id，否则看过上一期的老用户看不到且不报错 */
+  id: "artxstudio-image26-2026-11",
+  ...SLIDE_1,
   actionLabel: "我知道了",
+  slides: [SLIDE_1, SLIDE_2],
   /* 整图模式已停用：整图里的小字在 480 宽下只有约 6px，看不清 */
   fullImage: null,
 };
+/* @announcement-slides:end */
