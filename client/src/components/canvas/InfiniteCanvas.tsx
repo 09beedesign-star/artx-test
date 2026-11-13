@@ -22096,6 +22096,15 @@ function CanvasAssistantPanel({
   }, [availableAssistantImageModels]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /**
+   * 等待气泡的文案口径（2026-11-14 用户要求）：
+   *   - "image" → 「正在生成图片中...」：出图一律用这句；
+   *   - "text"  → 「AI 正在回复中...」：只在选了大语言模型、或意图路由判定要走大语言模型时出现。
+   * 提交时先按已知信息预判，拿到路由结论后再校正（见 handleSubmit / 首页交接分支）。
+   * ⚠️ 共用一个气泡的出口有三条（handleSubmit / runAssistantCapability / 首页交接），
+   * 每条都必须设置，漏一条 = 那条路径永远显示上一轮的残值。
+   */
+  const [submittingKind, setSubmittingKind] = useState<"image" | "text">("image");
+  /**
    * 「停止」的中止句柄。
    *
    * 【2026-09-15】此前「停止」只做 setIsSubmitting(false)，
@@ -24341,6 +24350,7 @@ function CanvasAssistantPanel({
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, userMessage]);
+    setSubmittingKind("text");
     setIsSubmitting(true);
     try {
       const result = await callLLM({
@@ -24833,6 +24843,12 @@ function CanvasAssistantPanel({
       };
       setMessages(prev => [...prev, userMessage]);
       setComposerSegments([createAssistantTextSegment(submittedText)]);
+      // 预判：首页选了图片模型或带了参考图 → 出图；否则等路由结论再校正。
+      setSubmittingKind(
+        isSupportedImageModelId(payload.model) || handoffReferences.length > 0
+          ? "image"
+          : "text"
+      );
       setIsSubmitting(true);
 
       window.setTimeout(async () => {
@@ -24899,6 +24915,7 @@ function CanvasAssistantPanel({
                   )?.trim() || submittedText,
               }
             : routedDecision!;
+          setSubmittingKind(decision.mode === "image" ? "image" : "text");
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -25093,6 +25110,15 @@ function CanvasAssistantPanel({
      * 画布侧的 dispatch-failed 处理会识别计费拦截、直接撤掉占位框。
      */
     let pendingImageTask: ImageGeneratorPayload | null = null;
+    // 预判：技能 / 注释点 / 图片模型页签（含 auto）都是出图；只有手动选了大语言模型才是文字回复。
+    // auto 下的最终结论在路由之后校正（见 shouldReplyWithText 处）。
+    setSubmittingKind(
+      activeSkill ||
+        submittedAnnotations.length > 0 ||
+        assistantModelTab === "image"
+        ? "image"
+        : "text"
+    );
     setIsSubmitting(true);
     const context = contextLabel || "当前画布";
     const hasVisualReferences =
@@ -25380,6 +25406,12 @@ function CanvasAssistantPanel({
           (decision?.mode !== "image" &&
             decision?.mode !== "reference_search" &&
             !hasAnnotationReferences));
+      setSubmittingKind(
+        !shouldReplyWithText &&
+          (decision?.mode === "image" || hasAnnotationReferences)
+          ? "image"
+          : "text"
+      );
       if (shouldReplyWithText) {
         const result = await callLLM({
           module: "right-ai-assistant-chat",
@@ -26375,7 +26407,9 @@ function CanvasAssistantPanel({
                       color: sub,
                     }}
                   >
-                    <span className="type-caption">AI 正在回复中...</span>
+                    <span className="type-caption" data-assistant-pending-kind={submittingKind}>
+                      {submittingKind === "image" ? "正在生成图片中..." : "AI 正在回复中..."}
+                    </span>
                   </div>
                 </div>
               )}
