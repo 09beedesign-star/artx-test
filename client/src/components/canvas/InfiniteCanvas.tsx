@@ -6782,6 +6782,12 @@ function AssetNodeComponent({
    * 节点重挂或换图时自然重置，临时故障恢复后刷新即可复原。
    */
   const [isImageExpired, setIsImageExpired] = useState(false);
+  /**
+   * 🔒 2026-11-13 用户：「这几个按钮不应该是在图片生成之后才出现的吗？」
+   * 节点内悬浮按钮（再次生成 / GIF / SVG）必须等**这张图真的加载出来**才允许出现，
+   * 只看 displaySrc 非空不够：生成刚结束时 src 已就位但图还在下载，按钮会先浮在空框上。
+   */
+  const [loadedDisplaySrc, setLoadedDisplaySrc] = useState("");
   const resizeDragRef = useRef<{
     startClientX: number;
     startClientY: number;
@@ -7395,6 +7401,8 @@ function AssetNodeComponent({
    * 都是固定像素，节点窄（竖图常只有 ~180px 宽）时按钮能占半张图。
    * 按节点短边等比缩小，宽节点（≥360）保持原尺寸，下限 0.55 防止小到点不中。
    */
+  const isDisplayImageReady =
+    Boolean(displaySrc) && loadedDisplaySrc === displaySrc && !isImageExpired;
   const nodeOverlayControlScale = Math.min(
     1,
     Math.max(0.55, Math.min(dispW, dispH) / 360)
@@ -7423,6 +7431,8 @@ function AssetNodeComponent({
    */
   const handleImageNaturalSizeLoaded = useCallback(
     (event: React.SyntheticEvent<HTMLImageElement>) => {
+      // 图真正加载出来了 → 节点内悬浮按钮才允许出现（必须在下面任何 early return 之前）。
+      setLoadedDisplaySrc(event.currentTarget.getAttribute("src") || "");
       if (hasActiveCrop || hasFrameClipInsets) return;
       if (Math.abs(((rotation % 360) + 360) % 360) % 180 !== 0) return;
       const el = event.currentTarget;
@@ -10447,6 +10457,8 @@ function AssetNodeComponent({
             />
           )}
           {regenerateDetail &&
+            // 出图成功：等图真正加载完才出现；失败/中断：没有图，它就是唯一的重试入口，照常显示。
+            (isDisplayImageReady || isGenerationFailed || isGenerationInterrupted) &&
             !isGeneratingImage &&
             !isRemovingBackground &&
             !isErasingImage &&
@@ -10464,9 +10476,10 @@ function AssetNodeComponent({
                   padding: "0 9px",
                   zIndex: 115,
                   transformOrigin: "bottom right",
-                  background: "var(--artx-action-bg)",
-                  color: "var(--artx-action-fg)",
-                  border: "1px solid var(--artx-action-border)",
+                  // 🔒 2026-11-13 用户：「再次生成按钮，我希望他保持黑色」——不走透明线框 token。
+                  background: "#161616",
+                  color: "#ffffff",
+                  border: "1px solid rgba(255,255,255,0.18)",
                   opacity: hoveringAssetNode ? 1 : 0,
                   transform: hoveringAssetNode
                     ? `translateY(0) scale(${nodeOverlayControlScale})`
@@ -10506,7 +10519,7 @@ function AssetNodeComponent({
           🔒 2026-11-13 用户反馈「生成时图片下面两个黑方框 + 生成后两个奇怪的巨大按钮」：
           生成/处理中、没图时一律不渲染；平时与「再次生成」一样只在悬停时出现，并随节点等比缩放。
         */}
-        {displaySrc && !isAiProcessingImage && !isExtractingText && (
+        {isDisplayImageReady && !isAiProcessingImage && !isExtractingText && (
           <div
             data-image-deliverable-actions
             className="absolute nodrag nopan transition-all duration-150"

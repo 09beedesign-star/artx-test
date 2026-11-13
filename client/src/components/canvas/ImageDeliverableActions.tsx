@@ -50,10 +50,10 @@ function DeliverableButton({
   const label = getImageDeliverableLabel(deliverable);
   const icon = deliverable === "gif" ? <Film size={12} strokeWidth={2.2} /> : <Layers size={12} strokeWidth={2.2} />;
   // 🔒 2026-11-13：旧版浅色模式 bg 与文字同为 #161616 → 只剩两个黑方框、字完全看不见。
-  // 改为与「再次生成」同一套动作按钮 token，保证两种主题都可读。
+  // 与「再次生成」同款：黑底白字（用户要求再次生成保持黑色，这两个跟它一致）。
   void isDark;
-  const bg = "var(--artx-action-bg)";
-  const hoverBg = "rgba(255,255,255,0.18)";
+  const bg = "#161616";
+  const hoverBg = "#2a2a2a";
 
   return (
     <button
@@ -70,13 +70,13 @@ function DeliverableButton({
         height: 30,
         padding: "0 9px",
         borderRadius: "var(--radius-md-design)",
-        border: "1px solid var(--artx-action-border)",
+        border: "1px solid rgba(255,255,255,0.18)",
         fontSize: 11,
         fontWeight: 700,
         lineHeight: 1,
         cursor: "pointer",
         background: bg,
-        color: "var(--artx-action-fg)",
+        color: "#ffffff",
         transition: "background 0.12s",
         whiteSpace: "nowrap",
       }}
