@@ -14,20 +14,6 @@ const serverSource = readFileSync(
   "utf8"
 );
 
-/** 截取智能电商产品图事件处理器的函数体，把断言限制在这一段里。 */
-function smartCommerceHandler() {
-  const start = canvasSource.indexOf(
-    "const detail = (event as CustomEvent<SmartCommerceProductCreateDetail>)"
-  );
-  expect(start, "找不到智能电商产品图的事件处理器").toBeGreaterThan(-1);
-  const end = canvasSource.indexOf(
-    'window.addEventListener("smart-commerce-product-create"',
-    start
-  );
-  expect(end).toBeGreaterThan(start);
-  return canvasSource.slice(start, end);
-}
-
 describe("智能电商产品图：默认背景 / 提示词生图 双模式", () => {
   it("对话框提供可随时来回切换的两个模式，默认停在模板模式", () => {
     // 用户诉求是「动态切换」，所以必须是显式开关，
@@ -82,61 +68,37 @@ describe("智能电商产品图：默认背景 / 提示词生图 双模式", () 
   });
 });
 
-describe("画布侧：按模式分流到不同生图链路", () => {
-  it("提示词模式固定使用 gem 图片模型", () => {
-    expect(canvasSource).toContain(
-      'const SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID = normalizeImageModelId("gem")'
-    );
-    const handler = smartCommerceHandler();
-    expect(handler).toContain('const isPromptMode = detail.backgroundMode === "prompt"');
-    expect(handler).toContain(
-      "model: isPromptMode\n          ? SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID\n          : DEFAULT_IMAGE_AI_MODEL_ID"
-    );
+describe("画布侧：智能产品图入口已移除，能力由电商画布页独立承接", () => {
+  /**
+   * 【2026-11-12】用户要求「画布当中的智能产品图板块去掉」，随后又要求
+   * 「彻底清除这段死代码」，所以画布侧的工具栏入口、Dialog 挂载与
+   * smart-commerce-product-create 事件出图引擎已整块删除。
+   *
+   * ⚠️ 这里不是「把测试删掉」：两条断言从两个方向锁住结果 ——
+   *   ① 画布里确实不再残留该链路（防半删 / 防复活成半截）；
+   *   ② 能力本身没丢，电商画布页仍直接调两条独立生图链路。
+   * 「误删服务端能力」与「画布死代码复活」两种变异都会被抓到。
+   */
+  const ecommercePageSource = readFileSync(
+    resolve(here, "../../pages/EcommerceCanvasPage.tsx"),
+    "utf8"
+  );
+
+  it("画布不再持有智能产品图入口、弹窗与事件出图引擎", () => {
+    expect(canvasSource).not.toContain('label: "智能产品图"');
+    expect(canvasSource).not.toContain("SmartCommerceProductDialog");
+    expect(canvasSource).not.toContain('window.addEventListener("smart-commerce-product-create"');
+    expect(canvasSource).not.toContain("SmartCommerceProductCreateDetail");
+    expect(canvasSource).not.toContain("SMART_COMMERCE_PROMPT_IMAGE_MODEL_ID");
+    expect(canvasSource).not.toContain("createProductBackground");
   });
 
-  it("提示词模式不得携带 backgroundTaskInput", () => {
-    /**
-     * 这条是整个改动最容易踩的坑：
-     * runDerivedImageGeneration 里 backgroundTaskInput 的优先级**高于** run()，
-     * 一旦带上，请求会被后台任务链路接管并回到 PicWish 分支，
-     * 下面精心写的 run() 根本不会执行——表现为「切了提示词模式但出图跟没切一样」。
-     */
-    const handler = smartCommerceHandler();
-    expect(handler).toContain("backgroundTaskInput: isPromptMode\n          ? undefined");
-  });
-
-  it("提示词模式走 editImageWithPrompt 而不是 createProductBackground", () => {
-    const handler = smartCommerceHandler();
-    const editIndex = handler.indexOf("await editImageWithPrompt({");
-    const createIndex = handler.indexOf("return createProductBackground({");
-    expect(editIndex, "提示词模式需要调用 editImageWithPrompt").toBeGreaterThan(-1);
-    expect(createIndex, "模板模式仍然保留 createProductBackground").toBeGreaterThan(-1);
-    // 模板分支是 early return，必须排在提示词分支之前
-    expect(createIndex).toBeLessThan(editIndex);
-    expect(handler).toContain("if (!isPromptMode) {");
-  });
-
-  it("多张生成靠循环，且每张追加差异化指令", () => {
-    // editImageWithPrompt 一次只回 1 张（服务端没有 count 参数），
-    // 想要 N 张必须循环 N 次，不能指望传个 count 了事。
-    const handler = smartCommerceHandler();
-    expect(handler).toContain("for (let index = 0; index < smartProductCount; index += 1)");
-    expect(handler).toContain("smartProductCount > 1");
-    expect(handler).toContain("与其他方案形成明显差异");
-  });
-
-  it("单张失败不中断整批，全失败才抛错", () => {
-    const handler = smartCommerceHandler();
-    expect(handler).toContain("let lastError: unknown = null");
-    expect(handler).toContain("if (collected.length === 0) {");
-    expect(handler).toContain("throw lastError instanceof Error");
-  });
-
-  it("提示词模式不把固定的 style 文案当风格名喂给模型", () => {
-    // 提示词模式下 style 恒为「自定义提示词背景」，
-    // 拼进提示词只会污染描述，真正的用户意图在 detail.prompt 里。
-    const handler = smartCommerceHandler();
-    expect(handler).toContain("!isPromptMode && detail.style ? `背景风格：${detail.style}` : \"\"");
+  it("电商画布页仍保留产品图 / 带货图文两条独立生图链路", () => {
+    // 产品图模式：PicWish r-background（smart_background 计费）
+    expect(ecommercePageSource).toContain("createProductBackground");
+    // 带货图文模式：image_edit 逐张生成
+    expect(ecommercePageSource).toContain("editImageWithPrompt");
+    expect(ecommercePageSource).toContain("waitForImageGenerationTask");
   });
 });
 
