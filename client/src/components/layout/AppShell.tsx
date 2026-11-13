@@ -26,8 +26,13 @@ import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
-  Users, LayoutGrid, Layers, FileText, Zap,
+  Users, LayoutGrid, Layers, FileText, Zap, UserRound, LogOut,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -97,7 +102,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [location, navigate] = useLocation();
   const search = useSearch();
   const { resolvedTheme } = useTheme();
-  const { isAuthenticated, user, openLoginModal } = useAuth();
+  const { isAuthenticated, user, openLoginModal, logout } = useAuth();
   const { openBilling } = useBillingDialog();
   const onboarding = useOnboarding();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -106,6 +111,15 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [inviteOpen, setInviteOpen] = useState(false);
   /** 侧边栏折叠：收起后只保留 icon，再次点击展开。 */
   const [navCollapsed, setNavCollapsed] = useState(false);
+  /** 个人中心入口的小菜单（个人中心页 / 退出登录）与退出二次确认。 */
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const handleConfirmLogout = () => {
+    setLogoutConfirmOpen(false);
+    logout();
+    navigate("/");
+    toast.success("已退出登录");
+  };
   /*
     ⚠️ 打开邀请弹窗的唯一入口。
     不要在别处直接调 setInviteOpen(true) —— 引导的触发挂在这里，
@@ -941,6 +955,45 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
     );
   }
 
+  /*
+    侧栏收起/展开按钮（2026-11-13 用户要求挪到侧栏右上角、「开始创作」上方）。
+    ⚠️ 展开态它在面板里；面板收起后宽度为 0、里面的东西全看不到，
+       所以收起态必须在 icon 栏顶部（Logo 下方）再放一个「展开」，否则收起后再也打不开。
+       两处只会同时出现一个（由 navCollapsed 决定），共用这一个渲染函数。
+  */
+  const renderNavToggle = (placement: "panel" | "rail") => (
+    <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-nav-toggle={placement}
+          onClick={() => setNavCollapsed(v => !v)}
+          aria-label={navCollapsed ? "展开导航面板" : "收起导航面板"}
+          className={`flex items-center justify-center rounded-lg transition-all ${placement === "rail" ? "mb-1 h-9 w-9" : "h-7 w-7"}`}
+          style={{ color: isDark ? "#666" : "#aaa" }}
+          onMouseEnter={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = isDark ? "#ccc" : "#555";
+            el.style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)";
+          }}
+          onMouseLeave={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = isDark ? "#666" : "#aaa";
+            el.style.background = "transparent";
+          }}
+        >
+          {navCollapsed
+            ? <PanelLeftOpen size={16} strokeWidth={1.5} />
+            : <PanelLeftClose size={16} strokeWidth={1.5} />
+          }
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side={placement === "rail" ? "right" : "bottom"} sideOffset={8}>
+        {navCollapsed ? "展开导航面板" : "收起导航面板"}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: mainBg }}>
 
@@ -967,6 +1020,9 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>返回首页</TooltipContent>
         </Tooltip>
+
+        {/* 收起态才出现：面板没了，展开入口放在 Logo 正下方 */}
+        {navCollapsed && renderNavToggle("rail")}
 
         {/* Primary nav icons */}
         <IconRailBtn icon={Home}       label="首页"      path="/"                  tourId={TOUR_ANCHORS.navHome} />
@@ -995,28 +1051,6 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           }}
         />
 
-        {/* Panel toggle */}
-        <Tooltip delayDuration={SIDEBAR_TOOLTIP_DELAY}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setNavCollapsed(v => !v)}
-              aria-label={navCollapsed ? "展开导航面板" : "收起导航面板"}
-              className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg transition-all"
-              style={{ color: isDark ? "#666" : "#aaa" }}
-              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#ccc" : "#555")}
-              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = isDark ? "#666" : "#aaa")}
-            >
-              {navCollapsed
-                ? <PanelLeftOpen size={16} strokeWidth={1.5} />
-                : <PanelLeftClose size={16} strokeWidth={1.5} />
-              }
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            {navCollapsed ? "展开导航面板" : "收起导航面板"}
-          </TooltipContent>
-        </Tooltip>
       </div>
 
       {/* ── Column 2: Middle Nav Panel (220px, collapsible) ── */}
@@ -1032,7 +1066,11 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           overflow: "hidden",
         }}
       >
-        <div className="flex flex-col h-full overflow-y-auto px-2.5 py-4" style={{ scrollbarWidth: "none" }}>
+        <div className="flex flex-col h-full overflow-y-auto px-2.5 pb-4 pt-2.5" style={{ scrollbarWidth: "none" }}>
+          {/* 收起按钮：面板右上角，「开始创作」正上方 */}
+          <div className="mb-2 flex justify-end">
+            {!navCollapsed && renderNavToggle("panel")}
+          </div>
           {/* New creation button —— 一键建画板并直接进画布，不弹表单 */}
           <button
             type="button"
@@ -1207,15 +1245,20 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             className="mt-auto pt-2 flex flex-col gap-2"
             style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.08)"}` }}
           >
-            {/* 个人中心 */}
+            {/*
+              个人中心入口：已登录 → 弹白色小菜单（个人中心页 / 退出登录）；未登录 → 直接弹登录。
+              ⚠️ 退出必须经二次确认（AlertDialog），不能在菜单里一点就退。
+            */}
+            <Popover open={accountMenuOpen} onOpenChange={open => setAccountMenuOpen(isAuthenticated && open)}>
+            <PopoverTrigger asChild>
             <button
               type="button"
-              onClick={() => {
+              data-account-menu-trigger=""
+              onClick={e => {
                 if (!isAuthenticated) {
+                  e.preventDefault();
                   openLoginModal();
-                  return;
                 }
-                navigate("/profile");
               }}
               className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-all"
               style={{ color: isDark ? "#c8c8cc" : "#3a3a3c" }}
@@ -1247,6 +1290,40 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               </span>
               <ChevronRight size={13} strokeWidth={1.6} style={{ flexShrink: 0, opacity: 0.55 }} />
             </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              sideOffset={8}
+              data-account-menu=""
+              className="w-[196px] rounded-xl border p-1.5"
+              style={{
+                background: "#ffffff",
+                borderColor: "rgba(22,22,22,0.08)",
+                boxShadow: "0 12px 32px rgba(22,22,22,0.14)",
+                color: "#262627",
+              }}
+            >
+              {[
+                { key: "profile", label: "个人中心", Icon: UserRound, danger: false, onSelect: () => { setAccountMenuOpen(false); navigate("/profile"); } },
+                { key: "logout", label: "退出登录", Icon: LogOut, danger: true, onSelect: () => { setAccountMenuOpen(false); setLogoutConfirmOpen(true); } },
+              ].map(({ key, label, Icon, danger, onSelect }) => (
+                <button
+                  key={key}
+                  type="button"
+                  data-account-menu-item={key}
+                  onClick={onSelect}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors"
+                  style={{ fontSize: 13, color: danger ? "#b43131" : "#262627" }}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = danger ? "rgba(180,49,49,0.06)" : "rgba(22,22,22,0.05)")}
+                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "transparent")}
+                >
+                  <Icon size={15} strokeWidth={1.7} />
+                  {label}
+                </button>
+              ))}
+            </PopoverContent>
+            </Popover>
 
             {/* 积分 + 升级 */}
             <div
@@ -1290,6 +1367,40 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {helpDialog}
       {apiKeyDialog}
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+
+      {/* 退出登录二次确认（与 TopBar 同款文案与红色确认键） */}
+      <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <AlertDialogContent
+          data-logout-confirm=""
+          className="w-[min(400px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-6"
+          style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.08)", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}
+        >
+          <AlertDialogHeader className="gap-2 text-center sm:text-center">
+            <AlertDialogTitle style={{ color: "#262627", fontSize: 18, fontWeight: 650 }}>
+              确认退出当前账号？
+            </AlertDialogTitle>
+            <AlertDialogDescription className="leading-6" style={{ color: "#777472", fontSize: 13 }}>
+              退出后将回到未登录首页，你可以随时重新登录并继续当前创作。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 flex-row justify-center gap-3 sm:justify-center">
+            <AlertDialogCancel
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.16)", color: "#262627", fontSize: 13 }}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-logout-confirm-action=""
+              onClick={handleConfirmLogout}
+              className="h-9 min-w-[112px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#b43131", color: "#ffffff", boxShadow: "none", fontSize: 13 }}
+            >
+              确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

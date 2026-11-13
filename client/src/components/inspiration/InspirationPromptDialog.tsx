@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, Sparkles, X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
+import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
 import {
   fetchInspirationFeed,
   getInspirationFallbackFeed,
@@ -9,7 +10,13 @@ import {
 
 /**
  * ⚠️ 与专题页共用同一个类型与同一份远程数据源，不要再在这里手写一份
- *   reference → item 的映射：口径一漂移，「复制的提示词和专题页对不上」零报错。
+ *   reference → item 的映射：口径一漂移，「弹窗里的图和专题页对不上」零报错。
+ *
+ * 🔒 2026-11-13 用户要求：灵感模板的**提示词全站一律不展示**（登录与否都一样）。
+ *   - 网格卡片只显示图片；hover 时图片正中出现「一键同款」。
+ *   - 双击详情也只给图 + 标题 / 描述 + 「一键同款」，不再有提示词框与「复制提示词」。
+ *   - 「一键同款」= 图片进画布 + 挂进提示词输入框做引用，**绝不把 prompt 写进输入框**。
+ *   ⚠️ 本组件拿到的 item 仍带 prompt 字段（数据源共用），只是不渲染 —— 别再把它放回 JSX。
  */
 export type InspirationPromptItem = InspirationFeedItem;
 
@@ -17,8 +24,8 @@ export type InspirationPromptDialogProps = {
   isOpen: boolean;
   isDark: boolean;
   onClose: () => void;
-  onCopy: (item: InspirationPromptItem) => void;
-  onImport?: (item: InspirationPromptItem) => void;
+  /** 「一键同款」：图片进画布 + 输入框引用该图。登录门禁在画布「生成」时触发。 */
+  onApplySameStyle: (item: InspirationPromptItem) => void;
 };
 
 /** 每批渲染条数。弹窗可滚动，分批是为了不一次性塞 900 张卡片进 DOM。 */
@@ -29,8 +36,7 @@ export function InspirationPromptDialog({
   isOpen,
   isDark,
   onClose,
-  onCopy,
-  onImport,
+  onApplySameStyle,
 }: InspirationPromptDialogProps) {
   const [items, setItems] = useState<InspirationPromptItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<InspirationPromptItem | null>(null);
@@ -139,8 +145,7 @@ export function InspirationPromptDialog({
             <Sparkles size={16} style={{ color: text }} />
             <h2 className="type-body-sm truncate" style={{ color: text, fontWeight: 750 }}>
               灵感模板
-              {/* 把真实总量写出来：只给 60 条却不说明「还有 840 条」，用户只会以为模板丢了。 */}
-              <span style={{ color: sub, fontWeight: 500 }}> · 共 {scopedItems.length} 条</span>
+              {/* 🔒 2026-11-13 用户要求：灵感总数不在前端显示（标题、加载更多都不带数字）。 */}
             </h2>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭灵感模板" className="rounded-[var(--radius-pill)] p-2" style={{ color: sub, border: `1px solid ${border}` }}>
@@ -165,11 +170,16 @@ export function InspirationPromptDialog({
                 <span className="inline-flex rounded-[var(--radius-pill)] border px-2.5 py-1 type-caption" style={{ background: "transparent", color: "var(--artx-action-fg)", borderColor: "var(--artx-action-border)" }}>{selectedItem.field}</span>
                 <h3 className="mt-3 type-title-sm" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h3>
                 <p className="mt-2 type-caption leading-5" style={{ color: sub }}>{selectedItem.description}</p>
-                <div className="mt-4 max-h-[36vh] overflow-y-auto rounded-[var(--radius-md-design)] p-4" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text }}>{selectedItem.prompt}</p>
-                </div>
-                <button type="button" onClick={() => onCopy(selectedItem)} className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2.5 type-caption" style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", fontWeight: 700 }}>
-                  <Copy size={14} /> 复制提示词
+                <button
+                  type="button"
+                  data-inspiration-dialog-detail-same-style=""
+                  onClick={() => onApplySameStyle(selectedItem)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2.5 type-caption"
+                  style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", fontWeight: 700 }}
+                  aria-label="一键同款"
+                  title="一键同款"
+                >
+                  一键同款
                 </button>
               </div>
             </div>
@@ -192,19 +202,36 @@ export function InspirationPromptDialog({
                       style={{ transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)" }}
                       loading="lazy"
                     />
-                    {onImport && (
+                    <CardHoverOverlay visible={hoveredItemKey === `${item.rank}-${item.title}`} dim={0.18} />
+                    {/*
+                      hover 时图片正中「一键同款」（与专题页 InspirationCard 同一交互）。
+                      ⚠️ 隐藏态连点击一起关：opacity:0 的元素照样接点击，会误触。
+                    */}
+                    <div
+                      className="absolute inset-0 z-30 flex items-center justify-center"
+                      style={{ pointerEvents: hoveredItemKey === `${item.rank}-${item.title}` ? "auto" : "none" }}
+                    >
                       <button
-                        onClick={(e) => { e.stopPropagation(); onImport(item); }}
-                        className="absolute top-2 right-2 rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                        style={{ color: "var(--artx-action-fg)", background: "var(--artx-action-bg)", border: "1px solid var(--artx-action-border)" }}
-                        aria-label="一键导入灵感"
-                        title="一键导入灵感"
+                        type="button"
+                        data-inspiration-dialog-same-style=""
+                        onClick={event => { event.stopPropagation(); onApplySameStyle(item); }}
+                        onDoubleClick={event => event.stopPropagation()}
+                        className="whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-1.5 text-[12px] font-medium transition-all duration-150 hover:scale-105 active:scale-95"
+                        style={{
+                          background: "#ffffff",
+                          color: "#161616",
+                          boxShadow: "0 2px 12px rgba(0,0,0,0.22)",
+                          opacity: hoveredItemKey === `${item.rank}-${item.title}` ? 1 : 0,
+                          transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1)" : "scale(0.92)",
+                        }}
+                        tabIndex={hoveredItemKey === `${item.rank}-${item.title}` ? 0 : -1}
+                        aria-label="一键同款"
+                        title="一键同款"
                       >
-                        <Download size={14} style={{ color: "var(--artx-action-fg)" }} />
+                        一键同款
                       </button>
-                    )}
+                    </div>
                   </div>
-                  <div className="p-3"><p className="truncate type-body-sm" style={{ color: text, fontWeight: 700 }}>{item.title}</p><p className="mt-1 line-clamp-2 type-caption" style={{ color: sub }}>{item.prompt}</p><p className="mt-2 type-caption" style={{ color: sub }}>双击查看详情</p></div>
                 </article>
               ))}
               {visibleItems.length === 0 && <p className="col-span-full py-12 text-center type-body-sm" style={{ color: sub }}>暂无可用灵感</p>}
@@ -218,7 +245,7 @@ export function InspirationPromptDialog({
                 className="rounded-[var(--radius-pill)] px-5 py-2 type-caption"
                 style={{ border: `1px solid ${border}`, color: text, background: cardBg }}
               >
-                加载更多（已显示 {visibleItems.length} / {scopedItems.length}）
+                加载更多
               </button>
             </div>
           )}

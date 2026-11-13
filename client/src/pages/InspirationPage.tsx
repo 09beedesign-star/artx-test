@@ -6,8 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Copy, Search, Sparkles, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { toast } from "sonner";
+import { Search, Sparkles, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
@@ -286,15 +285,6 @@ export default function InspirationPage() {
     el.scrollBy({ left: dir === "left" ? -scrollAmount : scrollAmount, behavior: "smooth" });
   };
 
-  const copyPrompt = async (prompt: string) => {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast("提示词已复制");
-    } catch {
-      toast("复制失败", { description: "请手动复制提示词内容" });
-    }
-  };
-
   return (
     <div className="flex h-screen flex-col overflow-hidden" style={{ background: bg, position: "relative", transition: "background 0.25s ease" }}>
       {isDark && (
@@ -530,9 +520,7 @@ export default function InspirationPage() {
             <div className="mb-4 flex items-center justify-between">
               <span className="text-[14px] font-semibold" style={{ color: text }}>
                 {searchQuery ? `搜索结果` : "探索灵感"}
-                <span className="ml-2 text-[12px] font-normal" style={{ color: sub }}>
-                  {filteredItems.length} 个
-                </span>
+                {/* 🔒 2026-11-13 用户要求：灵感总数不在前端显示 */}
               </span>
             </div>
 
@@ -672,14 +660,20 @@ export default function InspirationPage() {
                   }
                 />
               </span>
+              {/*
+                2026-11-13 用户要求：灵感模板提示词全站一律不展示（登录与否都不展示），
+                原「复制提示词」图标换成「一键同款」快捷按钮 —— 图进画布 + 挂进输入框引用。
+              */}
               <button
-                onClick={() => copyPrompt(selectedItem.prompt)}
-                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: isDark ? "rgba(34,34,34,0.88)" : "rgba(255,255,255,0.88)", border: `1px solid ${border}`, color: text, backdropFilter: "blur(12px)" }}
-                aria-label="复制提示词"
-                title="复制提示词"
+                type="button"
+                onClick={() => applySameStyle(selectedItem)}
+                className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-1.5 text-[12px] font-medium transition-all hover:scale-105 active:scale-95"
+                style={{ background: "#ffffff", border: `1px solid ${border}`, color: "#161616", backdropFilter: "blur(12px)" }}
+                data-inspiration-detail-same-style=""
+                aria-label="一键同款"
+                title="一键同款"
               >
-                <Copy size={16} />
+                一键同款
               </button>
               <button
                 onClick={() => setSelectedItem(null)}
@@ -736,11 +730,6 @@ export default function InspirationPage() {
                 }}
               >
                 <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
-                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: isDark ? "#222222" : "rgba(0,0,0,0.035)", border: `1px solid ${border}` }}>
-                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: text, letterSpacing: 0, textTransform: "none" }}>
-                    {selectedItem.prompt}
-                  </p>
-                </div>
               </div>
             </div>
           </section>

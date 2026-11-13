@@ -624,6 +624,7 @@ import {
   InspirationPromptDialog,
   type InspirationPromptItem,
 } from "@/components/inspiration/InspirationPromptDialog";
+import { resolveSameStyleImageSrc } from "@/lib/inspiration-same-style";
 import {
   callLLM,
   editImageWithPrompt,
@@ -19070,14 +19071,25 @@ function ImageGeneratorPopover({
 
   useEffect(() => {
     if (position) return;
+    /*
+      ⚠️ 以画布区（不含左侧边栏）为参照，不要用 window.innerWidth/2：
+      画布页常驻左侧边栏后，视口中心 ≠ 画布中心，弹层会压到侧栏上。
+    */
+    const canvasRect =
+      typeof document === "undefined"
+        ? null
+        : document.querySelector("[data-artx-canvas-root]")?.getBoundingClientRect() ?? null;
+    const canvasLeft = canvasRect?.left ?? 0;
+    const canvasRight =
+      canvasRect?.right ?? (typeof window === "undefined" ? 0 : window.innerWidth);
     const nextX =
       typeof window === "undefined"
         ? 0
         : Math.max(
-            8,
+            canvasLeft + 8,
             Math.min(
-              window.innerWidth - canvasRightInset - popoverWidth - 8,
-              window.innerWidth / 2 - 84 - popoverWidth
+              canvasRight - canvasRightInset - popoverWidth - 8,
+              (canvasLeft + canvasRight) / 2 - 84 - popoverWidth
             )
           );
     setPosition(clampPopoverPosition(nextX, 80));
@@ -20658,15 +20670,22 @@ function CanvasTopToolPalette({
 
   return (
     <div
-      className="fixed nodrag nopan"
+      /*
+        ⚠️⚠️ 2026-11-13：必须是 `absolute`（相对画布根 data-artx-canvas-root），不能是 `fixed`。
+        画布页常驻左侧边栏后，`fixed + left:50%` 居中的是**整个视口**，
+        侧栏展开时工具条会偏到画布区左侧、收起时又跳回来，零报错。
+        absolute 以画布容器为参照，侧栏收/展都自动跟着画布区居中。
+      */
+      className="absolute nodrag nopan"
       data-tour-id={TOUR_ANCHORS.canvasToolPalette}
+      data-canvas-top-tool-palette=""
       style={{
         top: 68,
         left: "50%",
         transform: "translateX(calc(-50% - 84px))",
         zIndex: imageGeneratorOpen ? 12000 : 110,
         width: "max-content",
-        maxWidth: "calc(100vw - 160px)",
+        maxWidth: "calc(100% - 160px)",
       }}
       onMouseDown={e => e.stopPropagation()}
     >
@@ -22687,32 +22706,37 @@ function CanvasAssistantPanel({
     [composerSegments, focusComposerSegment, focusTrailingComposerSegment]
   );
 
-  const handleInspirationCopy = useCallback(async (item: InspirationPromptItem) => {
-    try {
-      await navigator.clipboard?.writeText(item.prompt);
-    } catch {
-      // The prompt is still injected into the in-product composer when clipboard access is unavailable.
-    }
-    setComposerSegments([createAssistantTextSegment(item.prompt)]);
-    setInspirationDialogOpen(false);
-    window.dispatchEvent(
-      new CustomEvent("canvas-assistant-external-message", {
-        detail: { role: "user", content: `用户已引用「${item.title}」灵感` },
-      })
-    );
-    toast("已引用灵感", { description: item.title });
-  }, []);
-
-  const handleInspirationImport = useCallback((item: InspirationPromptItem) => {
-    setComposerSegments([createAssistantTextSegment(item.prompt)]);
-    setInspirationDialogOpen(false);
-    window.dispatchEvent(
-      new CustomEvent("canvas-assistant-external-message", {
-        detail: { role: "user", content: `用户已导入「${item.title}」灵感` },
-      })
-    );
-    toast("已导入灵感", { description: item.title });
-  }, []);
+  /**
+   * 画布右侧「灵感模板」弹窗的「一键同款」（2026-11-13 用户要求）。
+   * 行为与首页 / 专题页的一键同款对齐：**图片进画布 + 挂进输入框引用**，
+   * 走与首页交接完全同一条链路（onImportHomeReferences → 粘贴建节点 → referencedAssets）。
+   * 🔒 提示词全站不展示：这里**绝不**把 item.prompt 写进输入框或剪贴板（原来两个 handler 都会注入）。
+   * 🔒 登录门禁不在这里：游客也能导图，点「生成」时 handleSubmit 的 isAuthenticated 判断才拦。
+   */
+  const handleInspirationSameStyle = useCallback(
+    async (item: InspirationPromptItem) => {
+      setInspirationDialogOpen(false);
+      try {
+        const resolved = await resolveSameStyleImageSrc(item.imageUrl);
+        if (!resolved.src) {
+          toast("这张模板没有可用图片", { description: "换一张模板再试试" });
+          return;
+        }
+        const imported = await onImportHomeReferences([
+          { id: `inspiration-${Date.now()}`, title: item.title || "同款参考图", src: resolved.src },
+        ]);
+        if (imported.length === 0) {
+          toast("同款参考图未能载入", { description: "你可以在画布上手动添加这张参考图" });
+          return;
+        }
+        focusComposerSegment();
+        toast("已导入同款参考图", { description: "在提示词框里写下你的想法，即可生成同款" });
+      } catch {
+        toast("导入失败", { description: "请稍后重试，或手动把图片拖进画布" });
+      }
+    },
+    [focusComposerSegment, onImportHomeReferences]
+  );
 
   const setComposerTextSegment = useCallback(
     (segmentId: string, value: string) => {
@@ -25650,8 +25674,7 @@ function CanvasAssistantPanel({
         isOpen={inspirationDialogOpen}
         isDark={isDark}
         onClose={() => setInspirationDialogOpen(false)}
-        onCopy={handleInspirationCopy}
-        onImport={handleInspirationImport}
+        onApplySameStyle={item => void handleInspirationSameStyle(item)}
       />
       <aside
         className="artx-canvas-composer absolute right-3 top-3 bottom-3 flex flex-col nodrag nopan overflow-hidden rounded-[var(--radius-md-design)]"

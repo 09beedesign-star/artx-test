@@ -250,12 +250,21 @@ function AppRoutes() {
         <HomePage />
       </Route>
 
-      {/* 项目画布 — 无侧边栏，画布自带返回按钮 */}
+      {/*
+        项目画布 — 2026-11-13 起常驻左侧边栏（默认展开、可收起）。
+        ⚠️ 这里刻意**不**走 ShellRoutes：那边内容区套了 `.artx-page-fade`，
+           它的 transform 动画会给内部 `position:fixed` 元素造一个新的包含块，
+           画布里一堆 fixed 浮层会整体错位且零报错。
+        ⚠️ 侧边栏是**并排挤占**而不是浮在画布上 —— 画布容器宽度随之收缩，
+           空态三张上传卡、顶部工具条都以画布容器为参照居中，永远不会被侧栏压住。
+      */}
       <Route path="/project/:id">
         {(params) => (
-          <RequireLogin>
+          // 游客也能进画布：灵感「一键同款」要先把图带进画布，登录门禁只卡在「生成」
+          // （CanvasAssistantPanel.handleSubmit / requestAiAuth）。别再套 RequireLogin。
+          <AppShell>
             <Workspace projectId={params.id} />
-          </RequireLogin>
+          </AppShell>
         )}
       </Route>
 
@@ -310,6 +319,8 @@ function normalizeRoutePath(location: string) {
 }
 
 function isPublicGuestPath(path: string) {
+  // 画布对游客开放（生成时才弹登录），见 /project/:id 路由注释。
+  if (path.startsWith("/project/")) return true;
   return publicGuestPaths.includes(path);
 }
 

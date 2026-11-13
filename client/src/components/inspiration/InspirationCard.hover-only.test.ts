@@ -49,7 +49,8 @@ describe("一键同款胶囊：仅 hover 出现", () => {
     expect(pageSource).toContain('aria-label="一键同款"');
     expect(pageSource).not.toContain('label: "复制提示词"');
     expect(pageSource).not.toContain('label: "一键同款"');
-    // 详情弹窗里的复制按钮仍在（不是被误删光的恒绿）
-    expect(pageSource).toContain('aria-label="复制提示词"');
+    // 2026-11-13：提示词全站不展示，详情弹窗右上角复制按钮已换成「一键同款」
+    expect(pageSource).not.toContain('aria-label="复制提示词"');
+    expect(pageSource).toContain("data-inspiration-detail-same-style");
   });
 });

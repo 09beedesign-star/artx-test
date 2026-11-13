@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   ChevronDown,
-  Copy,
   Eye,
   ImagePlus,
   Send,
@@ -23,6 +22,7 @@ import {
   type InspirationFeedItem,
 } from "@/lib/inspiration-feed";
 import { getDisplayLikeCount } from "@/lib/inspiration-reactions";
+import { applyInspirationSameStyle } from "@/lib/inspiration-same-style";
 import { useAuth, rememberInviteCodeFromUrl } from "@/contexts/AuthContext";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
@@ -531,13 +531,13 @@ export default function HomePage() {
     createProjectFromPrompt();
   };
 
-  const copyHomeInspirationPrompt = async (promptText: string) => {
-    try {
-      await navigator.clipboard.writeText(promptText);
-      toast("提示词已复制");
-    } catch {
-      toast("复制失败", { description: "请手动复制提示词内容" });
-    }
+  /**
+   * 首页灵感「一键同款」—— 与灵感专题页 / 个人中心同一份实现。
+   * 游客也能点：建画板 + 图进画布 + 挂进输入框引用，登录门禁只在画布里点「生成」时触发。
+   * ⚠️ 提示词全站不展示（2026-11-13 用户要求），这里也绝不把 prompt 带进画布。
+   */
+  const applyHomeInspirationSameStyle = (item: { title: string; imageUrl: string }) => {
+    void applyInspirationSameStyle({ title: item.title, imageUrl: item.imageUrl }, navigate);
   };
 
   const scrollHomeInspirationPrompt = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -817,6 +817,28 @@ export default function HomePage() {
                   <img src={item.imageUrl} alt={item.title} className="h-auto w-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
                   {/*
+                    hover 时图片正中出现「一键同款」（与专题页卡片一致）。
+                    ⚠️ 隐藏态必须连点击一起关（pointer-events-none），opacity:0 照样接点击。
+                    ⚠️ stopPropagation：否则会顺带打开外层卡片的详情弹窗。
+                  */}
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                    <button
+                      type="button"
+                      data-home-inspiration-same-style=""
+                      onClick={event => {
+                        event.stopPropagation();
+                        applyHomeInspirationSameStyle(item);
+                      }}
+                      onKeyDown={event => event.stopPropagation()}
+                      className="whitespace-nowrap rounded-[var(--radius-pill)] px-4 py-1.5 text-[12px] font-medium transition-transform duration-150 hover:scale-105 active:scale-95"
+                      style={{ background: "#ffffff", color: "#161616", boxShadow: "0 2px 12px rgba(0,0,0,0.22)" }}
+                      aria-label="一键同款"
+                      title="一键同款"
+                    >
+                      一键同款
+                    </button>
+                  </div>
+                  {/*
                     ⚠️ 虚拟创作者头像已按用户要求全站移除（所有场景，不只这一处）。
                     这里保留渐变遮罩 —— 它是图片与下方文字的过渡，和头像无关。
                   */}
@@ -937,14 +959,17 @@ export default function HomePage() {
                   }
                 />
               </span>
+              {/* 原「复制提示词」图标 → 「一键同款」（提示词全站不展示，2026-11-13） */}
               <button
-                onClick={() => copyHomeInspirationPrompt(selectedHomeInspiration.prompt)}
-                className="shrink-0 rounded-[var(--radius-pill)] p-2 transition-all hover:scale-105 active:scale-95"
-                style={{ background: homeInspirationButtonBg, border: `1px solid ${homeInspirationBorder}`, color: homeInspirationButtonIconColor, backdropFilter: "blur(12px)" }}
-                aria-label="复制提示词"
-                title="复制提示词"
+                type="button"
+                onClick={() => applyHomeInspirationSameStyle(selectedHomeInspiration)}
+                className="shrink-0 whitespace-nowrap rounded-[var(--radius-pill)] px-3.5 py-1.5 text-[12px] font-medium transition-all hover:scale-105 active:scale-95"
+                style={{ background: "#ffffff", border: `1px solid ${homeInspirationBorder}`, color: "#161616", backdropFilter: "blur(12px)" }}
+                data-home-inspiration-detail-same-style=""
+                aria-label="一键同款"
+                title="一键同款"
               >
-                <Copy size={16} />
+                一键同款
               </button>
               <button
                 onClick={() => setSelectedHomeInspiration(null)}
@@ -1001,11 +1026,6 @@ export default function HomePage() {
                 }}
               >
                 <p className="type-caption leading-5" style={{ color: homeInspirationButtonIdleColor, letterSpacing: 0, textTransform: "none" }}>{selectedHomeInspiration.description}</p>
-                <div className="mt-4 rounded-[var(--radius-md-design)] p-4" style={{ background: homeInspirationCardBg, border: `1px solid ${homeInspirationBorder}` }}>
-                  <p className="whitespace-pre-wrap type-caption leading-6" style={{ color: homeInspirationText, letterSpacing: 0, textTransform: "none" }}>
-                    {selectedHomeInspiration.prompt}
-                  </p>
-                </div>
               </div>
             </div>
           </section>

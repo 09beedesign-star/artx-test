@@ -10,7 +10,8 @@ describe("AppShell community entry", () => {
   it("places the join-community button above help and opens the QR dialog copy", () => {
     // 三段式布局后底部工具区在 icon 栏里，锚点随之改名。
     const start = appShellSource.indexOf("Bottom utility icons");
-    const end = appShellSource.indexOf("Panel toggle");
+    // 2026-11-13 收起按钮挪到面板右上角，icon 栏底部不再有「Panel toggle」，终点改为第二列起点。
+    const end = appShellSource.indexOf("Column 2: Middle Nav Panel");
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const bottomSection = appShellSource.slice(start, end);

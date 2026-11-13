@@ -13,7 +13,12 @@ export type RawInspirationReference = {
   licenseNote: string;
 };
 
-export type InspirationReference = Omit<RawInspirationReference, "sourceSite" | "sourceUrl" | "licenseNote"> & {
+// 🔒 对外响应不含提示词（prompt / stylePromptEn）：灵感模板提示词全站不展示，接口层也不下发。
+// 内部筛选仍按原始数据里的 prompt 做质量过滤，只是不出现在响应里。
+export type InspirationReference = Omit<
+  RawInspirationReference,
+  "sourceSite" | "sourceUrl" | "licenseNote" | "prompt" | "stylePromptEn"
+> & {
   proxyImageUrl: string;
 };
 
@@ -31,12 +36,16 @@ const ALLOWED_SOURCE_HOSTS = new Set([
   "github.com",
 ]);
 
+/**
+ * ⚠️ 不含 `github.com`：那 18 条是 `github.com/user-attachments/assets/...`，
+ * 要跳转到带签名的临时地址，线上图片代理也取不回来 → 点「一键同款」必弹
+ * 「同款参考图未能载入」（2026-11-13 实测）。用户拍板：直接从灵感列表剔除。
+ */
 const ALLOWED_IMAGE_HOSTS = new Set([
   "image.civitai.com",
   "image.lexica.art",
   "raw.githubusercontent.com",
   "pbs.twimg.com",
-  "github.com",
   "cms-assets.youmind.com",
 ]);
 
@@ -107,8 +116,6 @@ export function getInspirationReferences(input: {
       subcategory: reference.subcategory,
       imageUrl: reference.imageUrl,
       title: reference.title,
-      prompt: reference.prompt,
-      stylePromptEn: reference.stylePromptEn,
       proxyImageUrl: buildInspirationReferenceProxyUrl(reference.imageUrl),
     }));
 

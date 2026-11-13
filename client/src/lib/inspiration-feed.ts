@@ -54,8 +54,7 @@ export type InspirationReference = {
   imageUrl: string;
   proxyImageUrl: string;
   title: string;
-  prompt: string;
-  stylePromptEn: string;
+  // 🔒 后端已不再下发 prompt / stylePromptEn（灵感提示词全站不展示），这里也不再声明。
 };
 
 /** 两页共用的灵感条目结构。 */
@@ -110,7 +109,7 @@ export function toInspirationFeedItem(
     model: "ArtX",
     title: reference.title,
     description: `灵感提示词描述 · ${reference.group} / ${reference.subcategory}`,
-    prompt: reference.prompt || reference.stylePromptEn,
+    prompt: "", // 🔒 提示词不下发也不展示，字段保留只为兼容旧结构
     imageUrl,
     author: "ArtX",
     isExternal: true,
@@ -262,7 +261,8 @@ function loadFallbackFeed(csv: string): InspirationFeedItem[] {
         model: get(record, "model"),
         title,
         description: get(record, "description"),
-        prompt,
+        // 🔒 提示词只用于上面的分类，不进条目（全站不展示）
+        prompt: "",
         imageUrl: get(record, "image_url"),
         author: get(record, "author"),
       };

@@ -5,7 +5,7 @@
  *
  * 验证点：
  * 1. 主容器背景：白天用 var(--design-surface-soft)（与 SkillsPage 同源 token），黑夜 #222222
- * 2. 头部横幅：白天浅灰 rgba(20,20,36,0.06)，黑夜 #222222
+ * 2. 头部横幅：白天纯白 #ffffff（2026-11-13 用户要求与卡片同色），黑夜 #222222
  * 3. 信息卡：白天纯白 rgba(255,255,255,0.92)
  * 4. 顶部操作按钮 / 标签胶囊 / 收藏 tab：走 var(--artx-action-*) 黑色体系（选中实心黑、未选中线框）
  * 5. 表单 label 不允许白字（浅色弹窗上白字不可见）
@@ -27,11 +27,10 @@ describe("ProfilePage 白天模式配色", () => {
     expect(match).toBeTruthy();
   });
 
-  it("头部横幅背景：白天浅灰，不再写死黑色", ({ expect }) => {
-    const match = source.match(
-      /background:\s*isDark\s*\?\s*"#222222"\s*:\s*"rgba\(20,20,36,0\.06\)"/
-    );
-    expect(match).toBeTruthy();
+  it("头部横幅与卡片：白天都是纯白，不再上灰下白两截", ({ expect }) => {
+    expect(source).toContain('<div className="h-40" style={{ background: isDark ? "#222222" : "#ffffff" }} />');
+    expect(source).toContain('const cardBg = isDark ? "#222222" : "#ffffff";');
+    expect(source).not.toContain('"rgba(20,20,36,0.06)" }} />');
   });
 
   it("信息卡：白天为纯白 rgba(255,255,255,0.92)", ({ expect }) => {

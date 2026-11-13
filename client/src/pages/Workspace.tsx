@@ -2,7 +2,9 @@
  * Workspace — Project Canvas Page
  * Design: artx DESIGN.md token system
  * Layout: InfiniteCanvas 满屏（2026-11-10 去掉顶部 bar，内容区从最顶端开始）
- * Note: No AppShell sidebar here — canvas has its own back button
+ * Note: 2026-11-13 起套在 AppShell 里（常驻左侧边栏，默认展开、可收起）。
+ *       ⚠️ 这里必须是 h-full 而不是 h-screen：外层 AppShell 已经是 h-screen，
+ *       再写 h-screen 会在 <main> 内撑出整屏高度，底部控件被裁掉。
  *
  * ⚠️ 顶栏去掉之后，画布标题的改名入口只剩工作台画板卡的「重命名」。
  *    这不是能力丢失，而是收敛到唯一出口：同一块画板的名字本来就有两个入口，
@@ -53,7 +55,7 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
 
   return (
     <div
-      className="flex flex-col h-screen overflow-hidden"
+      className="flex flex-col h-full overflow-hidden"
       style={{
         background: "#0a0a0b",
         position: "relative",

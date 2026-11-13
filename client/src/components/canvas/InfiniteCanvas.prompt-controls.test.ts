@@ -642,14 +642,30 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain("contextImagePrompt: imagePrompt,");
   });
 
-  it("opens the verified inspiration picker from the assistant action and injects copied prompts into chat", () => {
+  /**
+   * 2026-11-13 用户要求：灵感模板提示词全站不展示。
+   * 画布灵感弹窗的「一键同款」= 图进画布 + 输入框引用，**不再注入提示词**。
+   */
+  it("opens the inspiration picker and applies same-style as an image reference, never injecting the prompt", () => {
     const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
 
     expect(source).toContain('label: "灵感模板"');
     expect(source).toContain("InspirationPromptDialog");
     expect(source).toContain('setInspirationDialogOpen(true)');
-    expect(source).toContain('用户已引用「${item.title}」');
-    expect(source).toContain("setComposerSegments([createAssistantTextSegment(item.prompt)])");
+    expect(source).toContain("onApplySameStyle={item => void handleInspirationSameStyle(item)}");
+
+    const handler = source.slice(
+      source.indexOf("const handleInspirationSameStyle = useCallback("),
+      source.indexOf("const setComposerTextSegment = useCallback(")
+    );
+    expect(handler.length).toBeGreaterThan(200);
+    expect(handler).toContain("resolveSameStyleImageSrc(item.imageUrl)");
+    expect(handler).toContain("await onImportHomeReferences([");
+    expect(handler).toContain("focusComposerSegment()");
+    expect(handler).not.toContain("item.prompt");
+    expect(handler).not.toContain("clipboard");
+    expect(source).not.toContain("createAssistantTextSegment(item.prompt)");
+    expect(source).not.toContain("handleInspirationCopy");
   });
 
   it("keeps the image generator on the Figma panel surface and smart commerce on #171717", () => {

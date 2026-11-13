@@ -1072,6 +1072,54 @@ function vitePluginInspirationApi(): Plugin {
   };
 }
 
+/**
+ * 本地 dev 的图片代理 `/api/images/proxy`。
+ *
+ * ⚠️⚠️ 之前 dev 里**根本没注册这条路由**，请求被 SPA fallback 接走、返回 200 + index.html：
+ *    灵感图全部「待加载」，点「一键同款」必弹「同款参考图未能载入」（2026-11-13 用户截图）。
+ *    生产 express（server/index.ts `app.get("/api/images/proxy")`）是好的，只有本地坏。
+ * 本机直连 pbs.twimg.com / raw.githubusercontent.com 等图床不通（需代理），所以这里不自己去拉，
+ * 而是转发给线上同名代理（`ARTX_DEV_IMAGE_PROXY_UPSTREAM` 可覆盖）。
+ * 📌 返回的不是 image/* 一律当失败（502），绝不把 HTML 当图片透传。
+ */
+function vitePluginImageProxyApi(): Plugin {
+  const upstream = (process.env.ARTX_DEV_IMAGE_PROXY_UPSTREAM || "https://www.artxsd.com").replace(/\/+$/, "");
+  return {
+    name: "artx-image-proxy-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/images/proxy", async (req, res) => {
+        try {
+          const url = new URL(req.url || "/", "http://localhost");
+          const target = url.searchParams.get("url")?.trim() || "";
+          if (!/^https?:\/\//i.test(target)) {
+            sendJson(res, 400, { error: "Invalid image url" });
+            return;
+          }
+          const response = await fetch(`${upstream}/api/images/proxy?url=${encodeURIComponent(target)}`, {
+            redirect: "follow",
+            signal: AbortSignal.timeout(30_000),
+          });
+          const contentType = response.headers.get("content-type") || "";
+          if (!response.ok || !contentType.startsWith("image/")) {
+            sendJson(res, response.ok ? 502 : response.status, { error: `Image proxy upstream failed: ${response.status} ${contentType}` });
+            return;
+          }
+          const body = Buffer.from(await response.arrayBuffer());
+          res.writeHead(200, {
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=300",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(body);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Image proxy failed";
+          sendJson(res, 502, { error: message });
+        }
+      });
+    },
+  };
+}
+
 function vitePluginDeveloperApi(): Plugin {
   // Align with server/index.ts getMcpTools() for dev/prod consistency
   const tools = [
@@ -1261,6 +1309,7 @@ const plugins = [
   vitePluginDeveloperApi(),
   vitePluginAiOrchestratorApi(),
   vitePluginInspirationApi(),
+  vitePluginImageProxyApi(),
   vitePluginJsonApi("artx-ai-image-api", "/api/images/generate", generateImages, "Image generation failed"),
   vitePluginJsonApi("artx-ai-remove-background-api", "/api/images/remove-background", removeImageBackground, "Background removal failed"),
   vitePluginJsonApi("artx-ai-edit-image-api", "/api/images/edit", editImageWithPrompt, "Image edit failed"),

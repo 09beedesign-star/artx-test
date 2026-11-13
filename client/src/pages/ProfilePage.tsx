@@ -4,7 +4,7 @@
  */
 import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Heart, KeyRound, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
+import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
 import { useLocation } from "wouter";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
@@ -15,6 +15,16 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ProfileDraft {
   displayName: string;
@@ -96,6 +106,7 @@ export default function ProfilePage() {
   });
   const [editOpen, setEditOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft>(profile);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -149,14 +160,6 @@ export default function ProfilePage() {
     );
   };
 
-  const copyReactionPrompt = async (prompt: string) => {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast("提示词已复制");
-    } catch {
-      toast("复制失败", { description: "请手动复制提示词内容" });
-    }
-  };
 
 
 
@@ -176,7 +179,7 @@ export default function ProfilePage() {
   const textPrimary = isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.88)";
   const textSecondary = isDark ? "rgba(255,255,255,0.69)" : "rgba(20,20,36,0.56)";
   const textMuted = isDark ? "rgba(255,255,255,0.69)" : "rgba(20,20,36,0.36)";
-  const cardBg = isDark ? "#222222" : "rgba(255,255,255,0.76)";
+  const cardBg = isDark ? "#222222" : "#ffffff";
   const border = isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)";
   const panelBg = isDark ? "#222222" : "rgba(255,255,255,0.98)";
   const inputBg = isDark ? "#222222" : "rgba(20,20,36,0.045)";
@@ -257,6 +260,14 @@ export default function ProfilePage() {
     navigate("/");
   };
 
+  // 2026-11-13：主卡片右上角「退出登录」→ 二次确认 → 退出并回首页
+  const handleConfirmLogout = () => {
+    setLogoutConfirmOpen(false);
+    logout();
+    navigate("/");
+    toast.success("已退出登录");
+  };
+
   return (
     <div
       className="flex h-screen flex-col overflow-hidden"
@@ -269,7 +280,7 @@ export default function ProfilePage() {
         <div className="pointer-events-none absolute inset-0 opacity-0" style={{ background: BG_GLOW }} />
         <div className="relative mx-auto max-w-5xl">
           <section
-            className="overflow-hidden rounded-[var(--radius-xl-design)]"
+            className="relative overflow-hidden rounded-[var(--radius-xl-design)]"
             style={{
               background: cardBg,
               border: `1px solid ${border}`,
@@ -277,7 +288,23 @@ export default function ProfilePage() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <div className="h-40" style={{ background: isDark ? "#222222" : "rgba(20,20,36,0.06)" }} />
+            {/* 2026-11-13：白天横幅改纯白，与下方卡片同色，不再出现上灰下白两截 */}
+            <div className="h-40" style={{ background: isDark ? "#222222" : "#ffffff" }} />
+            {/* 2026-11-13：主卡片右上角淡红色退出登录按钮，点击只打开二次确认 */}
+            <button
+              type="button"
+              data-profile-logout=""
+              onClick={() => setLogoutConfirmOpen(true)}
+              className="absolute right-5 top-5 z-10 flex items-center gap-1.5 rounded-[var(--radius-lg-design)] px-3.5 py-1.5 type-caption transition-colors hover:bg-[rgba(180,49,49,0.14)]"
+              style={{
+                background: "rgba(180,49,49,0.08)",
+                border: "1px solid rgba(180,49,49,0.20)",
+                color: "#b43131",
+              }}
+            >
+              <LogOut size={14} />
+              退出登录
+            </button>
             <div className="px-8 pb-8">
               <div className="-mt-12 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
                 <div className="flex items-end gap-5">
@@ -458,7 +485,8 @@ export default function ProfilePage() {
                     sub={inspirationSub}
                     activeBg={inspirationActiveBg}
                     hovered={hoveredReactionId === item.id}
-                    onOpen={() => copyReactionPrompt(item.prompt)}
+                    // 提示词全站不展示（2026-11-13）：点卡片不再复制提示词，改为一键同款
+                    onOpen={() => applyReactionSameStyle(item)}
                     onMouseEnter={() => setHoveredReactionId(item.id)}
                     onMouseLeave={() => setHoveredReactionId(null)}
                     onApplySameStyle={() => applyReactionSameStyle(item)}
@@ -707,6 +735,40 @@ export default function ProfilePage() {
           onConfirm={applyAvatarCrop}
         />
       )}
+
+      {/* 退出登录二次确认（与侧边栏账号菜单同款文案与红色确认键） */}
+      <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <AlertDialogContent
+          data-profile-logout-confirm=""
+          className="w-[min(400px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-6"
+          style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.08)", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}
+        >
+          <AlertDialogHeader className="gap-2 text-center sm:text-center">
+            <AlertDialogTitle style={{ color: "#262627", fontSize: 18, fontWeight: 650 }}>
+              确认退出当前账号？
+            </AlertDialogTitle>
+            <AlertDialogDescription className="leading-6" style={{ color: "#777472", fontSize: 13 }}>
+              退出后将回到未登录首页，你可以随时重新登录并继续当前创作。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 flex-row justify-center gap-3 sm:justify-center">
+            <AlertDialogCancel
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.16)", color: "#262627", fontSize: 13 }}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-profile-logout-confirm-action=""
+              onClick={handleConfirmLogout}
+              className="h-9 min-w-[112px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#b43131", color: "#ffffff", boxShadow: "none", fontSize: 13 }}
+            >
+              确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

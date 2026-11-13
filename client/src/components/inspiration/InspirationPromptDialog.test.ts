@@ -33,7 +33,6 @@ describe("InspirationPromptDialog", () => {
     expect(source).not.toContain("toPromptItem");
 
     expect(source).toContain("onDoubleClick");
-    expect(source).toContain("复制提示词");
     expect(source).toContain("data-inspiration-prompt-dialog");
   });
 
@@ -50,7 +49,9 @@ describe("InspirationPromptDialog", () => {
     expect(source).toContain("scopedItems.slice(0, visibleCount)");
     expect(source).toContain("canLoadMore");
     expect(source).toContain("加载更多");
-    expect(source).toContain("共 {scopedItems.length} 条");
+    // 🔒 2026-11-13 用户要求：灵感总数不在前端显示
+    expect(source).not.toContain("共 {scopedItems.length} 条");
+    expect(source).not.toContain("{scopedItems.length}");
     // 分类切换要回到第一批，否则换分类后还停在上一批的可见数量上。
     expect(source).toContain("setVisibleCount(DIALOG_PAGE_SIZE)");
   });

@@ -212,7 +212,7 @@ describe("计数：必须是确定性基数，不能是随机数", () => {
     const dialogBlock = sliceBetween(
       home,
       "selectedHomeInspiration && (",
-      "复制提示词",
+      "data-home-inspiration-detail-same-style",
       200
     );
     expect(dialogBlock).toContain('kind="like"');
