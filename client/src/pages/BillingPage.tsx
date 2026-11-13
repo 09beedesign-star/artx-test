@@ -64,6 +64,23 @@ export default function BillingPage() {
   const { isDark, bg, panel, panelStrong, border, text, sub, faint, purple, accent } =
     theme;
 
+  /**
+   * 左侧「订阅服务 / 积分充值」tab 与「支付方式」选择按钮同款两态：
+   * 选中 = 实心黑底白字；未选中 = 白底 + 灰色线框 + 深色字。
+   *
+   * ⚠️ 文字色（主标题、副标题、箭头）必须跟着 active 一起翻，
+   * 否则黑底上黑字 / 白底上白字会直接看不见。
+   * 色值与 PaymentMethodPicker 逐项保持一致 —— 改一处就要改另一处。
+   */
+  const surfaceActive = isDark ? "#F2F2F2" : "#161616";
+  const surfaceIdle = isDark ? "rgba(255,255,255,0.08)" : "#FFFFFF";
+  const borderActive = isDark ? "rgba(255,255,255,0.30)" : "#161616";
+  const borderIdle = isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)";
+  const titleActive = isDark ? "#161616" : "#FFFFFF";
+  const titleIdle = isDark ? "#F2F2F2" : "#161616";
+  const hintActive = isDark ? "rgba(22,22,22,0.55)" : "rgba(255,255,255,0.65)";
+  const hintIdle = isDark ? "rgba(255,255,255,0.58)" : "rgba(22,22,22,0.52)";
+
   /*
     URL 是这一页的事实源：左侧 tab 点击会 replace 掉 ?tab=。
     （历史上顶栏的积分/升级按钮也走 navigate 改 URL，那条顶栏已于 2026-11-10 移除；
@@ -225,32 +242,33 @@ export default function BillingPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => switchTab(tab.id)}
-                    className="mb-1 flex w-full items-center justify-between rounded-[var(--radius-lg-design)] px-3 py-3 text-left transition-colors"
+                    className="mb-1 flex w-full items-center justify-between rounded-[var(--radius-lg-design)] border px-3 py-3 text-left transition-all"
                     style={{
-                      background: active
-                        ? "rgba(22,22,22,0.16)"
-                        : "transparent",
-                      color: active ? text : sub,
-                      border: `1px solid ${active ? "rgba(22,22,22,0.34)" : "transparent"}`,
+                      background: active ? surfaceActive : surfaceIdle,
+                      borderColor: active ? borderActive : borderIdle,
+                      color: active ? titleActive : titleIdle,
                     }}
                   >
                     <span className="min-w-0">
                       <span
                         className="block type-caption"
-                        style={{ color: active ? text : sub, fontWeight: 650 }}
+                        style={{ color: active ? titleActive : titleIdle, fontWeight: 650 }}
                       >
                         {tab.label}
                       </span>
                       <span
                         className="mt-1 block truncate"
-                        style={{ color: faint, fontSize: 11 }}
+                        style={{ color: active ? hintActive : hintIdle, fontSize: 11 }}
                       >
                         {tab.description}
                       </span>
                     </span>
                     <ArrowUpRight
                       size={13}
-                      style={{ opacity: active ? 1 : 0.42 }}
+                      style={{
+                        color: active ? titleActive : titleIdle,
+                        opacity: active ? 1 : 0.42,
+                      }}
                     />
                   </button>
                 );

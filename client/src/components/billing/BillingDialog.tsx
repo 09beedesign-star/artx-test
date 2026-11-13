@@ -43,6 +43,15 @@ export default function BillingDialog({
     successDialog,
   } = controller;
   const { panel, panelStrong, border, text, sub, faint, purple } = theme;
+  const isDark = theme.isDark;
+
+  /** 与 PaymentMethodPicker / BillingPage 左侧 tab 同款两态，色值逐项一致。 */
+  const surfaceActive = isDark ? "#F2F2F2" : "#161616";
+  const surfaceIdle = isDark ? "rgba(255,255,255,0.08)" : "#FFFFFF";
+  const borderActive = isDark ? "rgba(255,255,255,0.30)" : "#161616";
+  const borderIdle = isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)";
+  const titleActive = isDark ? "#161616" : "#FFFFFF";
+  const titleIdle = isDark ? "#F2F2F2" : "#161616";
 
   /*
     每次「重新打开」都要回到调用方指定的 tab。
@@ -213,13 +222,11 @@ export default function BillingDialog({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className="h-9 rounded-[var(--radius-md-design)] px-4 type-caption transition-all"
+                  className="h-9 rounded-[var(--radius-md-design)] border px-4 type-caption transition-all"
                   style={{
-                    background: active
-                      ? "rgba(22,22,22,0.16)"
-                      : "transparent",
-                    color: active ? text : sub,
-                    border: `1px solid ${active ? "rgba(22,22,22,0.34)" : "transparent"}`,
+                    background: active ? surfaceActive : surfaceIdle,
+                    borderColor: active ? borderActive : borderIdle,
+                    color: active ? titleActive : titleIdle,
                     fontWeight: active ? 680 : 500,
                   }}
                 >

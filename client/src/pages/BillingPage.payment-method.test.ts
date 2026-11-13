@@ -78,3 +78,50 @@ describe("BillingPage payment method selection", () => {
     expect(picker).not.toContain("opacity: active");
   });
 });
+
+describe("左侧 tab 与支付方式选择按钮同款两态", () => {
+  /**
+   * 【2026-11-13】用户要的是「跟支付方式选择那种一样的样式」——
+   * 选中实心黑底白字、未选中白底灰线框黑字，不是「把选中态文字改黑」。
+   * 这组 tab 有两个出口（页面侧栏 + 画布弹窗），只改一个等于没改。
+   *
+   * 锁法：三处必须逐项使用同一组两态 token；任何一处退回灰底/透明底，
+   * 或某个出口漏改，下面的断言都会红。
+   */
+  const TOKENS = [
+    'const surfaceActive = isDark ? "#F2F2F2" : "#161616"',
+    'const surfaceIdle = isDark ? "rgba(255,255,255,0.08)" : "#FFFFFF"',
+    'const borderActive = isDark ? "rgba(255,255,255,0.30)" : "#161616"',
+    'const borderIdle = isDark ? "rgba(255,255,255,0.16)" : "rgba(20,20,36,0.18)"',
+    'const titleActive = isDark ? "#161616" : "#FFFFFF"',
+    'const titleIdle = isDark ? "#F2F2F2" : "#161616"',
+  ];
+  const strip = (p: string) =>
+    stripSourceComments(readFileSync(p, "utf-8"));
+  const page = () => strip(resolve(__dirname, "BillingPage.tsx"));
+  const dialog = () =>
+    strip(resolve(__dirname, "../components/billing/BillingDialog.tsx"));
+  const picker = () =>
+    strip(resolve(__dirname, "../components/billing/PaymentMethodPicker.tsx"));
+
+  it("支付方式选择器仍是这套色值的事实源", () => {
+    for (const token of TOKENS) expect(picker(), token).toContain(token);
+  });
+
+  it("页面侧栏 tab 逐项同色，且两态都作用在按钮上", () => {
+    const src = page();
+    for (const token of TOKENS) expect(src, token).toContain(token);
+    expect(src).toContain("active ? surfaceActive : surfaceIdle");
+    expect(src).toContain("active ? borderActive : borderIdle");
+    expect(src).toContain("active ? titleActive : titleIdle");
+    expect(src).toContain("active ? hintActive : hintIdle");
+  });
+
+  it("画布弹窗 tab 逐项同色，且两态都作用在按钮上", () => {
+    const src = dialog();
+    for (const token of TOKENS) expect(src, token).toContain(token);
+    expect(src).toContain("active ? surfaceActive : surfaceIdle");
+    expect(src).toContain("active ? borderActive : borderIdle");
+    expect(src).toContain("active ? titleActive : titleIdle");
+  });
+});
