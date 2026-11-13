@@ -62,6 +62,27 @@ export const SMART_TEXT_EDIT_AI_MODEL_ID = "vod-og25-sunburst-high";
 export const NODE_COMPOSER_EDIT_MODEL_ID = "vod-jimeng";
 
 /**
+ * 灵感模板「一键同款」导入画布后，右侧助手自动选中的图片模型（2026-11-13 用户拍板）。
+ *
+ * 用户约束：单张 ≤ 90 积分，范围内挑质量最好的。
+ * ≤ 90 的只有 og25 / og26 的 low（40）与 medium（70）；即梦 120、gem-lite 150、
+ * MJ/qwen 180、kling/si 200、gem/gg36/og 300 全部超线。
+ *
+ * 为什么是 og25 sunburst medium 而不是同价的 og26 medium：
+ * 1. 2026-11-13 真实横评（同一模板图 + 改写提示词，prompt-14 人像 / prompt-20 排版海报，
+ *    og25-medium / og26-medium / og26-flare-medium / gem 各出一张）：四者构图、光线、
+ *    配色、版式保持度肉眼同档，og26 没有拉开差距；
+ * 2. **Free 用户只能用 FREE_PLAN_LOCKED_IMAGE_MODEL_ID（= 本模型）**，选 og26 会让
+ *    免费用户一点生成就被服务端拒（「免费版仅可使用默认模型」）—— 而一键同款的主力人群
+ *    恰恰是免费用户和游客；
+ * 3. og26 的 70 积分是按 og25 报价暂代的，官方价未出。
+ *
+ * ⚠️ 为什么不能继续用 auto：auto + 有引用图会被 preferGemForComposedReferences 改道 gem
+ *（300 积分/张），超出 90 积分上限 3 倍多。
+ */
+export const INSPIRATION_SAME_STYLE_MODEL_ID = "vod-og25-sunburst-medium";
+
+/**
  * auto 模式的 fallback 链，**按优先级从高到低**。
  *
  * 2026-09-12 起为**纯 VOD 链路**：中转站图片模型已全部下线。

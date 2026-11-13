@@ -562,6 +562,7 @@ import {
   DEFAULT_IMAGE_OUTPUT_COUNT,
   getImageModelDefaultOutputCount,
   hasCustomDefaultOutputCount,
+  INSPIRATION_SAME_STYLE_MODEL_ID,
   isSupportedImageModelId,
   SMART_TEXT_EDIT_AI_MODEL_ID,
 } from "@shared/image-models";
@@ -22072,6 +22073,27 @@ function CanvasAssistantPanel({
   useEffect(() => {
     if (availableAssistantImageModels.length === 0) setAssistantAutoMode(false);
   }, [availableAssistantImageModels.length]);
+  /**
+   * 灵感模板「一键同款」落进画布后，右侧助手切到同款专用模型（2026-11-13 用户拍板，
+   * 选型依据见 INSPIRATION_SAME_STYLE_MODEL_ID 注释：≤90 积分/张内质量最好）。
+   *
+   * ⚠️ 必须同时关掉 auto：auto + 引用图会被 preferGemForComposedReferences
+   * 改道 gem（300 积分/张），等于这里白设。
+   * ⚠️ 两个入口（首页/灵感页交接、画布内灵感弹窗）都必须调它 —— 只接一个 = 另一个
+   * 入口静默走 gem（多出口事故族）。
+   * 账号白名单里没有该模型时不硬切（会被 resolveAllowedAiModelId 立刻改回且关掉 auto
+   * 后落到白名单首个模型，比不切更糟），保持原状。
+   */
+  const applyInspirationSameStyleModel = useCallback(() => {
+    const target = availableAssistantImageModels.find(
+      model => model.id === INSPIRATION_SAME_STYLE_MODEL_ID && !model.disabled
+    );
+    if (!target) return false;
+    setAssistantModelTab("image");
+    setAssistantImageModelId(INSPIRATION_SAME_STYLE_MODEL_ID);
+    setAssistantAutoMode(false);
+    return true;
+  }, [availableAssistantImageModels]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /**
    * 「停止」的中止句柄。
@@ -22768,13 +22790,14 @@ function CanvasAssistantPanel({
           toast("同款参考图未能载入", { description: "你可以在画布上手动添加这张参考图" });
           return;
         }
+        applyInspirationSameStyleModel();
         focusComposerSegment();
         toast("已导入同款参考图", { description: "在提示词框里写下你的想法，即可生成同款" });
       } catch {
         toast("导入失败", { description: "请稍后重试，或手动把图片拖进画布" });
       }
     },
-    [focusComposerSegment, onImportHomeReferences]
+    [applyInspirationSameStyleModel, focusComposerSegment, onImportHomeReferences]
   );
 
   const setComposerTextSegment = useCallback(
@@ -24787,7 +24810,11 @@ function CanvasAssistantPanel({
             });
             return;
           }
-          if (imported.length > 0) focusComposerSegment();
+          if (imported.length > 0) {
+            // 不自动跑的交接目前只有「一键同款」一种来源（inspiration-same-style.ts）。
+            applyInspirationSameStyleModel();
+            focusComposerSegment();
+          }
         })();
         return;
       }
@@ -24972,6 +24999,7 @@ function CanvasAssistantPanel({
       clearHomePromptHandoff();
     }
   }, [
+    applyInspirationSameStyleModel,
     assistantImageModel.id,
     assistantTextModel.id,
     collapsed,

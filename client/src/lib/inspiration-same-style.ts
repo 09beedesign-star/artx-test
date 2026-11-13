@@ -33,6 +33,7 @@
  *    转成 dataURL 几乎不花时间；而画布那一侧拿到 data: 之后
  *    `loadExternalImageWithProxyFallback` 直接走本地分支，零网络、零失败。
  */
+import { INSPIRATION_SAME_STYLE_MODEL_ID } from "@shared/image-models";
 import { toast } from "sonner";
 import { createWorkspaceHistoryProject } from "./project-history";
 import {
@@ -252,7 +253,8 @@ export async function applyInspirationSameStyle(
 
     const written = writeHomePromptHandoff({
       projectId: project.id,
-      model: "auto",
+      // 画布落地时会切到 INSPIRATION_SAME_STYLE_MODEL_ID；这里写同一个值只为载荷自描述。
+      model: INSPIRATION_SAME_STYLE_MODEL_ID,
       shouldAutoRun: false,
       createdAt: project.createdAt,
       references,
