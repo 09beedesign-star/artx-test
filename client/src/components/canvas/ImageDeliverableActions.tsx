@@ -48,10 +48,12 @@ function DeliverableButton({
   isDark: boolean;
 }) {
   const label = getImageDeliverableLabel(deliverable);
-  const icon = deliverable === "gif" ? <Film size={10} strokeWidth={1.6} /> : <Layers size={10} strokeWidth={1.6} />;
-  const bg = isDark ? "#1a1a1a" : "#161616";
-  const text = isDark ? "#bbbbbb" : "#161616";
-  const hoverBg = isDark ? "#3a3a3a" : "#e6e3df";
+  const icon = deliverable === "gif" ? <Film size={12} strokeWidth={2.2} /> : <Layers size={12} strokeWidth={2.2} />;
+  // 🔒 2026-11-13：旧版浅色模式 bg 与文字同为 #161616 → 只剩两个黑方框、字完全看不见。
+  // 改为与「再次生成」同一套动作按钮 token，保证两种主题都可读。
+  void isDark;
+  const bg = "var(--artx-action-bg)";
+  const hoverBg = "rgba(255,255,255,0.18)";
 
   return (
     <button
@@ -64,15 +66,17 @@ function DeliverableButton({
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 3,
-        padding: "2px 5px",
-        borderRadius: 4,
-        border: "none",
-        fontSize: 10,
-        lineHeight: 1.4,
+        gap: 4,
+        height: 30,
+        padding: "0 9px",
+        borderRadius: "var(--radius-md-design)",
+        border: "1px solid var(--artx-action-border)",
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
         cursor: "pointer",
         background: bg,
-        color: text,
+        color: "var(--artx-action-fg)",
         transition: "background 0.12s",
         whiteSpace: "nowrap",
       }}
@@ -119,13 +123,8 @@ export function ImageDeliverableActions({
     dispatchImageDeliverableRequest({ nodeId, model, deliverable, currentImageSrc });
   };
 
-  const border = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-
   return (
-    <div
-      className="flex items-center gap-1 px-2 py-1 nodrag nopan flex-wrap"
-      style={{ borderTop: `1px solid ${border}` }}
-    >
+    <div className="flex items-center gap-1.5 nodrag nopan">
       <DeliverableButton deliverable="gif" onClick={() => handleClick("gif")} isDark={isDark} />
       <DeliverableButton deliverable="svg" onClick={() => handleClick("svg")} isDark={isDark} />
     </div>

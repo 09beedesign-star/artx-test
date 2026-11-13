@@ -53,7 +53,9 @@ describe("就地局部重绘：锚点前置保障", () => {
     "canUndoInPlaceRepaint",
     'aria-label="撤销局部重绘"',
   ])("锚点 %s 在源码中必须唯一出现", marker => {
-    const expected = marker === "canUndoInPlaceRepaint" ? 2 : 1;
+    // canUndoInPlaceRepaint：定义 1 处 + 撤销按钮渲染 1 处 + GIF/SVG 按钮避让「撤销重绘」1 处（2026-11-13）。
+    // 切片锚点用的是带上下文的完整写法（见下方），各自仍唯一。
+    const expected = marker === "canUndoInPlaceRepaint" ? 3 : 1;
     expect(
       countOf(marker),
       "锚点不唯一或已消失，后续切片断言会切错位置（恒绿风险）"

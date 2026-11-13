@@ -7390,6 +7390,15 @@ function AssetNodeComponent({
 
   const dispW = imgW || initW;
   const dispH = imgH || initH;
+  /**
+   * 🔒 2026-11-13 用户反馈「按钮样式非常巨大」：节点内悬浮按钮（再次生成 / GIF / SVG）
+   * 都是固定像素，节点窄（竖图常只有 ~180px 宽）时按钮能占半张图。
+   * 按节点短边等比缩小，宽节点（≥360）保持原尺寸，下限 0.55 防止小到点不中。
+   */
+  const nodeOverlayControlScale = Math.min(
+    1,
+    Math.max(0.55, Math.min(dispW, dispH) / 360)
+  );
 
   /**
    * ⭐⭐⭐ 画框与图片外轮廓对齐的**唯一收口**。
@@ -10454,13 +10463,14 @@ function AssetNodeComponent({
                   minWidth: 74,
                   padding: "0 9px",
                   zIndex: 115,
+                  transformOrigin: "bottom right",
                   background: "var(--artx-action-bg)",
                   color: "var(--artx-action-fg)",
                   border: "1px solid var(--artx-action-border)",
                   opacity: hoveringAssetNode ? 1 : 0,
                   transform: hoveringAssetNode
-                    ? "translateY(0) scale(1)"
-                    : "translateY(4px) scale(0.94)",
+                    ? `translateY(0) scale(${nodeOverlayControlScale})`
+                    : `translateY(4px) scale(${nodeOverlayControlScale * 0.94})`,
                   pointerEvents: hoveringAssetNode ? "auto" : "none",
                   boxShadow: "none",
                   fontSize: 11,
@@ -10492,16 +10502,32 @@ function AssetNodeComponent({
           ── image2.6 交付物操作按钮（生成 GIF / 导出 SVG）────────────
           只在当前节点的模型是 image2.6（vod-og26-*）时渲染。
           按钮派发 CustomEvent，由外层 useEffect 监听器接收并走出图流程。
-          位置：左下角，与「撤销重绘」对齐。
+          位置：左下角，与「再次生成」同一行；有「撤销重绘」时抬到它上方。
+          🔒 2026-11-13 用户反馈「生成时图片下面两个黑方框 + 生成后两个奇怪的巨大按钮」：
+          生成/处理中、没图时一律不渲染；平时与「再次生成」一样只在悬停时出现，并随节点等比缩放。
         */}
-        <div className="absolute nodrag nopan" style={{ left: 10, bottom: 48, zIndex: 116 }}>
-          <ImageDeliverableActions
-            nodeId={nodeId}
-            model={typeof data.generationModel === "string" ? data.generationModel : ""}
-            currentImageSrc={displaySrc}
-            isDark={isDark}
-          />
-        </div>
+        {displaySrc && !isAiProcessingImage && !isExtractingText && (
+          <div
+            data-image-deliverable-actions
+            className="absolute nodrag nopan transition-all duration-150"
+            style={{
+              left: 10,
+              bottom: canUndoInPlaceRepaint ? 48 : 10,
+              zIndex: 116,
+              transformOrigin: "bottom left",
+              opacity: hoveringAssetNode ? 1 : 0,
+              transform: `scale(${nodeOverlayControlScale})`,
+              pointerEvents: hoveringAssetNode ? "auto" : "none",
+            }}
+          >
+            <ImageDeliverableActions
+              nodeId={nodeId}
+              model={typeof data.generationModel === "string" ? data.generationModel : ""}
+              currentImageSrc={displaySrc}
+              isDark={isDark}
+            />
+          </div>
+        )}
         {extractedTextPanelOpen && (
           <>
             {/* 节点内的零尺寸锚点：面板 portal 出去后，靠它的 DOM rect 反推屏幕位置 */}
