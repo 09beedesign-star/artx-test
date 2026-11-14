@@ -120,6 +120,7 @@ import {
   Copy,
   Clipboard,
   Info,
+  Printer,
   PlusSquare,
   ZoomIn,
   Download,
@@ -218,6 +219,12 @@ import {
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
 import { CanvasLayersPanel } from "./CanvasLayersPanel";
 import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
+import { CanvasPrintPanel } from "./CanvasPrintPanel";
+import {
+  CANVAS_PRINT_OPEN_EVENT,
+  buildPrintableItems,
+  type PrintableItem,
+} from "@/lib/canvas-print-items";
 import type { LayerOrderAction, NodePropertiesPatch } from "@/lib/canvas-node-properties";
 import { CanvasBackgroundControls, CanvasBackgroundLayer } from "./CanvasBackgroundControls";
 import {
@@ -17215,6 +17222,20 @@ function NodeContextMenu({
         ]
       : [];
 
+  /**
+   * 🔒 2026-11-14：每个图片节点右键都能打印；多选时也能批量打印。
+   * ⚠️ 与命令栏按钮共用同一个 CanvasPrintPanel（多出口只认一个面板）。
+   */
+  const printMenuItem = {
+    icon: <Printer size={13} />,
+    label: "打印",
+    action: "print",
+    color: iconColor,
+  };
+  const assetPrintItems =
+    menu.nodeType === "asset" && selectedCount === 1 ? [printMenuItem] : [];
+  const selectionPrintItems = isSelectionMenu ? [printMenuItem] : [];
+
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
   const groupContainerItems = isInsideGroup
@@ -17261,6 +17282,7 @@ function NodeContextMenu({
 
   // Multi-selection menu: 打组 / 取消编组 / 自动布局 / 下载
   const selectionItems = [
+    ...selectionPrintItems,
     {
       icon: <Copy size={13} />,
       label: "创建副本",
@@ -17317,6 +17339,7 @@ function NodeContextMenu({
     ...textDownloadItems,
     ...setCoverItems,
     ...assetPropertiesItems,
+    ...assetPrintItems,
     {
       icon: <Type size={13} />,
       label: "添加文本备注",
@@ -20746,6 +20769,8 @@ function CanvasTopToolPalette({
     { id: "draw", label: "铅笔", icon: <Pencil size={17} /> },
     { id: "text", label: "文字", icon: <Type size={17} /> },
     { id: "layers", label: "图层", icon: <Layers size={17} /> },
+    // 2026-11-14：打印固定在命令栏最右侧；与图片右键共用同一个打印面板。
+    { id: "print", label: "打印", icon: <Printer size={17} /> },
   ];
 
   // 几何形二级菜单
@@ -20759,6 +20784,11 @@ function CanvasTopToolPalette({
   ];
 
   const handleToolClick = (id: string) => {
+    if (id === "print") {
+      // ⚠️ 不改变工具模式、不广播 tool-mode-change —— 打印是独立面板不是画布工具
+      window.dispatchEvent(new CustomEvent(CANVAS_PRINT_OPEN_EVENT));
+      return;
+    }
     if (id === "templates") {
       setShapeOpen(false);
       setDrawOpen(false);
@@ -28373,6 +28403,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    */
   const [propertiesTargetId, setPropertiesTargetId] = useState<string | null>(null);
 
+  /** 🔒 打印面板：命令栏按钮与图片右键都只写这一份 state，渲染同一个面板。 */
+  const [printPanelState, setPrintPanelState] = useState<{ preselectIds: string[] } | null>(null);
+  const [printableItems, setPrintableItems] = useState<PrintableItem[]>([]);
+
+  useEffect(() => {
+    const open = () => setPrintPanelState({ preselectIds: [] });
+    window.addEventListener(CANVAS_PRINT_OPEN_EVENT, open);
+    return () => window.removeEventListener(CANVAS_PRINT_OPEN_EVENT, open);
+  }, []);
+
+  useEffect(() => {
+    if (!printPanelState) return;
+    setPrintableItems(buildPrintableItems(nodesRef.current));
+  }, [printPanelState]);
+
   /** 属性面板写回：所有字段落到同一个节点，视觉类字段用 panel 前缀避免与节点内部字段打架。 */
   const patchPropertiesNode = useCallback((patch: NodePropertiesPatch) => {
     if (!propertiesTargetId) return;
@@ -32180,6 +32225,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         nodeId === "__selection__"
           ? nodeCtxMenu?.selectedIds || selectedNodeIdsRef.current
           : getActionNodeIds(nodeId);
+      if (action === "print") {
+        setPrintPanelState({ preselectIds: actionIds.length ? actionIds : [nodeId] });
+        return;
+      }
       if (CANVAS_LAYER_ACTIONS.has(action as CanvasLayerAction)) {
         const layerAction = action as CanvasLayerAction;
         const currentNodes = getNodes();
@@ -40557,6 +40606,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         🔒 2026-11-14：右侧「属性编辑」悬浮面板。
         ⚠️ 只有 X 关闭；不监听 pane-click / 全局 mousedown，画布空击不会消失。
       */}
+      {printPanelState && (
+        <CanvasPrintPanel
+          isDark={isDark}
+          items={printableItems}
+          preselectIds={printPanelState.preselectIds}
+          onClose={() => setPrintPanelState(null)}
+        />
+      )}
+
       {propertiesTargetId && (
         <CanvasPropertiesPanel
           node={nodes.find(n => n.id === propertiesTargetId) || null}
