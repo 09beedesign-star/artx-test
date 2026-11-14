@@ -26,7 +26,7 @@ import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
-  Users, LayoutGrid, Layers, FileText, Zap, UserRound, LogOut,
+  Users, LayoutGrid, Layers, FileText, Zap, UserRound, LogOut, History,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -1028,6 +1028,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <IconRailBtn icon={Home}       label="首页"      path="/"                  tourId={TOUR_ANCHORS.navHome} />
         <IconRailBtn icon={Sparkles}   label="灵感模板"  path="/inspiration"        tourId={TOUR_ANCHORS.navInspiration} />
         <IconRailBtn icon={Users}      label="画布社区"   path="/community"          />
+        <IconRailBtn icon={History}    label="创作历史"   path="/creation-history"   />
         <IconRailBtn icon={FolderOpen} label="工作台"    path="/workspace"           tourId={TOUR_ANCHORS.navWorkspace} />
         <IconRailBtn icon={Store}      label="电商画布"  path="/ecommerce-canvas"    />
         <IconRailBtn icon={Library}    label="技能商店"  path="/skills"              tourId={TOUR_ANCHORS.navSkills} />
@@ -1105,6 +1106,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           <div className="flex flex-col gap-0.5 mb-4">
             <PanelNavItem icon={Sparkles}   label="灵感模板"  path="/inspiration"   tourId={TOUR_ANCHORS.navInspiration} />
             <PanelNavItem icon={Users}      label="画布社区"  path="/community"     />
+            <PanelNavItem icon={History}    label="创作历史"  path="/creation-history" />
           </div>
 
           {/* Divider */}

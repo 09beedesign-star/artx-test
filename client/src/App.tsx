@@ -18,6 +18,7 @@ import BillingDialogProvider from "./components/billing/BillingDialogProvider";
 import InsufficientCreditsDialog from "./components/billing/InsufficientCreditsDialog";
 import { startWorkspaceAutoSync } from "./lib/workspace-sync";
 import { addEcommerceHistoryEntry, smartCommerceEntryFromTask } from "./lib/image-gen-history";
+import { startCreationHistoryRecorder } from "./lib/creation-history-recorder";
 
 /*
  * 路由级代码拆分（2026-10-29）。
@@ -27,6 +28,7 @@ import { addEcommerceHistoryEntry, smartCommerceEntryFromTask } from "./lib/imag
  */
 const WorkspaceDashboard = lazy(() => import("./pages/WorkspaceDashboard"));
 const CommunityPage = lazy(() => import("./pages/CommunityPage"));
+const CreationHistoryPage = lazy(() => import("./pages/CreationHistoryPage"));
 const Workspace = lazy(() => import("./pages/Workspace"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
@@ -124,6 +126,13 @@ function ShellRoutes() {
             <Route path="/community">
               <RequireLogin>
                 <CommunityPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 创作历史（纯本地） */}
+            <Route path="/creation-history">
+              <RequireLogin>
+                <CreationHistoryPage />
               </RequireLogin>
             </Route>
 
@@ -240,6 +249,14 @@ function AppRoutes() {
     };
     window.addEventListener("image-generator-submit", listener);
     return () => window.removeEventListener("image-generator-submit", listener);
+  }, [isAuthenticated, user?.id]);
+
+  /*
+   * 创作历史（纯本地：IndexedDB + 用户选的本地文件夹，不进云端）。
+   */
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    return startCreationHistoryRecorder(user.id);
   }, [isAuthenticated, user?.id]);
 
   return (
