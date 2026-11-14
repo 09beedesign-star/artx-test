@@ -789,7 +789,11 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(nodeBlock).toContain("handleCameraViewPanelPointerDown");
     expect(nodeBlock).toContain('event.target as HTMLElement).closest("button, input, select, textarea, a")');
     expect(nodeBlock).toContain("cameraViewPanelOffset");
-    expect(nodeBlock).toContain('background: "#111214"');
+    // 2026-11-14：浅色主题面板白底黑字、按钮标准黑；只有立方体预览窗恒黑
+    expect(nodeBlock).toContain('background: isDark ? "#111214" : "#ffffff"');
+    expect(nodeBlock).toContain('color: isDark ? "white" : "#161616"');
+    expect(nodeBlock).toContain('background: "#090a0c"');
+    expect(nodeBlock).toContain('{ color: "#ffffff", background: "#161616", border: "1px solid #161616" }');
     expect(nodeBlock).toContain('stroke="rgba(255,255,255,0.96)"');
     expect(nodeBlock).toContain('transformStyle: "preserve-3d"');
     expect(nodeBlock).toContain('aria-label="可互动的视角立方体"');

@@ -9619,10 +9619,11 @@ function AssetNodeComponent({
                   padding: 14,
                   transform: `translate(calc(-50% + ${cameraViewPanelOffset.x}px), calc(-50% + ${cameraViewPanelOffset.y}px)) scale(${stableUiScale})`,
                   transformOrigin: "center",
-                  background: "#111214",
-                  border: "1px solid rgba(255,255,255,0.16)",
-                  boxShadow: "0 24px 70px rgba(0,0,0,0.58)",
-                  color: "white",
+                  background: isDark ? "#111214" : "#ffffff",
+                  border: isDark ? "1px solid rgba(255,255,255,0.16)" : "1px solid #e5e5e5",
+                  boxShadow: isDark ? "0 24px 70px rgba(0,0,0,0.58)" : "0 24px 70px rgba(0,0,0,0.18)",
+                  // 2026-11-14 用户要求：浅色主题下只有立方体预览窗保持黑色，其余白底黑字、按钮标准黑
+                  color: isDark ? "white" : "#161616",
                 }}
               >
                 <div
@@ -9634,15 +9635,15 @@ function AssetNodeComponent({
                   onPointerCancel={handleCameraViewPanelPointerEnd}
                 >
                   <div className="flex items-center gap-2">
-                    <CameraViewCubeAiIcon size={17} cutoutBg="#111214" />
+                    <CameraViewCubeAiIcon size={17} cutoutBg={isDark ? "#111214" : "#ffffff"} />
                     <span style={{ fontSize: 15, fontWeight: 700 }}>调整视角</span>
                   </div>
                   <button
                     type="button"
                     title="恢复默认视角"
                     aria-label="恢复默认视角"
-                    className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10"
-                    style={{ color: "#C5ED47" }}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${isDark ? "hover:bg-white/10" : "hover:bg-black/5"}`}
+                    style={{ color: isDark ? "#C5ED47" : "#161616" }}
                     onClick={resetCameraView}
                   >
                     <RotateCcw size={16} strokeWidth={2.2} />
@@ -9736,26 +9737,26 @@ function AssetNodeComponent({
                   </span>
                 </div>
                 <div className="mt-3 flex flex-col gap-2">
-                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5", background: isDark ? "#191a1d" : "#f7f7f7" }}>
                     <span className="w-12 shrink-0 text-sm">旋转</span>
                     <input className="min-w-0 flex-1" type="range" min={-180} max={180} step={1} value={assetCameraView.x} aria-label="旋转" onChange={event => updateCameraViewNode({ ...assetCameraView, x: clampCameraAxis(event.target.value, -180, 180) })} style={{ accentColor: "#C5ED47" }} />
-                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.x}°</span>
+                    <span className="w-12 text-right text-sm" style={{ color: isDark ? "rgba(255,255,255,0.82)" : "#161616" }}>{assetCameraView.x}°</span>
                   </label>
-                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5", background: isDark ? "#191a1d" : "#f7f7f7" }}>
                     <span className="w-12 shrink-0 text-sm">倾斜</span>
                     <input className="min-w-0 flex-1" type="range" min={-75} max={75} step={1} value={assetCameraView.y} aria-label="倾斜" onChange={event => updateCameraViewNode({ ...assetCameraView, y: clampCameraAxis(event.target.value, -75, 75) })} style={{ accentColor: "#C5ED47" }} />
-                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.y}</span>
+                    <span className="w-12 text-right text-sm" style={{ color: isDark ? "rgba(255,255,255,0.82)" : "#161616" }}>{assetCameraView.y}</span>
                   </label>
-                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: "rgba(255,255,255,0.14)", background: "#191a1d" }}>
+                  <label className="flex items-center gap-3 rounded-[12px] border px-3 py-2" style={{ borderColor: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5", background: isDark ? "#191a1d" : "#f7f7f7" }}>
                     <span className="w-12 shrink-0 text-sm">缩放</span>
                     <input className="min-w-0 flex-1" type="range" min={-60} max={60} step={1} value={assetCameraView.z} aria-label="缩放" onChange={event => updateCameraViewNode({ ...assetCameraView, z: clampCameraAxis(event.target.value, -60, 60) })} style={{ accentColor: "#C5ED47" }} />
-                    <span className="w-12 text-right text-sm" style={{ color: "rgba(255,255,255,0.82)" }}>{assetCameraView.z}</span>
+                    <span className="w-12 text-right text-sm" style={{ color: isDark ? "rgba(255,255,255,0.82)" : "#161616" }}>{assetCameraView.z}</span>
                   </label>
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
-                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.78)", background: "transparent" }} onClick={cancelCameraViewAdjuster}>取消</button>
-                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={{ borderColor: "rgba(255,255,255,0.18)", color: "white", background: "rgba(255,255,255,0.10)" }} onClick={() => window.dispatchEvent(new CustomEvent("asset-camera-view-four-apply", { detail: { nodeId, cameraView: assetCameraView } }))}>四视图</button>
-                  <button type="button" className="rounded-[10px] px-4 py-2 text-sm font-semibold" style={{ color: "var(--artx-action-ondark-fg)", background: "var(--artx-action-ondark-bg)", border: "1px solid var(--artx-action-ondark-border)" }} onClick={() => updateCameraViewNode(assetCameraView, true)}>应用</button>
+                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={isDark ? { borderColor: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.78)", background: "transparent" } : { borderColor: "#161616", color: "#161616", background: "#ffffff" }} onClick={cancelCameraViewAdjuster}>取消</button>
+                  <button type="button" className="rounded-[10px] border px-4 py-2 text-sm" style={isDark ? { borderColor: "rgba(255,255,255,0.18)", color: "white", background: "rgba(255,255,255,0.10)" } : { borderColor: "#161616", color: "#ffffff", background: "#161616" }} onClick={() => window.dispatchEvent(new CustomEvent("asset-camera-view-four-apply", { detail: { nodeId, cameraView: assetCameraView } }))}>四视图</button>
+                  <button type="button" className="rounded-[10px] px-4 py-2 text-sm font-semibold" style={isDark ? { color: "var(--artx-action-ondark-fg)", background: "var(--artx-action-ondark-bg)", border: "1px solid var(--artx-action-ondark-border)" } : { color: "#ffffff", background: "#161616", border: "1px solid #161616" }} onClick={() => updateCameraViewNode(assetCameraView, true)}>应用</button>
                 </div>
               </div>
             </div>
