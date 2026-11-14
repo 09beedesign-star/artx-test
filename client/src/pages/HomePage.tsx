@@ -250,7 +250,6 @@ export default function HomePage() {
   });
 
   const [selectedHomeInspiration, setSelectedHomeInspiration] = useState<HomeInspirationItem | null>(null);
-  const [homeInspirationImageHeight, setHomeInspirationImageHeight] = useState<number | null>(null);
   const [isFirstTopUpBannerDismissed, setIsFirstTopUpBannerDismissed] = useState(
     isFirstTopUpBannerDismissedToday,
   );
@@ -260,8 +259,6 @@ export default function HomePage() {
   const mainRef = useRef<HTMLElement>(null);
   const homeRef = useRef<HTMLElement>(null);
   const inspirationRef = useRef<HTMLElement>(null);
-  const homeInspirationImageRef = useRef<HTMLImageElement | null>(null);
-  const homeInspirationPromptRef = useRef<HTMLDivElement | null>(null);
   
   // ── 全局主题颜色（图叙 AI 规格）──
   const textPrimary = isDark ? "#f1f1f3" : "#262627";
@@ -341,25 +338,6 @@ export default function HomePage() {
     setCenteredAuthMode("register");
     setCenteredAuthOpen(true);
   }, [isAuthenticated]);
-
-  const measureHomeInspirationImage = () => {
-    const height = homeInspirationImageRef.current?.getBoundingClientRect().height || 0;
-    if (height > 0) setHomeInspirationImageHeight(Math.round(height));
-  };
-
-  useEffect(() => {
-    if (!selectedHomeInspiration) {
-      setHomeInspirationImageHeight(null);
-      return;
-    }
-
-    const animationFrame = window.requestAnimationFrame(measureHomeInspirationImage);
-    window.addEventListener("resize", measureHomeInspirationImage);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", measureHomeInspirationImage);
-    };
-  }, [selectedHomeInspiration]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -538,16 +516,6 @@ export default function HomePage() {
    */
   const applyHomeInspirationSameStyle = (item: { title: string; imageUrl: string }) => {
     void applyInspirationSameStyle({ title: item.title, imageUrl: item.imageUrl }, navigate);
-  };
-
-  const scrollHomeInspirationPrompt = (event: React.WheelEvent<HTMLDivElement>) => {
-    const promptPanel = homeInspirationPromptRef.current;
-    if (!promptPanel) return;
-    const target = event.target as Node;
-    if (promptPanel.contains(target)) return;
-
-    event.preventDefault();
-    promptPanel.scrollTop += event.deltaY;
   };
 
 
@@ -992,40 +960,29 @@ export default function HomePage() {
               </div>
             </div>
 
+            {/*
+              🔒 2026-11-14 用户要求：首页第二屏灵感详情与专题页详情统一为「只显示图片」，
+              右侧提示词描述栏（两栏布局 + 量图高 + 滚轮代理）整块删除。⚠️ 别再加回右栏。
+            */}
             <div
-              className="grid items-start overflow-hidden lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"
-              style={{ maxHeight: "calc(100vh - 160px)", overscrollBehavior: "contain" }}
-              onWheel={scrollHomeInspirationPrompt}
+              data-home-inspiration-detail-image-only=""
+              className="flex items-center justify-center overflow-hidden bg-[#222222]"
+              style={{ maxHeight: "calc(100vh - 160px)" }}
             >
-              <div className="bg-card">
-                <div className="relative">
-                  <img
-                    ref={homeInspirationImageRef}
-                    src={selectedHomeInspiration.imageUrl}
-                    alt={selectedHomeInspiration.title}
-                    className="relative z-10 block h-auto max-h-[calc(100vh-160px)] w-full object-contain"
-                    onLoad={measureHomeInspirationImage}
-                    onError={(event) => {
-                      event.currentTarget.style.display = "none";
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: isDark ? "#1a1a1a" : "#f5f6f8" }}>
-                    <span className="type-body-sm" style={{ color: textSecondary, fontWeight: 650 }}>
-                      本地图片待同步
-                    </span>
-                  </div>
+              <div className="relative">
+                <img
+                  src={selectedHomeInspiration.imageUrl}
+                  alt={selectedHomeInspiration.title}
+                  className="relative z-10 mx-auto block h-auto max-h-[calc(100vh-160px)] w-auto max-w-full object-contain"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)" }}>
+                  <span className="type-body-sm" style={{ color: "#e6e3df", fontWeight: 650 }}>
+                    本地图片待同步
+                  </span>
                 </div>
-              </div>
-              <div
-                ref={homeInspirationPromptRef}
-                className="overflow-y-auto p-4"
-                style={{
-                  height: homeInspirationImageHeight ? `${homeInspirationImageHeight}px` : "auto",
-                  maxHeight: homeInspirationImageHeight ? `${homeInspirationImageHeight}px` : "calc(100vh - 160px)",
-                  overscrollBehavior: "contain",
-                }}
-              >
-                <p className="type-caption leading-5" style={{ color: homeInspirationButtonIdleColor, letterSpacing: 0, textTransform: "none" }}>{selectedHomeInspiration.description}</p>
               </div>
             </div>
           </section>
