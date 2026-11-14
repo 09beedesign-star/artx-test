@@ -216,6 +216,9 @@ import {
   type TemplatePiece,
 } from "@/lib/canvas-templates";
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
+import { CanvasLayersPanel } from "./CanvasLayersPanel";
+import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
+import type { LayerOrderAction, NodePropertiesPatch } from "@/lib/canvas-node-properties";
 import { CanvasBackgroundControls, CanvasBackgroundLayer } from "./CanvasBackgroundControls";
 import {
   readCanvasBackgroundPreference,
@@ -20652,305 +20655,6 @@ function FontDesignDialog({
   );
 }
 
-// ── Canvas Layers Panel ──────────────────────────────────────────
-/**
- * CanvasLayersPanel — 图层面板
- *
- * 通过 window 事件与 InnerCanvas 通信：
- *   接收：canvas-layers-data     { rows: LayerRow[] }
- *   发送：canvas-layer-select    { id, shiftKey }
- *         canvas-layer-toggle-hidden  { id }
- *         canvas-layer-toggle-locked  { id }
- *         canvas-layer-reorder        { dragId, targetId }
- *         canvas-layer-frame-embed    { dragId, frameId }
- */
-function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
-  const [rows, setRows] = useState<LayerRow[]>([]);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const autoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // 接收来自 InnerCanvas 的图层数据
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ rows: LayerRow[] }>).detail;
-      setRows(detail.rows);
-    };
-    window.addEventListener("canvas-layers-data", handler);
-    return () => window.removeEventListener("canvas-layers-data", handler);
-  }, []);
-
-  // 面板打开时请求数据
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent("canvas-layers-request"));
-  }, []);
-
-  const bg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)";
-  const border = isDark ? "rgba(60,60,70,0.9)" : "rgba(0,0,0,0.10)";
-  const textColor = isDark ? "rgba(240,240,248,0.88)" : "rgba(28,28,40,0.82)";
-  const subColor = isDark ? "rgba(180,180,190,0.55)" : "rgba(0,0,0,0.35)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
-  const selectedBg = isDark ? "rgba(30,80,180,0.35)" : "#e9f1ff";
-  const selectedColor = isDark ? "#a0c4ff" : "#1266c6";
-  const dividerColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
-
-  const handleRowClick = (id: string, e: React.MouseEvent) => {
-    window.dispatchEvent(
-      new CustomEvent("canvas-layer-select", { detail: { id, shiftKey: e.shiftKey } })
-    );
-  };
-
-  const handleToggleHidden = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    window.dispatchEvent(new CustomEvent("canvas-layer-toggle-hidden", { detail: { id } }));
-  };
-
-  const handleToggleLocked = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    window.dispatchEvent(new CustomEvent("canvas-layer-toggle-locked", { detail: { id } }));
-  };
-
-  // ── Drag and drop ──
-  const stopAutoScroll = () => {
-    if (autoScrollRef.current !== null) {
-      clearInterval(autoScrollRef.current);
-      autoScrollRef.current = null;
-    }
-  };
-
-  const handleDragStart = (id: string, e: React.DragEvent) => {
-    setDragId(id);
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDragEnd = () => {
-    setDragId(null);
-    setDragOverId(null);
-    stopAutoScroll();
-  };
-
-  const handleDragOver = (targetId: string, e: React.DragEvent) => {
-    if (!dragId || dragId === targetId) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverId(targetId);
-
-    // auto scroll
-    const list = listRef.current;
-    if (!list) return;
-    const rect = list.getBoundingClientRect();
-    const y = e.clientY;
-    stopAutoScroll();
-    if (y - rect.top < 32) {
-      autoScrollRef.current = setInterval(() => {
-        list.scrollTop = Math.max(0, list.scrollTop - 16);
-      }, 60);
-    } else if (rect.bottom - y < 32) {
-      autoScrollRef.current = setInterval(() => {
-        list.scrollTop = list.scrollTop + 16;
-      }, 60);
-    }
-  };
-
-  const handleDrop = (targetId: string, e: React.DragEvent) => {
-    e.preventDefault();
-    stopAutoScroll();
-    if (!dragId || dragId === targetId) {
-      setDragId(null);
-      setDragOverId(null);
-      return;
-    }
-    // check if target is a frame
-    const targetRow = rows.find(r => r.id === targetId);
-    if (targetRow?.icon === "frame") {
-      window.dispatchEvent(
-        new CustomEvent("canvas-layer-frame-embed", { detail: { dragId, frameId: targetId } })
-      );
-    } else {
-      window.dispatchEvent(
-        new CustomEvent("canvas-layer-reorder", { detail: { dragId, targetId } })
-      );
-    }
-    setDragId(null);
-    setDragOverId(null);
-  };
-
-  const iconForRow = (row: LayerRow) => {
-    const sz = 13;
-    const col = row.selected ? selectedColor : subColor;
-    switch (row.icon) {
-      case "frame":   return <Frame size={sz} style={{ color: col, flexShrink: 0 }} />;
-      case "image":   return <ImageIcon size={sz} style={{ color: col, flexShrink: 0 }} />;
-      case "text":    return <Type size={sz} style={{ color: col, flexShrink: 0 }} />;
-      case "shape":   return <Square size={sz} style={{ color: col, flexShrink: 0 }} />;
-      case "draw":    return <Pencil size={sz} style={{ color: col, flexShrink: 0 }} />;
-      case "model3d": return <Box size={sz} style={{ color: col, flexShrink: 0 }} />;
-      default:        return <Square size={sz} style={{ color: col, flexShrink: 0 }} />;
-    }
-  };
-
-  return (
-    <div
-      className="absolute nodrag nopan"
-      style={{
-        top: 68,
-        left: "50%",
-        transform: "translateX(calc(-50% - 84px - 190px))",
-        zIndex: 110,
-        width: 220,
-      }}
-      onMouseDown={e => e.stopPropagation()}
-    >
-      <div
-        className="rounded-[var(--radius-lg-design)] shadow-2xl flex flex-col"
-        style={{
-          background: bg,
-          border: `1px solid ${border}`,
-          backdropFilter: "blur(20px)",
-          maxHeight: "calc(100vh - 160px)",
-          overflow: "hidden",
-        }}
-      >
-        {/* 面板头部 */}
-        <div
-          className="flex items-center justify-between px-3 py-2"
-          style={{ borderBottom: `1px solid ${dividerColor}` }}
-        >
-          <span style={{ color: textColor, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em" }}>
-            图层
-          </span>
-          <button
-            onClick={onClose}
-            aria-label="关闭图层面板"
-            style={{ color: subColor, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* 提示文字 */}
-        <div
-          className="px-3 pt-2 pb-1"
-          style={{ color: subColor, fontSize: 10, lineHeight: "1.5", userSelect: "none" }}
-        >
-          拖动图层调整前后顺序；拖到画板上可加入容器。
-        </div>
-
-        {/* 图层列表 */}
-        {rows.length === 0 ? (
-          <div
-            className="flex items-center justify-center py-8"
-            style={{ color: subColor, fontSize: 11 }}
-          >
-            暂无图层
-          </div>
-        ) : (
-          <div
-            ref={listRef}
-            className="overflow-y-auto"
-            aria-label="图层列表"
-            style={{ maxHeight: "calc(100vh - 260px)" }}
-          >
-            {rows.map(row => (
-              <div
-                key={row.id}
-                draggable
-                onDragStart={e => handleDragStart(row.id, e)}
-                onDragEnd={handleDragEnd}
-                onDragOver={e => handleDragOver(row.id, e)}
-                onDrop={e => handleDrop(row.id, e)}
-                onClick={e => handleRowClick(row.id, e)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  height: 36,
-                  paddingLeft: 8 + row.depth * 14,
-                  paddingRight: 4,
-                  gap: 5,
-                  cursor: row.hidden || row.locked ? "default" : "pointer",
-                  borderRadius: 7,
-                  margin: "1px 4px",
-                  background: row.id === dragOverId
-                    ? (isDark ? "rgba(30,100,220,0.22)" : "rgba(18,102,198,0.10)")
-                    : row.selected
-                    ? selectedBg
-                    : "transparent",
-                  opacity: row.id === dragId ? 0.4 : row.hidden ? 0.4 : 1,
-                  transition: "background 0.1s",
-                }}
-                onMouseEnter={e => {
-                  if (!row.selected && row.id !== dragOverId)
-                    (e.currentTarget as HTMLDivElement).style.background = hoverBg;
-                }}
-                onMouseLeave={e => {
-                  if (!row.selected && row.id !== dragOverId)
-                    (e.currentTarget as HTMLDivElement).style.background = "transparent";
-                }}
-              >
-                {/* 拖拽把手 */}
-                <GripVertical
-                  size={12}
-                  style={{ color: subColor, flexShrink: 0, cursor: "grab", opacity: 0.5 }}
-                />
-                {/* 节点图标 */}
-                {iconForRow(row)}
-                {/* 名称 */}
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    fontSize: 12,
-                    color: row.selected ? selectedColor : textColor,
-                    userSelect: "none",
-                    minWidth: 0,
-                  }}
-                >
-                  {row.name}
-                </span>
-                {/* 隐藏切换 */}
-                <button
-                  aria-label={row.hidden ? "显示图层" : "隐藏图层"}
-                  onClick={e => handleToggleHidden(row.id, e)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    color: row.hidden ? (isDark ? "#a0c4ff" : "#1266c6") : subColor,
-                    padding: "2px 3px",
-                    lineHeight: 1,
-                    flexShrink: 0,
-                  }}
-                >
-                  {row.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-                </button>
-                {/* 锁定切换 */}
-                <button
-                  aria-label={row.locked ? "解锁图层" : "锁定图层"}
-                  onClick={e => handleToggleLocked(row.id, e)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    color: row.locked ? (isDark ? "#a0c4ff" : "#1266c6") : subColor,
-                    padding: "2px 3px",
-                    lineHeight: 1,
-                    flexShrink: 0,
-                  }}
-                >
-                  {row.locked ? <Lock size={13} /> : <Unlock size={13} />}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Canvas Top Tool Palette ─────────────────────────────────────
 function CanvasTopToolPalette({
   isDark,
@@ -20979,13 +20683,14 @@ function CanvasTopToolPalette({
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // 点击画布空白处时关闭子菜单
+  // 点击画布空白处时关闭「工具子菜单」。
+  // 🔒 2026-11-14：图层面板 / 属性编辑面板是独立悬浮面板，只有点右上角 X 才关，
+  //    绝不能被画布空击关掉（用户明确要求）。这里只关工具下拉。
   useEffect(() => {
     const handler = () => {
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
-      setLayersOpen(false);
     };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
@@ -21058,7 +20763,8 @@ function CanvasTopToolPalette({
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
-      setLayersOpen(false);
+      // 🔒 2026-11-14：图层面板是独立悬浮面板，切其它工具不能顺手把它关掉，
+      //    只有点它自己的 X（或再点一次「图层」按钮）才关闭。
       // 版式工作台是独立抽屉，不占用画布工具模式，也不广播 tool-mode-change
       window.dispatchEvent(new CustomEvent(TEMPLATE_PANEL_TOGGLE_EVENT));
       return;
@@ -28660,6 +28366,51 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     setCanvasBackgroundPref(next);
     writeCanvasBackgroundPreference(next);
   }, []);
+
+  /**
+   * 🔒 2026-11-14：属性编辑面板的目标节点。
+   * ⚠️ 只有点面板右上角 X 才清空；画布空击 / pane-click 一律不动它。
+   */
+  const [propertiesTargetId, setPropertiesTargetId] = useState<string | null>(null);
+
+  /** 属性面板写回：所有字段落到同一个节点，视觉类字段用 panel 前缀避免与节点内部字段打架。 */
+  const patchPropertiesNode = useCallback((patch: NodePropertiesPatch) => {
+    if (!propertiesTargetId) return;
+    setNodes(nds => nds.map(n => {
+      if (n.id !== propertiesTargetId) return n;
+      const d = { ...(n.data as Record<string, unknown>) };
+      const style = { ...(n.style || {}) };
+      const position = { ...n.position };
+      if (patch.title !== undefined) d.title = patch.title;
+      if (patch.x !== undefined) position.x = patch.x;
+      if (patch.y !== undefined) position.y = patch.y;
+      if (patch.width !== undefined) { style.width = patch.width; d.imgW = patch.width; }
+      if (patch.height !== undefined) { style.height = patch.height; d.imgH = patch.height; }
+      if (patch.rotation !== undefined) d.panelRotation = patch.rotation;
+      if (patch.opacity !== undefined) d.panelOpacity = patch.opacity;
+      if (patch.cornerRadius !== undefined) d.panelCornerRadius = patch.cornerRadius;
+      if (patch.fill !== undefined) d.fill = patch.fill;
+      if (patch.stroke !== undefined) d.stroke = patch.stroke;
+      if (patch.strokeWidth !== undefined) d.strokeWidth = patch.strokeWidth;
+      if (patch.blendMode !== undefined) d.panelBlendMode = patch.blendMode;
+      if (patch.shadowEnabled !== undefined) d.panelShadowEnabled = patch.shadowEnabled;
+      if (patch.shadowBlur !== undefined) d.panelShadowBlur = patch.shadowBlur;
+      if (patch.shadowColor !== undefined) d.panelShadowColor = patch.shadowColor;
+      if (patch.layerHidden !== undefined) d.layerHidden = patch.layerHidden;
+      if (patch.layerLocked !== undefined) d.layerLocked = patch.layerLocked;
+      return { ...n, data: d, style, position };
+    }));
+  }, [propertiesTargetId, setNodes]);
+
+  const handlePropertiesLayerOrder = useCallback((action: LayerOrderAction) => {
+    if (!propertiesTargetId) return;
+    const result = applyCanvasLayerAction(nodesRef.current, [propertiesTargetId], action);
+    if (!result.changed) { toast("已经在最上层或最底层"); return; }
+    pushHistory();
+    setNodes(result.nodes);
+  // pushHistory 在本回调之后声明：函数体里是延迟执行没问题，但不能进依赖数组
+  // （依赖数组在渲染时立即求值会触发 TDZ）。它是稳定 useCallback，省略不影响行为。
+  }, [propertiesTargetId, setNodes]);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const pasteEventSeenAtRef = useRef(0);
   const pendingCrossCanvasCopyRef = useRef<Promise<Node[]> | null>(null);
@@ -30557,11 +30308,78 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       "canvas-layer-toggle-locked",
       handleToggleLocked
     );
+    // 7. 重命名（写 data.title，图层名由 buildLayerRows 从 title 读取）
+    const handleLayerRename = (e: Event) => {
+      const { id, name } = (e as CustomEvent<{ id: string; name: string }>).detail;
+      if (!id || !name) return;
+      pushHistory();
+      setNodes(nds => nds.map(n => n.id === id
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), title: name } }
+        : n));
+      setTimeout(handleLayersRequest, 0);
+    };
+    // 8. 复制（可多选）：同步克隆，偏移 24px，避免与画布上原图完全重叠
+    const handleLayerDuplicate = (e: Event) => {
+      const ids = ((e as CustomEvent<{ ids: string[] }>).detail.ids || []);
+      const now = Date.now();
+      const copies = nodesRef.current
+        .filter(n => ids.includes(n.id))
+        .map((n, index) => {
+          const id = `${n.type}-layer-copy-${now}-${index}`;
+          const d = n.data as Record<string, unknown>;
+          return {
+            ...n,
+            id,
+            selected: true,
+            position: { x: n.position.x + 24, y: n.position.y + 24 },
+            data: { ...d, id, title: `${String(d.title || "图层")} 副本` },
+          };
+        });
+      if (!copies.length) return;
+      pushHistory();
+      setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), ...copies]);
+      setSelectedNodeIds(copies.map(n => n.id));
+      setTimeout(handleLayersRequest, 0);
+      toast(`已复制 ${copies.length} 个图层`);
+    };
+    // 9. 多选打组 / 解散打组：与画布右键「打组」写同一个 data.groupId
+    const handleLayerGroup = (e: Event) => {
+      const ids = ((e as CustomEvent<{ ids: string[] }>).detail.ids || []);
+      if (ids.length < 2) { toast("请至少选择 2 个图层再打组"); return; }
+      pushHistory();
+      const groupId = `group-${Date.now()}`;
+      setGroupNames(prev => ({ ...prev, [groupId]: `打组${String(Object.keys(prev).length + 1).padStart(2, "0")}` }));
+      setNodes(nds => nds.map(n => ids.includes(n.id)
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId } }
+        : n));
+      setTimeout(handleLayersRequest, 0);
+      toast(`已将 ${ids.length} 个图层打组`);
+    };
+    const handleLayerUngroup = (e: Event) => {
+      const ids = ((e as CustomEvent<{ ids: string[] }>).detail.ids || []);
+      if (!ids.length) return;
+      pushHistory();
+      setNodes(nds => nds.map(n => ids.includes(n.id)
+        ? { ...n, data: { ...(n.data as Record<string, unknown>), groupId: undefined } }
+        : n));
+      setTimeout(handleLayersRequest, 0);
+    };
+    // 10. 打开右侧属性编辑面板
+    const handleLayerProperties = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      if (id) setPropertiesTargetId(id);
+    };
+
     window.addEventListener("canvas-layer-reorder", handleLayerReorder);
     window.addEventListener(
       "canvas-layer-frame-embed",
       handleLayerFrameEmbed
     );
+    window.addEventListener("canvas-layer-rename", handleLayerRename);
+    window.addEventListener("canvas-layer-duplicate", handleLayerDuplicate);
+    window.addEventListener("canvas-layer-group", handleLayerGroup);
+    window.addEventListener("canvas-layer-ungroup", handleLayerUngroup);
+    window.addEventListener("canvas-layer-properties", handleLayerProperties);
 
     return () => {
       window.removeEventListener(
@@ -30585,6 +30403,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "canvas-layer-frame-embed",
         handleLayerFrameEmbed
       );
+      window.removeEventListener("canvas-layer-rename", handleLayerRename);
+      window.removeEventListener("canvas-layer-duplicate", handleLayerDuplicate);
+      window.removeEventListener("canvas-layer-group", handleLayerGroup);
+      window.removeEventListener("canvas-layer-ungroup", handleLayerUngroup);
+      window.removeEventListener("canvas-layer-properties", handleLayerProperties);
     };
   }, [pushHistory, setNodes, setSelectedNodeIds]);
 
@@ -39979,8 +39802,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       n.type === "asset" && editAsset && n.id === editAsset.nodeId
         ? { ...n, data: { ...data, isEditing: true } }
         : { ...n, data };
+    const visualStyle = {
+      ...(typeof nodeData.panelOpacity === "number"
+        ? { opacity: Math.min(1, Math.max(0, nodeData.panelOpacity as number)) } : {}),
+      ...(typeof nodeData.panelRotation === "number" && nodeData.panelRotation !== 0
+        ? { rotate: `${nodeData.panelRotation}deg` } : {}),
+      ...(typeof nodeData.panelBlendMode === "string" && nodeData.panelBlendMode !== "normal"
+        ? { mixBlendMode: nodeData.panelBlendMode } : {}),
+      ...(nodeData.panelShadowEnabled === true
+        ? { filter: `drop-shadow(0 6px ${Number(nodeData.panelShadowBlur) || 12}px ${String(nodeData.panelShadowColor || "#000000")})` } : {}),
+      ...(typeof nodeData.panelCornerRadius === "number"
+        ? { borderRadius: nodeData.panelCornerRadius } : {}),
+    } as React.CSSProperties;
     return {
       ...baseNode,
+      style: { ...(baseNode.style || {}), ...visualStyle },
       hidden: isLayerHidden,
       ...(isLayerLocked
         ? { draggable: false, selectable: false, connectable: false }
@@ -40716,6 +40552,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         bgPref={canvasBackgroundPref}
         onBgPrefChange={updateCanvasBackgroundPref}
       />
+
+      {/*
+        🔒 2026-11-14：右侧「属性编辑」悬浮面板。
+        ⚠️ 只有 X 关闭；不监听 pane-click / 全局 mousedown，画布空击不会消失。
+      */}
+      {propertiesTargetId && (
+        <CanvasPropertiesPanel
+          node={nodes.find(n => n.id === propertiesTargetId) || null}
+          isDark={isDark}
+          onClose={() => setPropertiesTargetId(null)}
+          onPatch={patchPropertiesNode}
+          onLayerAction={handlePropertiesLayerOrder}
+        />
+      )}
 
       {/* 版式工作台：左侧抽屉 + 单元属性抽屉 */}
       <CanvasTemplatePanel isDark={isDark} />
