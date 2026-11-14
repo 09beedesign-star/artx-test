@@ -189,6 +189,9 @@ import {
   Undo2,
   Clock,
   Zap,
+  Layers,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   AssistantModelIcon,
@@ -707,6 +710,7 @@ import {
   scheduleWorkspaceSync,
 } from "@/lib/workspace-sync";
 import { computeDraftNodeRect, isCanvasEmpty } from "@/lib/canvas-empty-state";
+import { buildLayerRows, applyLayerDrop, type LayerRow } from "@/lib/canvas-layers";
 import {
   buildSkillPromptContext,
   createPendingSkillLoad,
@@ -20562,6 +20566,305 @@ function FontDesignDialog({
   );
 }
 
+// ── Canvas Layers Panel ──────────────────────────────────────────
+/**
+ * CanvasLayersPanel — 图层面板
+ *
+ * 通过 window 事件与 InnerCanvas 通信：
+ *   接收：canvas-layers-data     { rows: LayerRow[] }
+ *   发送：canvas-layer-select    { id, shiftKey }
+ *         canvas-layer-toggle-hidden  { id }
+ *         canvas-layer-toggle-locked  { id }
+ *         canvas-layer-reorder        { dragId, targetId }
+ *         canvas-layer-frame-embed    { dragId, frameId }
+ */
+function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClose: () => void }) {
+  const [rows, setRows] = useState<LayerRow[]>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 接收来自 InnerCanvas 的图层数据
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ rows: LayerRow[] }>).detail;
+      setRows(detail.rows);
+    };
+    window.addEventListener("canvas-layers-data", handler);
+    return () => window.removeEventListener("canvas-layers-data", handler);
+  }, []);
+
+  // 面板打开时请求数据
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("canvas-layers-request"));
+  }, []);
+
+  const bg = isDark ? "rgba(22,22,30,0.96)" : "rgba(255,255,255,0.96)";
+  const border = isDark ? "rgba(60,60,70,0.9)" : "rgba(0,0,0,0.10)";
+  const textColor = isDark ? "rgba(240,240,248,0.88)" : "rgba(28,28,40,0.82)";
+  const subColor = isDark ? "rgba(180,180,190,0.55)" : "rgba(0,0,0,0.35)";
+  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
+  const selectedBg = isDark ? "rgba(30,80,180,0.35)" : "#e9f1ff";
+  const selectedColor = isDark ? "#a0c4ff" : "#1266c6";
+  const dividerColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
+
+  const handleRowClick = (id: string, e: React.MouseEvent) => {
+    window.dispatchEvent(
+      new CustomEvent("canvas-layer-select", { detail: { id, shiftKey: e.shiftKey } })
+    );
+  };
+
+  const handleToggleHidden = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent("canvas-layer-toggle-hidden", { detail: { id } }));
+  };
+
+  const handleToggleLocked = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent("canvas-layer-toggle-locked", { detail: { id } }));
+  };
+
+  // ── Drag and drop ──
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current !== null) {
+      clearInterval(autoScrollRef.current);
+      autoScrollRef.current = null;
+    }
+  };
+
+  const handleDragStart = (id: string, e: React.DragEvent) => {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragEnd = () => {
+    setDragId(null);
+    setDragOverId(null);
+    stopAutoScroll();
+  };
+
+  const handleDragOver = (targetId: string, e: React.DragEvent) => {
+    if (!dragId || dragId === targetId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverId(targetId);
+
+    // auto scroll
+    const list = listRef.current;
+    if (!list) return;
+    const rect = list.getBoundingClientRect();
+    const y = e.clientY;
+    stopAutoScroll();
+    if (y - rect.top < 32) {
+      autoScrollRef.current = setInterval(() => {
+        list.scrollTop = Math.max(0, list.scrollTop - 16);
+      }, 60);
+    } else if (rect.bottom - y < 32) {
+      autoScrollRef.current = setInterval(() => {
+        list.scrollTop = list.scrollTop + 16;
+      }, 60);
+    }
+  };
+
+  const handleDrop = (targetId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    stopAutoScroll();
+    if (!dragId || dragId === targetId) {
+      setDragId(null);
+      setDragOverId(null);
+      return;
+    }
+    // check if target is a frame
+    const targetRow = rows.find(r => r.id === targetId);
+    if (targetRow?.icon === "frame") {
+      window.dispatchEvent(
+        new CustomEvent("canvas-layer-frame-embed", { detail: { dragId, frameId: targetId } })
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent("canvas-layer-reorder", { detail: { dragId, targetId } })
+      );
+    }
+    setDragId(null);
+    setDragOverId(null);
+  };
+
+  const iconForRow = (row: LayerRow) => {
+    const sz = 13;
+    const col = row.selected ? selectedColor : subColor;
+    switch (row.icon) {
+      case "frame":   return <Frame size={sz} style={{ color: col, flexShrink: 0 }} />;
+      case "image":   return <ImageIcon size={sz} style={{ color: col, flexShrink: 0 }} />;
+      case "text":    return <Type size={sz} style={{ color: col, flexShrink: 0 }} />;
+      case "shape":   return <Square size={sz} style={{ color: col, flexShrink: 0 }} />;
+      case "draw":    return <Pencil size={sz} style={{ color: col, flexShrink: 0 }} />;
+      case "model3d": return <Box size={sz} style={{ color: col, flexShrink: 0 }} />;
+      default:        return <Square size={sz} style={{ color: col, flexShrink: 0 }} />;
+    }
+  };
+
+  return (
+    <div
+      className="absolute nodrag nopan"
+      style={{
+        top: 68,
+        left: "50%",
+        transform: "translateX(calc(-50% - 84px - 190px))",
+        zIndex: 110,
+        width: 220,
+      }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      <div
+        className="rounded-[var(--radius-lg-design)] shadow-2xl flex flex-col"
+        style={{
+          background: bg,
+          border: `1px solid ${border}`,
+          backdropFilter: "blur(20px)",
+          maxHeight: "calc(100vh - 160px)",
+          overflow: "hidden",
+        }}
+      >
+        {/* 面板头部 */}
+        <div
+          className="flex items-center justify-between px-3 py-2"
+          style={{ borderBottom: `1px solid ${dividerColor}` }}
+        >
+          <span style={{ color: textColor, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em" }}>
+            图层
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="关闭图层面板"
+            style={{ color: subColor, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* 提示文字 */}
+        <div
+          className="px-3 pt-2 pb-1"
+          style={{ color: subColor, fontSize: 10, lineHeight: "1.5", userSelect: "none" }}
+        >
+          拖动图层调整前后顺序；拖到画板上可加入容器。
+        </div>
+
+        {/* 图层列表 */}
+        {rows.length === 0 ? (
+          <div
+            className="flex items-center justify-center py-8"
+            style={{ color: subColor, fontSize: 11 }}
+          >
+            暂无图层
+          </div>
+        ) : (
+          <div
+            ref={listRef}
+            className="overflow-y-auto"
+            aria-label="图层列表"
+            style={{ maxHeight: "calc(100vh - 260px)" }}
+          >
+            {rows.map(row => (
+              <div
+                key={row.id}
+                draggable
+                onDragStart={e => handleDragStart(row.id, e)}
+                onDragEnd={handleDragEnd}
+                onDragOver={e => handleDragOver(row.id, e)}
+                onDrop={e => handleDrop(row.id, e)}
+                onClick={e => handleRowClick(row.id, e)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  height: 36,
+                  paddingLeft: 8 + row.depth * 14,
+                  paddingRight: 4,
+                  gap: 5,
+                  cursor: row.hidden || row.locked ? "default" : "pointer",
+                  borderRadius: 7,
+                  margin: "1px 4px",
+                  background: row.id === dragOverId
+                    ? (isDark ? "rgba(30,100,220,0.22)" : "rgba(18,102,198,0.10)")
+                    : row.selected
+                    ? selectedBg
+                    : "transparent",
+                  opacity: row.id === dragId ? 0.4 : row.hidden ? 0.4 : 1,
+                  transition: "background 0.1s",
+                }}
+                onMouseEnter={e => {
+                  if (!row.selected && row.id !== dragOverId)
+                    (e.currentTarget as HTMLDivElement).style.background = hoverBg;
+                }}
+                onMouseLeave={e => {
+                  if (!row.selected && row.id !== dragOverId)
+                    (e.currentTarget as HTMLDivElement).style.background = "transparent";
+                }}
+              >
+                {/* 拖拽把手 */}
+                <GripVertical
+                  size={12}
+                  style={{ color: subColor, flexShrink: 0, cursor: "grab", opacity: 0.5 }}
+                />
+                {/* 节点图标 */}
+                {iconForRow(row)}
+                {/* 名称 */}
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontSize: 12,
+                    color: row.selected ? selectedColor : textColor,
+                    userSelect: "none",
+                    minWidth: 0,
+                  }}
+                >
+                  {row.name}
+                </span>
+                {/* 隐藏切换 */}
+                <button
+                  aria-label={row.hidden ? "显示图层" : "隐藏图层"}
+                  onClick={e => handleToggleHidden(row.id, e)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: row.hidden ? (isDark ? "#a0c4ff" : "#1266c6") : subColor,
+                    padding: "2px 3px",
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  {row.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+                {/* 锁定切换 */}
+                <button
+                  aria-label={row.locked ? "解锁图层" : "锁定图层"}
+                  onClick={e => handleToggleLocked(row.id, e)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: row.locked ? (isDark ? "#a0c4ff" : "#1266c6") : subColor,
+                    padding: "2px 3px",
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  {row.locked ? <Lock size={13} /> : <Unlock size={13} />}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Canvas Top Tool Palette ─────────────────────────────────────
 function CanvasTopToolPalette({
   isDark,
@@ -20580,6 +20883,7 @@ function CanvasTopToolPalette({
   const [shapeOpen, setShapeOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false); // 铅笔子菜单
   const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
   const [drawColor, setDrawColor] = useState(isDark ? "#c4b5fd" : "#1a1a2e"); // 铅笔颜色
   const [drawWidth, setDrawWidth] = useState(2); // 铅笔粗细 px
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -20590,6 +20894,7 @@ function CanvasTopToolPalette({
       setShapeOpen(false);
       setDrawOpen(false);
       setImageGeneratorOpen(false);
+      setLayersOpen(false);
     };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
@@ -20638,6 +20943,7 @@ function CanvasTopToolPalette({
     { id: "shape", label: "几何形", icon: <Triangle size={17} /> },
     { id: "draw", label: "铅笔", icon: <Pencil size={17} /> },
     { id: "text", label: "文字", icon: <Type size={17} /> },
+    { id: "layers", label: "图层", icon: <Layers size={17} /> },
   ];
 
   // 几何形二级菜单
@@ -20709,6 +21015,18 @@ function CanvasTopToolPalette({
         new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
       );
       window.dispatchEvent(new CustomEvent("workspace-create-model3d-container"));
+      return;
+    }
+    if (id === "layers") {
+      setLayersOpen(v => !v);
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setImageGeneratorOpen(false);
+      // 图层面板不改变工具模式，不广播 tool-mode-change
+      if (!layersOpen) {
+        // 打开时立即请求最新数据
+        window.dispatchEvent(new CustomEvent("canvas-layers-request"));
+      }
       return;
     }
     setShapeOpen(false);
@@ -21040,6 +21358,12 @@ function CanvasTopToolPalette({
           </Fragment>
         ))}
       </div>
+      {layersOpen && (
+        <CanvasLayersPanel
+          isDark={isDark}
+          onClose={() => setLayersOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -29998,6 +30322,168 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     [cloneEdgesForHistory, cloneNodesForHistory]
   );
 
+  // ── 图层面板事件监听 ──────────────────────────────────────────────────
+  useEffect(() => {
+    // 1. 面板请求数据 → 把当前节点列表序列化后发回
+    const handleLayersRequest = () => {
+      const rows = buildLayerRows(
+        nodesRef.current,
+        nodesRef.current.filter(n => n.selected).map(n => n.id)
+      );
+      window.dispatchEvent(
+        new CustomEvent("canvas-layers-data", { detail: { rows } })
+      );
+    };
+
+    // 2. 面板选中某行 → 更新 ReactFlow 选中状态
+    const handleLayerSelect = (e: Event) => {
+      const { id, shiftKey: shift } = (
+        e as CustomEvent<{ id: string; shiftKey: boolean }>
+      ).detail;
+      setNodes(nds =>
+        nds.map(n => {
+          if (shift) {
+            // shift: 切换目标节点选中态，其余不变
+            if (n.id === id) return { ...n, selected: !n.selected };
+            return n;
+          }
+          return { ...n, selected: n.id === id };
+        })
+      );
+      setSelectedNodeIds(prev => {
+        if (shift) {
+          return prev.includes(id)
+            ? prev.filter(x => x !== id)
+            : [...prev, id];
+        }
+        return [id];
+      });
+      // 同步更新图层面板
+      setTimeout(handleLayersRequest, 0);
+    };
+
+    // 3. 切换可见性
+    const handleToggleHidden = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      pushHistory();
+      setNodes(nds =>
+        nds.map(n => {
+          if (n.id !== id) return n;
+          const next = !(n.data as Record<string, unknown>).layerHidden;
+          return {
+            ...n,
+            // 隐藏/锁定后取消选中，否则还能被 Delete、方向键误操作
+            selected: next ? false : n.selected,
+            data: { ...n.data, layerHidden: next },
+          };
+        })
+      );
+      setSelectedNodeIds(prev => prev.filter(x => x !== id));
+      setTimeout(handleLayersRequest, 0);
+    };
+
+    // 4. 切换锁定
+    const handleToggleLocked = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      pushHistory();
+      setNodes(nds =>
+        nds.map(n => {
+          if (n.id !== id) return n;
+          const next = !(n.data as Record<string, unknown>).layerLocked;
+          return {
+            ...n,
+            // 隐藏/锁定后取消选中，否则还能被 Delete、方向键误操作
+            selected: next ? false : n.selected,
+            data: { ...n.data, layerLocked: next },
+          };
+        })
+      );
+      setSelectedNodeIds(prev => prev.filter(x => x !== id));
+      setTimeout(handleLayersRequest, 0);
+    };
+
+    // 5. 重排顺序（同层拖拽）
+    const handleLayerReorder = (e: Event) => {
+      const { dragId, targetId } = (
+        e as CustomEvent<{ dragId: string; targetId: string }>
+      ).detail;
+      const result = applyLayerDrop(nodesRef.current, dragId, targetId);
+      if (!result.changed) return; // 无变化不入撤销栈
+      pushHistory();
+      setNodes(result.nodes);
+      setTimeout(handleLayersRequest, 0);
+    };
+
+    // 6. 嵌入画板（拖到 frame）
+    const handleLayerFrameEmbed = (e: Event) => {
+      const { dragId, frameId } = (
+        e as CustomEvent<{ dragId: string; frameId: string }>
+      ).detail;
+      const result = applyLayerDrop(nodesRef.current, dragId, frameId);
+      if (!result.changed) return;
+      pushHistory();
+      setNodes(result.nodes);
+      setTimeout(handleLayersRequest, 0);
+    };
+
+    window.addEventListener("canvas-layers-request", handleLayersRequest);
+    window.addEventListener("canvas-layer-select", handleLayerSelect);
+    window.addEventListener(
+      "canvas-layer-toggle-hidden",
+      handleToggleHidden
+    );
+    window.addEventListener(
+      "canvas-layer-toggle-locked",
+      handleToggleLocked
+    );
+    window.addEventListener("canvas-layer-reorder", handleLayerReorder);
+    window.addEventListener(
+      "canvas-layer-frame-embed",
+      handleLayerFrameEmbed
+    );
+
+    return () => {
+      window.removeEventListener(
+        "canvas-layers-request",
+        handleLayersRequest
+      );
+      window.removeEventListener("canvas-layer-select", handleLayerSelect);
+      window.removeEventListener(
+        "canvas-layer-toggle-hidden",
+        handleToggleHidden
+      );
+      window.removeEventListener(
+        "canvas-layer-toggle-locked",
+        handleToggleLocked
+      );
+      window.removeEventListener(
+        "canvas-layer-reorder",
+        handleLayerReorder
+      );
+      window.removeEventListener(
+        "canvas-layer-frame-embed",
+        handleLayerFrameEmbed
+      );
+    };
+  }, [pushHistory, setNodes, setSelectedNodeIds]);
+
+  // 画布侧任何变化（增删/选中/撤销/层级）→ 主动推给图层面板。
+  // 只比较图层相关字段的签名，拖动位置这类每帧变化不会触发重推。
+  const layerRowsSignatureRef = useRef("");
+  useEffect(() => {
+    const rows = buildLayerRows(
+      nodes,
+      nodes.filter(n => n.selected).map(n => n.id)
+    );
+    const signature = JSON.stringify(rows);
+    if (signature === layerRowsSignatureRef.current) return;
+    layerRowsSignatureRef.current = signature;
+    window.dispatchEvent(
+      new CustomEvent("canvas-layers-data", { detail: { rows } })
+    );
+  }, [nodes]);
+
+
   /**
    * 空画布引导「上传图片」。
    *
@@ -36409,8 +36895,13 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable;
       if (isTyping) return;
-      const selectedDeletableIds = selectedNodeIds.filter(id =>
-        nodes.some(n => isCrossCanvasCopyNode(n))
+      const lockedIds = new Set(
+        nodes
+          .filter(n => (n.data as Record<string, unknown>).layerLocked)
+          .map(n => n.id)
+      );
+      const selectedDeletableIds = selectedNodeIds.filter(
+        id => !lockedIds.has(id) && nodes.some(n => isCrossCanvasCopyNode(n))
       );
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -36437,6 +36928,40 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ? `已删除 ${assetCount} 个图片节点`
               : `已删除 ${otherCount} 个图形元素`;
         toast("已删除", { description: desc });
+        return;
+      }
+      // 图层：⌘⇧H 显示/隐藏、⌘⇧L 锁定/解锁（对选中节点批量切换）
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (e.key.toLowerCase() === "h" || e.key.toLowerCase() === "l") &&
+        selectedNodeIds.length > 0
+      ) {
+        e.preventDefault();
+        const field = e.key.toLowerCase() === "h" ? "layerHidden" : "layerLocked";
+        const ids = new Set(selectedNodeIds);
+        // 只要有一个没处于该状态 → 全部设为 true；否则全部取消
+        const nextValue = nodes.some(
+          n => ids.has(n.id) && !(n.data as Record<string, unknown>)[field]
+        );
+        pushHistory();
+        setNodes(nds =>
+          nds.map(n =>
+            ids.has(n.id)
+              ? {
+                  ...n,
+                  // 锁定/隐藏后取消选中，否则锁定节点仍可被 Delete 删掉
+                  selected: nextValue ? false : n.selected,
+                  data: { ...n.data, [field]: nextValue },
+                }
+              : n
+          )
+        );
+        if (nextValue) setSelectedNodeIds([]);
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("canvas-layers-request")),
+          0
+        );
         return;
       }
       if (
@@ -39040,9 +39565,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       frameClipInsets,
       uploadExpiry: uploadExpiryEntry || undefined,
     };
-    return n.type === "asset" && editAsset && n.id === editAsset.nodeId
-      ? { ...n, data: { ...data, isEditing: true } }
-      : { ...n, data };
+    // 图层面板：hidden / locked 映射到 ReactFlow 节点属性
+    const isLayerHidden = !!(nodeData.layerHidden);
+    const isLayerLocked = !!(nodeData.layerLocked);
+    const baseNode =
+      n.type === "asset" && editAsset && n.id === editAsset.nodeId
+        ? { ...n, data: { ...data, isEditing: true } }
+        : { ...n, data };
+    return {
+      ...baseNode,
+      hidden: isLayerHidden,
+      ...(isLayerLocked
+        ? { draggable: false, selectable: false, connectable: false }
+        : {}),
+    };
   });
   // 开着浮层面板（便签 / 文字提取 / 提示词反推）的节点整体提到顶层。
   //
