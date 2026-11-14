@@ -8,6 +8,7 @@ import {
   type PendingSkillLoad,
 } from "@/lib/skill-store";
 import { ComposerDisclosureCaret } from "./composer-disclosure-caret";
+import { modelPopoverTokens, type ModelPopoverTheme } from "./model-popover-tokens";
 
 const COMPACT_DISCLOSURE_BUTTON_WIDTH = 32;
 
@@ -21,6 +22,11 @@ interface SkillSelectorProps {
   textMuted?: string;
   bgMain?: string;
   borderColor?: string;
+  /**
+   * 展开面板的配色（2026-11-14）：与 ModelSelector 共用 modelPopoverTokens。
+   * ⚠️ 默认 "dark" = 原行为；浅色页面（首页）显式传 "light" 才是白底深字。
+   */
+  popoverTheme?: ModelPopoverTheme;
 }
 
 /**
@@ -36,6 +42,7 @@ export function SkillSelector({
   textMuted,
   bgMain,
   borderColor,
+  popoverTheme = "dark",
 }: SkillSelectorProps) {
   const [open, setOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
@@ -60,12 +67,26 @@ export function SkillSelector({
   const border = borderColor || (isDark ? "#161616" : "#161616");
   const text = textMuted || (isDark ? "#bbbbbb" : "#161616");
   const hoverButtonText = textPrimary || (isDark ? "#ffffff" : "#000000"); // 与 ModelSelector 一致：使用 textPrimary
-  const popBg = isDark ? "#161616" : "#161616";
-  const hoverBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
-  const activeBg = isDark
-    ? "rgba(22,22,22,0.18)"
-    : "rgba(22,22,22,0.08)";
-  const activeText = isDark ? "#f5f6f8" : "#161616";
+  /**
+   * 🔒 2026-11-14 用户要求：首页（浅色）的 Skill 展开面板改白底。
+   * 改之前浅色页面下面板恒为 #161616、行文字也是 #161616 → 黑底黑字，零报错。
+   * 面板主色统一走 modelPopoverTokens，与模型选择器同一事实源。
+   */
+  const lightPop = popoverTheme === "light";
+  const pop = modelPopoverTokens(popoverTheme, { text, border }, isDark);
+  const popBg = pop.background;
+  const popBorder = pop.border;
+  const popText = pop.text;
+  const hoverBg = pop.hoverBackground;
+  const activeBg = lightPop
+    ? pop.selectedBackground
+    : isDark
+      ? "rgba(22,22,22,0.18)"
+      : "rgba(22,22,22,0.08)";
+  const activeText = lightPop ? "#161616" : isDark ? "#f5f6f8" : "#161616";
+  /** 面板内次级文字：浅色面板一律深色系；深色面板保持原口径 */
+  const popSecondary = (darkValue: string, lightValue: string) =>
+    lightPop ? lightValue : isDark ? darkValue : lightValue;
 
   const skillIconColor = useCallback((id: string) => {
     const palette = [
@@ -203,8 +224,10 @@ export function SkillSelector({
             style={{
               ...(popoverStyle || {}),
               background: popBg,
-              border: `1px solid ${border}`,
-              color: text,
+              border: `1px solid ${popBorder}`,
+              color: popText,
+              ...(pop.shadow ? { boxShadow: pop.shadow } : {}),
+              ...(lightPop ? { scrollbarColor: `${pop.scrollbar} transparent` } : {}),
               zIndex: 9999,
             }}
           >
@@ -220,9 +243,10 @@ export function SkillSelector({
                 }}
                 className="flex w-full items-center gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left type-caption"
                 style={{
-                  color: isDark
-                    ? "rgba(255,255,255,0.71)"
-                    : "rgba(20,20,36,0.58)",
+                  color: popSecondary(
+                    "rgba(255,255,255,0.71)",
+                    "rgba(20,20,36,0.58)"
+                  ),
                 }}
                 onMouseEnter={event => {
                   event.currentTarget.style.background = hoverBg;
@@ -240,9 +264,10 @@ export function SkillSelector({
                 <div
                   className="px-2.5 pb-1 pt-2 text-[11px] font-semibold"
                   style={{
-                    color: isDark
-                      ? "rgba(255,255,255,0.59)"
-                      : "rgba(20,20,36,0.42)",
+                    color: popSecondary(
+                      "rgba(255,255,255,0.59)",
+                      "rgba(20,20,36,0.42)"
+                    ),
                   }}
                 >
                   {group}
@@ -266,7 +291,7 @@ export function SkillSelector({
                       className="flex w-full items-start gap-2 rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
                       style={{
                         background: active ? activeBg : "transparent",
-                        color: active ? activeText : text,
+                        color: active ? activeText : popText,
                       }}
                       onMouseEnter={event => {
                         if (!active)
@@ -297,9 +322,10 @@ export function SkillSelector({
                         <span
                           className="mt-0.5 block line-clamp-2 text-[11px]"
                           style={{
-                            color: isDark
-                              ? "rgba(255,255,255,0.62)"
-                              : "rgba(20,20,36,0.50)",
+                            color: popSecondary(
+                              "rgba(255,255,255,0.62)",
+                              "rgba(20,20,36,0.50)"
+                            ),
                           }}
                         >
                           {skill.summary}

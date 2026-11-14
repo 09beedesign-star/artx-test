@@ -467,6 +467,7 @@ export function CenteredPromptPanel({
               isDark={isDark}
               models={imageModelOptions}
               placement="up"
+              popoverTheme={isDark ? "dark" : "light"}
               surface={{
                 background: "transparent",
                 border: "transparent",
@@ -486,6 +487,7 @@ export function CenteredPromptPanel({
               onChange={onSkillChange}
               isDark={isDark}
               compact={false}
+              popoverTheme={isDark ? "dark" : "light"}
             />
           </div>
           <div className="flex items-center gap-2">
