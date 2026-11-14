@@ -271,37 +271,38 @@ export default function InspirationPage() {
         <main className="mx-auto px-5 py-6 sm:px-8" style={{ maxWidth: 1320 }}>
 
           {/* ── 顶部搜索栏 ── */}
+          {/*
+            【2026-11-14 用户定稿】样式与颜色与技能商店（SkillsPage.tsx 顶部搜索框）完全一致：
+            h-9 矩形 + radius-md-design 圆角 + 半透明白底 + 淡描边 + 14px 图标/字号。
+            改其中一个时两边一起改。
+          */}
           <section className="mb-6">
-            <div className="flex items-center gap-4">
-              <div className="flex-1 relative">
-                <Search
-                  size={15}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-                  style={{ color: isDark ? "#666666" : "#999999" }}
-                />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="搜索灵感模板、提示词..."
-                  className="w-full rounded-[var(--radius-pill)] py-2.5 pl-10 pr-4 text-[13px] outline-none transition-all"
-                  style={{
-                    background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
-                    border: `1px solid ${isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}`,
-                    color: text,
-                  }}
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2"
-                    aria-label="清除搜索"
-                  >
-                    <X size={13} style={{ color: isDark ? "#666666" : "#999999" }} />
-                  </button>
-                )}
-              </div>
+            <div
+              className="flex h-9 w-full items-center gap-2 overflow-hidden rounded-[var(--radius-md-design)] border px-3"
+              style={{
+                borderColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(20,20,36,0.10)",
+                background: isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)",
+              }}
+            >
+              <Search size={14} style={{ color: isDark ? "rgba(255,255,255,0.54)" : "rgba(20,20,36,0.40)", flexShrink: 0 }} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="搜索灵感模板、提示词..."
+                className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
+                style={{ color: isDark ? "rgba(255,255,255,0.88)" : "rgba(20,20,36,0.86)" }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="shrink-0"
+                  aria-label="清除搜索"
+                >
+                  <X size={13} style={{ color: isDark ? "rgba(255,255,255,0.54)" : "rgba(20,20,36,0.40)" }} />
+                </button>
+              )}
             </div>
           </section>
 
