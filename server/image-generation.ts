@@ -103,6 +103,16 @@ type ImageGenerateInput = {
   targetWidth?: number;
   targetHeight?: number;
   /**
+   * 「一键同款」画幅锁：模板图真实像素（2026-11-14 用户硬规定：同款与模板比例完全一致）。
+   *
+   * ⚠️ 与 targetWidth/Height 刻意分开：后者会把长边抬到 ≥1536 并向上游要 2K/4K，
+   * 计费档位随之翻倍（同款 70 → 150，击穿 ≤90 护栏）。
+   * 这里只做「按模板比例居中裁切、不放大」，交付图短边只减不增 → 档位不变。
+   * 与 targetWidth/Height 同时存在时以后者为准（用户显式要了尺寸）。
+   */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
+  /**
    * 按账号的分层记忆，由服务端注入（server/index.ts 的 withUserMemory）。
    *
    * ⚠️⚠️⚠️ 必须在下方真的**拼进发给上游的提示词**里才算生效。
@@ -4001,6 +4011,55 @@ export async function __testNormalizeGeneratedImagesToTargetAspect(
   }));
 }
 
+/**
+ * 在**不放大**的前提下，求能放进 sourceW×sourceH 的、比例恰为 lockW:lockH 的最大尺寸。
+ *
+ * 📌 只裁不放：交付图短边 ≤ 上游原图短边 → 计费档位（按短边判）永远不会升档。
+ */
+export function __testResolveAspectLockCropSize(
+  sourceWidth: number,
+  sourceHeight: number,
+  lockWidth: number,
+  lockHeight: number,
+): { width: number; height: number } {
+  const lockRatio = lockWidth / lockHeight;
+  const sourceRatio = sourceWidth / sourceHeight;
+  if (sourceRatio > lockRatio) {
+    // 源图更宽 → 以高为准裁宽
+    return { width: Math.max(1, Math.round(sourceHeight * lockRatio)), height: sourceHeight };
+  }
+  return { width: sourceWidth, height: Math.max(1, Math.round(sourceWidth / lockRatio)) };
+}
+
+/**
+ * 同款画幅锁：把上游出图居中裁成模板图的精确比例（只裁不放大）。
+ */
+export async function __testCropGeneratedImagesToAspectLock(
+  images: GeneratedImage[],
+  lockWidth: number,
+  lockHeight: number,
+): Promise<GeneratedImage[]> {
+  const sharp = (await import("sharp")).default;
+  return Promise.all(images.map(async (image) => {
+    const { buffer } = await imageSrcToBuffer(image.src);
+    const rotated = await sharp(buffer, { limitInputPixels: false }).rotate().toBuffer();
+    const meta = await sharp(rotated).metadata();
+    const sourceWidth = meta.width || image.width;
+    const sourceHeight = meta.height || image.height;
+    if (!sourceWidth || !sourceHeight) return image;
+    const size = __testResolveAspectLockCropSize(sourceWidth, sourceHeight, lockWidth, lockHeight);
+    const png = await sharp(rotated)
+      .resize(size.width, size.height, { fit: "cover", position: "centre" })
+      .png()
+      .toBuffer();
+    return {
+      src: `data:image/png;base64,${png.toString("base64")}`,
+      width: size.width,
+      height: size.height,
+    };
+  }));
+}
+
 function pixelDistance(data: Buffer, index: number, color: [number, number, number]) {
   const dr = data[index] - color[0];
   const dg = data[index + 1] - color[1];
@@ -5065,6 +5124,14 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
   const promptTargetWidth = coerceTargetDimension(input.targetWidth);
   const promptTargetHeight = coerceTargetDimension(input.targetHeight);
   const hasPromptSizeTarget = promptTargetWidth !== undefined && promptTargetHeight !== undefined;
+  /**
+   * 同款画幅锁（只裁不放大，不改计费档位）。用户显式给了尺寸时让位给 hasPromptSizeTarget。
+   */
+  const aspectLockWidth = coerceTargetDimension(input.aspectLockWidth);
+  const aspectLockHeight = coerceTargetDimension(input.aspectLockHeight);
+  const aspectLock = !hasPromptSizeTarget && aspectLockWidth !== undefined && aspectLockHeight !== undefined
+    ? { width: aspectLockWidth, height: aspectLockHeight }
+    : null;
   const targetSize = __testResolveHighDefinitionTargetSize(
     promptTargetWidth ?? ratio.width,
     promptTargetHeight ?? ratio.height,
@@ -5164,7 +5231,9 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
           targetSize.width,
           targetSize.height,
         )
-      : rawVodImages;
+      : !deliverable && aspectLock && rawVodImages.length > 0
+        ? await __testCropGeneratedImagesToAspectLock(rawVodImages, aspectLock.width, aspectLock.height)
+        : rawVodImages;
     console.log("[generate] VOD success:", vodModelId, "| count:", images.length, "| targetSize:", hasPromptSizeTarget ? `${targetSize.width}x${targetSize.height}` : "(default)", "| upstreamResolution:", vodInput.resolution, "| src:", (images[0]?.src || "").slice(0, 100));
     // ⚠️ 必须把腾讯返回的 TaskId 透出去。这里曾经直接 `return { images }`，
     // 把 result.taskId 丢掉，导致所有 VOD 任务在后台追踪里的上游任务号
@@ -5309,7 +5378,9 @@ export async function generateImages(input: ImageGenerateInput): Promise<Generat
       }
 
       const images = extractGeneratedImages(providerData, baseUrl, targetSize.width, targetSize.height).slice(0, count);
-      const normalizedImages = await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
+      const normalizedImages = aspectLock
+        ? await __testCropGeneratedImagesToAspectLock(images, aspectLock.width, aspectLock.height)
+        : await __testNormalizeGeneratedImagesToTargetAspect(images, targetSize.width, targetSize.height);
       if (normalizedImages.length > 0) {
         if (normalizedImages.length < count) {
           const remainingCount = count - normalizedImages.length;

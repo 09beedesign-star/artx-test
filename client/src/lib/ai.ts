@@ -632,6 +632,8 @@ export async function generateImages({
   generationId,
   targetWidth,
   targetHeight,
+  aspectLockWidth,
+  aspectLockHeight,
   deliverable,
   signal,
 }: {
@@ -653,6 +655,9 @@ export async function generateImages({
    */
   targetWidth?: number;
   targetHeight?: number;
+  /** 同款画幅锁，两条出口都带 */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
   /**
    * image2.6 交付物类型。两条出口都要带（同 targetWidth 教训）。
    */
@@ -692,6 +697,8 @@ export async function generateImages({
         skillId,
         targetWidth,
         targetHeight,
+        aspectLockWidth,
+        aspectLockHeight,
         deliverable,
       });
       return await waitForImageGenerationTask(generationId, signal);
@@ -716,6 +723,8 @@ export async function generateImages({
     skillId,
     targetWidth,
     targetHeight,
+    aspectLockWidth,
+    aspectLockHeight,
     deliverable,
   }, "图像生成失败");
 
@@ -826,6 +835,8 @@ export async function startBackgroundImageGeneration({
   skillId,
   targetWidth,
   targetHeight,
+  aspectLockWidth,
+  aspectLockHeight,
   deliverable,
 }: {
   taskId: string;
@@ -840,6 +851,9 @@ export async function startBackgroundImageGeneration({
   /** 提示词尺寸意图解析出的目标像素。见 shared/prompt-size-intent.ts。 */
   targetWidth?: number;
   targetHeight?: number;
+  /** 同款画幅锁（模板图真实像素）。 */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
   /** image2.6 交付物类型（svg / gif）。 */
   deliverable?: "svg" | "gif";
 }) {
@@ -863,6 +877,8 @@ export async function startBackgroundImageGeneration({
     skillId,
     targetWidth,
     targetHeight,
+    aspectLockWidth,
+    aspectLockHeight,
     deliverable,
   });
 }

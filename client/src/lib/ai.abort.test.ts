@@ -103,7 +103,9 @@ describe("A. 每条会轮询的出口都必须接上 signal", () => {
     // 中止错误如果落进这个分支，就会**又跑一次生成** ——
     // 用户点了停止，结果反而多扣一次费。
     const start = aiSource.indexOf("async function generateImages");
-    const body = aiSource.slice(start, start + 2200);
+    // 窗口只是为了限定在 generateImages 函数体内；断言的是「先后顺序」，不是长度。
+    // 2026-11-14 加同款画幅锁两个字段后函数头变长，2200 不够 → 放宽到 3200。
+    const body = aiSource.slice(start, start + 3200);
     const abortCheck = body.indexOf("if (isAiAbortError(error)) throw error;");
     const connectionCheck = body.indexOf("isAiBackendConnectionError(error)");
     expect(abortCheck, "catch 里没有中止判断").toBeGreaterThan(-1);

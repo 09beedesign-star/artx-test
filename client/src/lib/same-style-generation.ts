@@ -20,6 +20,7 @@
  *   结果：单张 70，带长期记忆 75，恒 ≤ 90。
  */
 import { INSPIRATION_SAME_STYLE_MODEL_ID } from "@shared/image-models";
+import { toNearestSupportedRatio } from "@shared/edit-aspect-lock";
 
 /** 用户拍板的同款单张积分上限。 */
 export const SAME_STYLE_MAX_CREDITS_PER_IMAGE = 90;
@@ -45,6 +46,43 @@ export function isSameStyleGeneration(input: {
   if (input.modelTab !== "image" || input.autoMode) return false;
   if (input.imageModelId !== INSPIRATION_SAME_STYLE_MODEL_ID) return false;
   return input.referenceIds.some(id => input.sameStyleReferenceIds.has(id));
+}
+
+/**
+ * 同款出图的画幅锁（2026-11-14 用户硬规定：同款结果与模板图**比例完全一致**，
+ * 除非用户手动调了比例 / 分辨率）。
+ *
+ * ── 为什么要单独一个字段，而不是复用 targetWidth/Height ──────────────
+ * 上游 VOD 只认白名单比例（1:1 / 3:4 / 9:16 …），模板图常是 1237×1653 这种非整比，
+ * 只靠 ratio 永远对不上 → 必须服务端出图后再按模板比例裁一次。
+ * 但 targetWidth/Height 一下发，服务端就会把长边抬到 ≥1536 并向上游要 2K
+ * → 档位 1k→2k，70 积分变 150，直接击穿「同款 ≤ 90」护栏。
+ * 📌 所以用独立的 aspectLockWidth/Height：**只裁不放大**，短边不增 → 计费档位不变。
+ *
+ * 返回 null = 不锁（用户手动指定了画幅/分辨率，或读不到模板尺寸），按原链路走。
+ */
+export function resolveSameStyleAspectLock(input: {
+  /** 模板图真实像素（getImageNaturalSize），不是画布显示尺寸。 */
+  templateWidth?: number | null;
+  templateHeight?: number | null;
+  /** 比例选择器当前值；非 auto = 用户手动调过。 */
+  selectorRatio?: string | null;
+  /** resolveOutputSizeFromPromptAndSelector 的 source；"prompt" = 提示词里写了尺寸/比例/分辨率。 */
+  promptSizeSource?: string | null;
+}): { ratio: string; aspectLockWidth: number; aspectLockHeight: number } | null {
+  const selector = input.selectorRatio?.trim().toLowerCase();
+  if (selector && selector !== "auto") return null;
+  if (input.promptSizeSource === "prompt") return null;
+  const width = Number(input.templateWidth);
+  const height = Number(input.templateHeight);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return {
+    ratio: toNearestSupportedRatio(width, height),
+    aspectLockWidth: Math.round(width),
+    aspectLockHeight: Math.round(height),
+  };
 }
 
 /**

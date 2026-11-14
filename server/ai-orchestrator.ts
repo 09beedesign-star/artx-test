@@ -34,6 +34,9 @@ export type OrchestrateRequest = {
   regionSelectEdit?: boolean;
   targetWidth?: number;
   targetHeight?: number;
+  /** 「一键同款」画幅锁：模板图真实像素，只裁不放大。 */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
   top?: number;
   bottom?: number;
   left?: number;
@@ -305,6 +308,9 @@ export class AIOrchestrator {
       // 于是「提示词写 4K」在编辑时生效、在生成时静默失效。
       targetWidth: input.targetWidth,
       targetHeight: input.targetHeight,
+      // 同款画幅锁（只裁不放大）。⚠️ 透传 ≠ 被消费：generateImages 两条分支都消费它。
+      aspectLockWidth: input.aspectLockWidth,
+      aspectLockHeight: input.aspectLockHeight,
     });
 
     return {

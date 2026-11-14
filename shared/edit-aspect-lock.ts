@@ -145,6 +145,10 @@ export type EditAspectLock = {
  * ⚠️ 真实像素不受影响 —— 那由 width/height 承载，ratio 仅用于给上游
  *    选最接近的出图档位，最终还会按真实像素做一次归一化。
  */
+export function toNearestSupportedRatio(width: number, height: number): string {
+  return toSimplifiedRatio(width, height);
+}
+
 function toSimplifiedRatio(width: number, height: number): string {
   const target = width / Math.max(1, height);
   let best = SUPPORTED_IMAGE_RATIOS[0] as string;

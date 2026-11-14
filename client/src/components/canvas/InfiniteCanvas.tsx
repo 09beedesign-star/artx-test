@@ -629,6 +629,7 @@ import { resolveSameStyleImageSrc } from "@/lib/inspiration-same-style";
 import {
   buildSameStyleImagePrompt,
   isSameStyleGeneration,
+  resolveSameStyleAspectLock,
 } from "@/lib/same-style-generation";
 import {
   callLLM,
@@ -14093,6 +14094,12 @@ type ImageGeneratorPayload = {
   targetWidth?: number;
   targetHeight?: number;
   /**
+   * 同款画幅锁（模板图真实像素）。服务端按此比例只裁不放大，不改计费档位。
+   * 见 client/src/lib/same-style-generation.ts resolveSameStyleAspectLock。
+   */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
+  /**
    * 就地局部重绘的目标节点 id（2026-09-21）。
    *
    * 有值 = 这次生成的结果**替换这张已存在的图的像素**，不新建节点：
@@ -14144,6 +14151,9 @@ type ImageRegenerateRequestDetail = {
   /** 重新生成时必须带上原始的提示词尺寸意图，否则 4K 图重生成会退回 1536。 */
   targetWidth?: number;
   targetHeight?: number;
+  /** 同款画幅锁，重新生成时原样重放。 */
+  aspectLockWidth?: number;
+  aspectLockHeight?: number;
   deliverable?: "svg" | "gif";
 };
 
@@ -15141,6 +15151,14 @@ function getRegenerableImageNodeDetail(
       typeof data.generationTargetHeight === "number"
         ? data.generationTargetHeight
         : undefined,
+    aspectLockWidth:
+      typeof data.generationAspectLockWidth === "number"
+        ? data.generationAspectLockWidth
+        : undefined,
+    aspectLockHeight:
+      typeof data.generationAspectLockHeight === "number"
+        ? data.generationAspectLockHeight
+        : undefined,
     deliverable:
       typeof data.generationDeliverable === "string" &&
       (data.generationDeliverable === "svg" ||
@@ -15175,6 +15193,9 @@ function getImageGenerationNodeMetadata(detail: ImageGeneratorPayload) {
      */
     generationTargetWidth: detail.targetWidth,
     generationTargetHeight: detail.targetHeight,
+    // 同款画幅锁同样要能被「再次生成」重放（读回在 getRegenerableImageNodeDetail）。
+    generationAspectLockWidth: detail.aspectLockWidth,
+    generationAspectLockHeight: detail.aspectLockHeight,
     /**
      * A|B 对比滑杆的开关位（2026-09-28，repaint-compare.ts）。
      * ⚠️ 收口在这里而不是各个回包分支：completed 有三个落点（占位替换 /
@@ -25590,6 +25611,25 @@ function CanvasAssistantPanel({
           selectorRatio: assistantImageRatio,
           resolvedSelectorRatio: resolveImageRatio(assistantImageRatio),
         });
+        /**
+         * 同款画幅锁（2026-11-14 用户硬规定：同款结果与模板图比例完全一致，
+         * 除非用户手动调了比例选择器 / 在提示词里写了尺寸）。
+         * ⚠️ 用模板图真实像素（getImageNaturalSize），不用画布节点显示尺寸（带 120px 钳制）。
+         */
+        const sameStyleTemplate = isSameStyle
+          ? assistantImages.find(asset => sameStyleReferenceIdsRef.current.has(asset.id))
+          : undefined;
+        const sameStyleTemplateNaturalSize = sameStyleTemplate
+          ? await getImageNaturalSize(sameStyleTemplate.src)
+          : undefined;
+        const sameStyleAspectLock = isSameStyle
+          ? resolveSameStyleAspectLock({
+              templateWidth: sameStyleTemplateNaturalSize?.width,
+              templateHeight: sameStyleTemplateNaturalSize?.height,
+              selectorRatio: assistantImageRatio,
+              promptSizeSource: promptSizeDecision.source,
+            })
+          : null;
         const payload: ImageGeneratorPayload = {
           projectId,
           prompt: shouldEditTargetReference
@@ -25622,7 +25662,10 @@ function CanvasAssistantPanel({
            */
           ratio: shouldEditTargetReference
             ? referenceEditAspectLock.ratio
-            : promptSizeDecision.ratio,
+            : sameStyleAspectLock?.ratio ?? promptSizeDecision.ratio,
+          // 同款画幅锁：服务端只裁不放大，档位保持 1k（≤90 积分护栏不破）。
+          aspectLockWidth: sameStyleAspectLock?.aspectLockWidth,
+          aspectLockHeight: sameStyleAspectLock?.aspectLockHeight,
           // 提示词提到尺寸时才带像素；没提到就是 undefined，
           // 服务端行为与改造前逐位一致（不做任何多余重编码）。
           // ⚠️ 同款模式不下发目标像素：服务端只在收到 targetWidth/Height 时才向上游要
@@ -32066,6 +32109,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           // 漏掉这两行 = 4K 图点一次「再次生成」就悄悄退回 1536，零报错。
           targetWidth: detail.targetWidth,
           targetHeight: detail.targetHeight,
+          aspectLockWidth: detail.aspectLockWidth,
+          aspectLockHeight: detail.aspectLockHeight,
         };
         setNodes(nds =>
           nds.map(node => {
@@ -32179,6 +32224,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         // 同上：再次生成沿用原始尺寸意图，否则重生成会掉档。
         targetWidth: detail.targetWidth,
         targetHeight: detail.targetHeight,
+        aspectLockWidth: detail.aspectLockWidth,
+        aspectLockHeight: detail.aspectLockHeight,
         // image2.6 交付物类型（svg / gif），undefined = 普通图片。
         deliverable: detail.deliverable,
       };
