@@ -192,7 +192,30 @@ import {
   Layers,
   Eye,
   EyeOff,
+  PanelsTopLeft,
 } from "lucide-react";
+import { TemplatePieceNode } from "./TemplatePieceNode";
+import {
+  CanvasTemplatePanel,
+  TEMPLATE_PANEL_TOGGLE_EVENT,
+  TEMPLATE_SELECTION_EVENT,
+  TEMPLATE_PLACE_EVENT,
+  TEMPLATE_PRINT_EVENT,
+  TEMPLATE_PIECE_PATCH_EVENT,
+  TEMPLATE_PIECE_REFERENCE_EVENT,
+  type TemplateActionDetail,
+} from "./CanvasTemplatePanel";
+import {
+  TEMPLATE_RESOLUTIONS,
+  buildTemplateNodes,
+  computeTemplatePlacement,
+  getTemplateLayout,
+  renderTemplateSvg,
+  resolveTemplateSize,
+  svgToDataUrl,
+  templateBackground,
+  type TemplatePiece,
+} from "@/lib/canvas-templates";
 import {
   AssistantModelIcon,
   HighCostBadge,
@@ -803,6 +826,7 @@ const CROSS_CANVAS_COPY_TYPES = [
   "pen",
   "text",
   "model3d",
+  "templatePiece",
 ] as const;
 
 function clampCanvasZoom(value: number) {
@@ -13978,6 +14002,7 @@ function CanvasEmptyStateOverlay({
     text: TextNodeComponent as unknown as NodeTypes["text"],
     draftImage: DraftImageNodeComponent as unknown as NodeTypes["draftImage"],
     model3d: Model3DNode as unknown as NodeTypes["model3d"],
+    templatePiece: TemplatePieceNode as unknown as NodeTypes["templatePiece"],
   };
 
 function areStringArraysEqual(a: string[], b: string[]) {
@@ -14325,6 +14350,43 @@ function getSkillPreferredRatio(
   )
     return fallback;
   return inferImageRatio(width, height);
+}
+
+/** 版式子单元按 zIndex 收集 —— 画板导出 / 打印共用同一个口径。 */
+function collectTemplatePieces(nodes: Node[], frameId: string): TemplatePiece[] {
+  return nodes
+    .filter(
+      n =>
+        n.type === "templatePiece" &&
+        (n.data as Record<string, unknown>).embeddedInFrame === frameId
+    )
+    .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0))
+    .map(n => (n.data as Record<string, unknown>).piece as TemplatePiece);
+}
+
+/** 子单元 → 一张透明画布；绘图仍只走 canvas-templates 的 SVG。 */
+async function rasterizeTemplatePieces(
+  pieces: TemplatePiece[],
+  width: number,
+  height: number
+): Promise<HTMLCanvasElement | null> {
+  if (pieces.length === 0) return null;
+  const svg = renderTemplateSvg(pieces, width, height);
+  try {
+    const readable = await loadReadableImageForCanvas(svgToDataUrl(svg));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    const ctx = canvas.getContext("2d");
+    try {
+      ctx?.drawImage(readable.image, 0, 0, canvas.width, canvas.height);
+    } finally {
+      readable.revoke();
+    }
+    return ctx ? canvas : null;
+  } catch {
+    return null;
+  }
 }
 
 function getCanvasNodeSize(node: Node): CanvasNodeSize {
@@ -20930,6 +20992,12 @@ function CanvasTopToolPalette({
   // ⚠️ toolMode "annotate" 本身**没有删**，注释的落点逻辑仍走同一条路，
   // 只是触发入口换到了图片命令条。
   const tools = [
+    // 2026-11-14：版式工作台固定在最左侧，图标与参考站点的倾斜卡片不同。
+    {
+      id: "templates",
+      label: "版式工作台",
+      icon: <PanelsTopLeft size={17} />,
+    },
     // { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
     { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
@@ -20957,6 +21025,15 @@ function CanvasTopToolPalette({
   ];
 
   const handleToolClick = (id: string) => {
+    if (id === "templates") {
+      setShapeOpen(false);
+      setDrawOpen(false);
+      setImageGeneratorOpen(false);
+      setLayersOpen(false);
+      // 版式工作台是独立抽屉，不占用画布工具模式，也不广播 tool-mode-change
+      window.dispatchEvent(new CustomEvent(TEMPLATE_PANEL_TOGGLE_EVENT));
+      return;
+    }
     if (id === "shape") {
       setShapeOpen(v => !v);
       setDrawOpen(false);
@@ -30467,6 +30544,250 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     };
   }, [pushHistory, setNodes, setSelectedNodeIds]);
 
+  /**
+   * 版式工作台事件总线。
+   *
+   * ⚠️ 放置一律走 computeTemplatePlacement：新画板的 x 在所有已有节点
+   *    右边界之外，因此「逐个向右增加」天然不会和任何旧节点重叠。
+   * ⚠️ 打印导出直接用 nodesRef 里**被用户改过**的 piece，不重新从目录
+   *    生成，否则属性面板的编辑会在导出里凭空消失。
+   */
+  useEffect(() => {
+    const resolveAction = (detail: TemplateActionDetail) => {
+      const resolution =
+        TEMPLATE_RESOLUTIONS.find(
+          r => `${r.kind}-${r.value}` === detail.resolutionId
+        ) || TEMPLATE_RESOLUTIONS[2];
+      return {
+        resolution,
+        size: resolveTemplateSize({
+          paperId: detail.paperId,
+          orientation: detail.orientation,
+          resolution,
+          bleedMm: detail.bleedMm,
+        }),
+      };
+    };
+
+    const handlePlace = (e: Event) => {
+      const detail = (e as CustomEvent<TemplateActionDetail>).detail;
+      const layout = getTemplateLayout(detail?.layoutId);
+      if (!layout) {
+        toast.error("这套版式已不在目录里");
+        return;
+      }
+      const { resolution, size } = resolveAction(detail);
+      const bounds = nodesRef.current.map(n => {
+        const s = getCanvasNodeSize(n);
+        return { x: n.position.x, y: n.position.y, width: s.width, height: s.height };
+      });
+      const position = computeTemplatePlacement(bounds, size.display);
+      const frameId = `template-frame-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}`;
+      const created = buildTemplateNodes(layout, {
+        frameId,
+        position,
+        size: size.display,
+        zIndex: nextCanvasTopZ(nodesRef.current),
+        print: {
+          paperId: detail.paperId,
+          orientation: detail.orientation,
+          resolution,
+          bleedMm: detail.bleedMm,
+          printWidth: size.print.width,
+          printHeight: size.print.height,
+        },
+      });
+      pushHistory(nodesRef.current, edgesRef.current);
+      setNodes(nds => [
+        ...nds.map(n => ({ ...n, selected: false })),
+        ...created,
+      ]);
+      setSelectedNodeIds([frameId]);
+      setCenter(
+        position.x + size.display.width / 2,
+        position.y + size.display.height / 2,
+        {
+          zoom: Math.max(
+            0.12,
+            Math.min(0.9, 640 / Math.max(size.display.width, size.display.height))
+          ),
+          duration: 500,
+        }
+      );
+      toast.success(`「${layout.n}」已放到画布右侧`, {
+        description: "0 积分 · 双击版式卡片可连续放置",
+      });
+    };
+
+    const handlePrint = async (e: Event) => {
+      const detail = (e as CustomEvent<TemplateActionDetail>).detail;
+      const { resolution, size } = resolveAction(detail);
+      const frames = nodesRef.current.filter(
+        n =>
+          n.type === "canvasFrame" &&
+          !!(n.data as Record<string, unknown>).templateLayoutId
+      );
+      const frame = frames.find(n => n.selected) || frames[frames.length - 1];
+      if (!frame) {
+        toast.error("请先往画布里放一套版式");
+        return;
+      }
+      const frameData = frame.data as Record<string, unknown>;
+      const layout = getTemplateLayout(frameData.templateLayoutId as string);
+      const pieces = collectTemplatePieces(nodesRef.current, frame.id);
+      if (pieces.length === 0) {
+        toast.error("这套版式没有可导出的单元");
+        return;
+      }
+      const bg = layout
+        ? templateBackground(layout)
+        : String(frameData.bgColor || "#ffffff");
+      const bleedPx =
+        resolution.kind === "dpi" && detail.bleedMm > 0
+          ? Math.min(
+              Math.round((detail.bleedMm / 25.4) * resolution.value),
+              Math.floor(size.print.width / 6)
+            )
+          : 0;
+      const innerW = Math.max(1, size.print.width - bleedPx * 2);
+      const innerH = Math.max(1, size.print.height - bleedPx * 2);
+      const layer = await rasterizeTemplatePieces(pieces, innerW, innerH);
+      if (!layer) {
+        toast.error("版式渲染失败");
+        return;
+      }
+      const out = document.createElement("canvas");
+      out.width = size.print.width;
+      out.height = size.print.height;
+      const ctx = out.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(layer, bleedPx, bleedPx, innerW, innerH);
+      const blob = await new Promise<Blob | null>(resolve =>
+        out.toBlob(resolve, "image/png")
+      );
+      if (!blob) {
+        toast.error("导出失败");
+        return;
+      }
+      saveAs(blob, `版式输出-${size.print.width}x${size.print.height}.png`);
+      toast.success(
+        `已导出 ${size.print.width}×${size.print.height}（0 积分）`,
+        {
+          description: size.clamped
+            ? "已按浏览器画布上限等比缩放"
+            : resolution.label,
+        }
+      );
+    };
+
+    const handlePiecePatch = (e: Event) => {
+      const { nodeId, patch } = (
+        e as CustomEvent<{ nodeId: string; patch: Partial<TemplatePiece> }>
+      ).detail;
+      if (!nodeId || !patch) return;
+      setNodes(nds =>
+        nds.map(n => {
+          if (n.id !== nodeId || n.type !== "templatePiece") return n;
+          const data = n.data as Record<string, unknown>;
+          const previous = data.piece as TemplatePiece;
+          const next: TemplatePiece = { ...previous, ...patch };
+          const frameId = data.embeddedInFrame as string | undefined;
+          const frame = frameId ? nds.find(f => f.id === frameId) : undefined;
+          const W = Number(data.frameW) || 800;
+          const H = Number(data.frameH) || 600;
+          return {
+            ...n,
+            position: frame
+              ? {
+                  x: frame.position.x + next.x * W,
+                  y: frame.position.y + next.y * H,
+                }
+              : n.position,
+            style: {
+              ...n.style,
+              width: Math.max(1, next.w * W),
+              height: Math.max(1, next.h * H),
+            },
+            data: { ...data, piece: next, title: next.name },
+          };
+        })
+      );
+    };
+
+    const handlePieceReference = (e: Event) => {
+      const asset = (
+        e as CustomEvent<{
+          id: string; title: string; src: string; width: number; height: number;
+        }>
+      ).detail;
+      if (!asset?.id || !asset?.src) return;
+      // 版式子单元不是 asset 节点，必须直接入引用列表，
+      // 不能走 addReferencedAsset（它按 type==="asset" 查节点）。
+      setReferencedAssets(prev =>
+        prev.some(item => item.id === asset.id) ? prev : [...prev, asset]
+      );
+    };
+
+    window.addEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
+    window.addEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
+    window.addEventListener(TEMPLATE_PIECE_PATCH_EVENT, handlePiecePatch);
+    window.addEventListener(
+      TEMPLATE_PIECE_REFERENCE_EVENT,
+      handlePieceReference
+    );
+    return () => {
+      window.removeEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
+      window.removeEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
+      window.removeEventListener(TEMPLATE_PIECE_PATCH_EVENT, handlePiecePatch);
+      window.removeEventListener(
+        TEMPLATE_PIECE_REFERENCE_EVENT,
+        handlePieceReference
+      );
+    };
+  }, [
+    edgesRef,
+    nodesRef,
+    pushHistory,
+    setCenter,
+    setNodes,
+    setReferencedAssets,
+    setSelectedNodeIds,
+  ]);
+
+  /** 选中单个版式子单元 → 推给属性面板；拖动时不重复推送。 */
+  const templateSelectionSignatureRef = useRef("");
+  useEffect(() => {
+    const selected = nodes.filter(
+      n => n.selected && n.type === "templatePiece"
+    );
+    const target = selected.length === 1 ? selected[0] : null;
+    const data = target
+      ? (target.data as Record<string, unknown>)
+      : null;
+    const signature = target && data
+      ? `${target.id}|${JSON.stringify(data.piece)}|${data.frameW}|${data.frameH}`
+      : "";
+    if (signature === templateSelectionSignatureRef.current) return;
+    templateSelectionSignatureRef.current = signature;
+    const detail = target && data
+      ? {
+          nodeId: target.id,
+          piece: data.piece as TemplatePiece,
+          frameW: Number(data.frameW) || 800,
+          frameH: Number(data.frameH) || 600,
+          layoutName:
+            getTemplateLayout(data.templateLayoutId as string)?.n || "版式",
+        }
+      : null;
+    window.dispatchEvent(
+      new CustomEvent(TEMPLATE_SELECTION_EVENT, { detail })
+    );
+  }, [nodes]);
+
   // 画布侧任何变化（增删/选中/撤销/层级）→ 主动推给图层面板。
   // 只比较图层相关字段的签名，拖动位置这类每帧变化不会触发重推。
   const layerRowsSignatureRef = useRef("");
@@ -36106,6 +36427,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           // Skip images that cannot be loaded instead of failing the whole frame export.
         }
       }
+      const templateLayer = await rasterizeTemplatePieces(
+        collectTemplatePieces(nodesRef.current, frameNode.id),
+        width,
+        height
+      );
+      if (templateLayer) ctx.drawImage(templateLayer, 0, 0);
       return await new Promise<Blob | null>(resolve => {
         canvas.toBlob(
           resolve,
@@ -36184,6 +36511,22 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         } catch {
           // Skip images that cannot be loaded; the export remains valid with the readable layers.
         }
+      }
+      const templateLayer = await rasterizeTemplatePieces(
+        collectTemplatePieces(nodesRef.current, frameNode.id),
+        width,
+        height
+      );
+      if (templateLayer) {
+        compositeCtx?.drawImage(templateLayer, 0, 0);
+        layers.unshift({
+          name: "版式子单元",
+          left: 0,
+          top: 0,
+          right: width,
+          bottom: height,
+          canvas: templateLayer,
+        });
       }
       const psd: Psd = {
         width,
@@ -36300,7 +36643,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         if (!frameNode) return;
         nodes.forEach(candidate => {
           if (
-            candidate.type === "asset" &&
+            (candidate.type === "asset" || candidate.type === "templatePiece") &&
             (candidate.data as Record<string, unknown>).embeddedInFrame === id
           ) {
             dragIdSet.add(candidate.id);
@@ -36370,7 +36713,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
       setNodes(nds =>
         nds.map(item => {
-          if (item.type !== "asset") return item;
+          if (item.type !== "asset" && item.type !== "templatePiece") return item;
           const data = item.data as Record<string, unknown>;
           if (data.embeddedInFrame !== node.id) return item;
           return {
@@ -39515,7 +39858,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const displayNodesBase = nodes.map(n => {
     const nodeData = n.data as Record<string, unknown>;
     const embeddedFrameId =
-      n.type === "asset"
+      n.type === "asset" || n.type === "templatePiece"
         ? (nodeData.embeddedInFrame as string | undefined)
         : undefined;
     const embeddedFrame = embeddedFrameId
@@ -40293,6 +40636,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         allowedAiModels={user?.allowedAiModels}
         onImageGeneratorOpenChange={setImageGeneratorModalOpen}
       />
+
+      {/* 版式工作台：左侧抽屉 + 单元属性抽屉 */}
+      <CanvasTemplatePanel isDark={isDark} />
 
       {/* Back button — top-left */}
       {!imageGeneratorModalOpen && <BackButton isDark={isDark} />}
