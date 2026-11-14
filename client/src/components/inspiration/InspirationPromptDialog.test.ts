@@ -64,13 +64,17 @@ describe("InspirationPromptDialog", () => {
     expect(source).toContain(".catch(");
   });
 
-  it("delays inspiration image zoom until a card has been hovered for 500ms", () => {
+  // 2026-11-14 用户要求：画板弹窗 hover 零延时出「一键同款」（推翻原 500ms 延时）
+  it("activates hover immediately (zero delay) in the canvas dialog", () => {
     const source = read("InspirationPromptDialog.tsx");
+    const start = source.indexOf("const handleInspirationCardMouseEnter");
+    const end = source.indexOf("const handleInspirationCardMouseLeave");
+    expect(start, "mouseenter 锚点丢失").toBeGreaterThan(-1);
+    const enter = source.slice(start, end);
+    expect(enter).toContain("setHoveredItemKey(itemKey)");
+    expect(enter).not.toContain("setTimeout");
 
     expect(source).toContain("hoveredItemKey");
-    expect(source).toContain("setTimeout");
-    expect(source).toContain("500");
-    expect(source).toContain("clearTimeout");
     expect(source).toContain('transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)"');
     expect(source).toContain("transition-transform");
   });

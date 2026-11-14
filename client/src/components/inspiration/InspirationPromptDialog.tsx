@@ -52,28 +52,15 @@ export function InspirationPromptDialog({
   const [visibleCount, setVisibleCount] = useState(DIALOG_PAGE_SIZE);
   const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
-  const hoverTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-    };
-  }, []);
-
+  /**
+   * 画板灵感弹窗：hover 即刻显示「一键同款」（用户 2026-11-14 要求零延时）。
+   * ⚠️ 只针对本弹窗；独立灵感页 InspirationPage 仍保留 500ms 延时，别顺手改。
+   */
   const handleInspirationCardMouseEnter = (itemKey: string) => {
-    if (hoveredItemKey === itemKey) return;
-    if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = window.setTimeout(() => {
-      setHoveredItemKey(itemKey);
-      hoverTimerRef.current = null;
-    }, 500);
+    setHoveredItemKey(itemKey);
   };
 
   const handleInspirationCardMouseLeave = () => {
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
     setHoveredItemKey(null);
   };
 
