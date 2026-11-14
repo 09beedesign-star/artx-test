@@ -2,8 +2,8 @@
  * 画布「属性编辑」面板（2026-11-14）。
  *
  * 字段按设计工具通用属性面板全量铺开：名称、变换(X/Y/W/H/旋转/锁比例)、
- * 外观(不透明度/圆角/填充/描边/混合模式/阴影)、排列(四档层级)、
- * 图层(可见/锁定)。所有值都只从当前节点的真实 data/position/style 读取，
+ * 外观(不透明度/填充/描边/混合模式/阴影)、排列(四档层级)、
+ * 图层(可见/锁定)、恢复默认。圆角已于 2026-11-14 移除（图片节点固定 12px）。所有值都只从当前节点的真实 data/position/style 读取，
  * 编辑后通过 onPatch 写回同一个节点。
  *
  * 🔒 右上角 X 是**唯一**关闭方式：面板不监听 pane-click / 全局 mousedown，
@@ -11,12 +11,13 @@
  */
 import { useEffect, useState } from "react";
 import type { Node } from "@xyflow/react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Lock, PanelTopOpen, FolderDown, Unlock, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Lock, PanelTopOpen, FolderDown, RotateCcw, Unlock, X } from "lucide-react";
 import { useDraggablePanel } from "./useDraggablePanel";
 
 import {
   BLEND_MODES,
   num,
+  PROPERTIES_ORIGINAL_KEY,
   readNodeForm,
   type LayerOrderAction,
   type NodePropertiesForm,
@@ -32,12 +33,15 @@ export function CanvasPropertiesPanel({
   isDark,
   onClose,
   onPatch,
+  onReset,
   onLayerAction,
 }: {
   node: Node | null;
   isDark: boolean;
   onClose: () => void;
   onPatch: (patch: NodePropertiesPatch) => void;
+  /** 恢复到第一次调节之前的初始状态（快照由画布侧维护） */
+  onReset: () => void;
   onLayerAction: (action: LayerOrderAction) => void;
 }) {
   const { pos, dragging, dragHandlers } = useDraggablePanel("properties", {
@@ -47,9 +51,11 @@ export function CanvasPropertiesPanel({
   const [form, setForm] = useState<Form>(() => readNodeForm(node));
   const [lockRatio, setLockRatio] = useState(false);
 
+  // 快照从「有」变「无」= 刚恢复默认，表单要按还原后的节点重读。
+  const hasSnapshot = Boolean((node?.data as Record<string, unknown> | undefined)?.[PROPERTIES_ORIGINAL_KEY]);
   useEffect(() => {
     setForm(readNodeForm(node));
-  }, [node?.id]);
+  }, [node?.id, hasSnapshot]);
 
   const bg = isDark ? "rgba(22,22,30,0.97)" : "rgba(255,255,255,0.98)";
   const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
@@ -184,9 +190,9 @@ export function CanvasPropertiesPanel({
               </div>
               <input data-artx-prop="opacity" type="range" min={0} max={1} step={0.01} value={form.opacity}
                 onChange={e => set("opacity", num(e.target.value, form.opacity))} className="w-full" style={{ accentColor: isDark ? "#ffffff" : "#161616" }} />
-              <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                <Field label="圆角"><input data-artx-prop="cornerRadius" type="number" min={0} value={form.cornerRadius} onChange={e => set("cornerRadius", Math.max(0, num(e.target.value, form.cornerRadius)))} style={inputStyle} /></Field>
-                <Field label="描边"><input data-artx-prop="strokeWidth" type="number" min={0} value={form.strokeWidth} onChange={e => set("strokeWidth", Math.max(0, num(e.target.value, form.strokeWidth)))} style={inputStyle} /></Field>
+              {/* 圆角已移除：图片节点固定 12px 圆角（ASSET_NODE_IMAGE_RADIUS） */}
+              <div className="mt-1.5">
+                <Field label="描边"><input data-artx-prop="strokeWidth" type="number" min={0} max={40} value={form.strokeWidth} onChange={e => set("strokeWidth", Math.min(40, Math.max(0, num(e.target.value, form.strokeWidth))))} style={inputStyle} /></Field>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="text-[11px]" style={{ color: sub }}>填充</span>
@@ -219,6 +225,21 @@ export function CanvasPropertiesPanel({
                   </button>
                 ))}
               </div>
+
+              <button
+                type="button"
+                data-artx-prop-reset=""
+                onClick={onReset}
+                disabled={!hasSnapshot}
+                title="把当前图片节点的属性恢复到未调节之前的初始状态"
+                className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[11px]"
+                style={{
+                  color: text, background: fieldBg, border: `1px solid ${border}`,
+                  cursor: hasSnapshot ? "pointer" : "not-allowed", opacity: hasSnapshot ? 1 : 0.45,
+                }}
+              >
+                <RotateCcw size={12} />恢复默认
+              </button>
             </>
           )}
         </div>

@@ -78,6 +78,7 @@ export function CanvasBackgroundControls({
   onChange: (next: CanvasBackgroundPreference) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState<"snap" | "background" | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const activeColor = isDark ? "#ffffff" : "#161616";
   const idleColor = isDark ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.55)";
@@ -95,34 +96,67 @@ export function CanvasBackgroundControls({
   }, [open]);
 
   const currentOpacity = pref.opacity[pref.pattern];
+  const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
+
+  /**
+   * 2026-11-14 用户要求：吸附按钮 hover 时给出描述。
+   * 与主工具栏同款深色气泡（图标下方 + 朝上小三角），不用原生 title
+   * （原生 title 延迟约 1s 且样式与其它按钮不一致）。
+   */
+  const tooltip = (title: string, desc: string) => (
+    <div
+      data-artx-canvas-control-tooltip=""
+      className="absolute top-full mt-2 left-1/2 pointer-events-none"
+      style={{
+        transform: "translateX(-50%)", background: tooltipBg, color: "rgba(255,255,255,0.92)",
+        borderRadius: 6, padding: "4px 9px", fontSize: 11, whiteSpace: "nowrap",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.28)", zIndex: 31, textAlign: "center",
+      }}
+    >
+      <div style={{ position: "absolute", top: -4, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderBottom: `4px solid ${tooltipBg}` }} />
+      {title}
+      <div style={{ marginTop: 2, fontSize: 10, color: "rgba(255,255,255,0.62)" }}>{desc}</div>
+    </div>
+  );
 
   return (
     <div ref={wrapRef} className="relative flex items-center" style={{ marginLeft: 4 }}>
       <span className="mx-1 h-5 w-px" style={{ background: border }} />
+      <div className="relative">
+      {hovered === "snap" && tooltip(
+        `吸附${pref.snapEnabled ? "（已开启）" : "（已关闭）"}`,
+        `拖动结束自动对齐到 ${CANVAS_GRID_SIZE}px 网格顶点`,
+      )}
       <button
         type="button"
         data-artx-canvas-snap=""
         aria-label="吸附网格顶点"
         aria-pressed={pref.snapEnabled}
-        title={`吸附网格顶点（${pref.snapEnabled ? "已开启" : "已关闭"}，间距 ${CANVAS_GRID_SIZE}px）`}
+        onMouseEnter={() => setHovered("snap")}
+        onMouseLeave={() => setHovered(null)}
         onClick={() => onChange({ ...pref, snapEnabled: !pref.snapEnabled })}
         className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
         style={{ color: pref.snapEnabled ? activeColor : idleColor, background: pref.snapEnabled ? activeBg : "transparent" }}
       >
         <Magnet size={17} />
       </button>
+      </div>
+      <div className="relative">
+      {hovered === "background" && !open && tooltip("画布底纹", "切换点阵 / 棋盘格 / 轴测网格，并调节透明度")}
       <button
         type="button"
         data-artx-canvas-background-toggle=""
         aria-label="画布底纹设置"
         aria-expanded={open}
-        title="画布底纹与透明度"
+        onMouseEnter={() => setHovered("background")}
+        onMouseLeave={() => setHovered(null)}
         onClick={() => setOpen(v => !v)}
         className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md-design)] transition-all active:scale-95"
         style={{ color: open ? activeColor : idleColor, background: open ? activeBg : "transparent" }}
       >
         <LayoutGrid size={17} />
       </button>
+      </div>
 
       {open && (
         <div

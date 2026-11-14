@@ -61,9 +61,13 @@ describe("属性编辑面板", () => {
     for (const t of ["图层", "变换", "外观", "排列"]) {
       expect(props).toContain(`sectionTitle("${t}")`);
     }
-    for (const key of ["title", "x", "y", "width", "height", "rotation", "opacity", "cornerRadius", "fill", "stroke", "strokeWidth", "blendMode", "shadowEnabled", "shadowBlur", "shadowColor"]) {
+    for (const key of ["title", "x", "y", "width", "height", "rotation", "opacity", "fill", "stroke", "strokeWidth", "blendMode", "shadowEnabled", "shadowBlur", "shadowColor"]) {
       expect(props).toContain(`data-artx-prop="${key}"`);
     }
+    // 2026-11-14：圆角移除（图片节点固定圆角）
+    expect(props).not.toContain('data-artx-prop="cornerRadius"');
+    expect(props).toContain("data-artx-prop-reset");
+    expect(props).toContain("恢复默认");
     expect(props).toContain("锁定宽高比");
     expect(props).toContain("data-artx-layer-order={b.action}");
   });
@@ -77,6 +81,30 @@ describe("属性编辑面板", () => {
     expect(canvas).toContain('rotate: `${nodeData.panelRotation}deg`');
     const visual = block(canvas, "const visualStyle = {", "as React.CSSProperties;");
     expect(visual).not.toContain("transform:");
+    expect(visual).not.toContain("borderRadius:");
+  });
+
+  it("⚠️ 描边/填充必须在图片节点内部渲染（外层 style 对内部图片无效）", () => {
+    const asset = block(canvas, "function AssetNodeComponent(", "data-artx-asset-panel-stroke");
+    expect(asset).toContain("const panelStrokeWidth = Math.max(0, Number(data.strokeWidth) || 0);");
+    expect(asset).toContain("const panelFill =");
+    expect(canvas).toContain("border: `${panelStrokeWidth}px solid ${panelStrokeColor}`");
+    expect(canvas).toContain("...(panelFill ? { background: panelFill } : {}),");
+  });
+
+  it("恢复默认：首次改动拍快照、按快照还原", () => {
+    const patch = block(canvas, "const patchPropertiesNode = useCallback(", "}, [propertiesTargetId, setNodes]);");
+    expect(patch).toContain("d[PROPERTIES_ORIGINAL_KEY] = capturePropertiesSnapshot(n);");
+    expect(canvas).toContain("onReset={resetPropertiesNode}");
+    expect(canvas).toContain("restorePropertiesSnapshot(n)");
+  });
+
+  it("图片命令条有「属性编辑」，并打开同一个属性面板", () => {
+    const tools = block(canvas, "const assetTools: FloatingToolItem[] = [", "const frameTools");
+    expect(tools).toContain('label: "属性编辑", action: "properties"');
+    const handler = block(canvas, "const handleSingleImageToolbarAction = useCallback(", "setNodes(nds =>");
+    expect(handler).toContain('if (action === "properties") {');
+    expect(handler).toContain("setPropertiesTargetId(nodeId);");
   });
 });
 

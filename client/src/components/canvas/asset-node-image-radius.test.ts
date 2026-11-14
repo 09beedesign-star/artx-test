@@ -105,24 +105,28 @@ describe("图片节点圆角：每个可见状态层都必须消费同一半径"
    *   外轮廓层（外层容器 / 内层描边容器 / 主图 <img>）用 IMAGE 半径 = 12；
    *   内层 overflow:hidden 的**覆盖层**用 INNER 半径 = 12 − 1 = 11，
    *   否则比父层裁剪路径大 1px，四个角被削（用户反馈的「描边被切断」之一）。
-   *   所以这里必须分别计数，合计仍是 7 —— 少哪一档都会漏改状态层。
+   *   所以这里必须分别计数 —— 少哪一档都会漏改状态层。
+   * 📌 2026-11-14 计数 3/4 → 5/5：新增两类真实可见层
+   *   · 重绘对比前图（裁剪层 INNER + 内部 <img> IMAGE），HEAD 上已存在、计数未同步
+   *   · 属性面板描边层 data-artx-asset-panel-stroke（贴外轮廓，用 IMAGE）
    */
   it("外轮廓层必须用 IMAGE 半径", () => {
     const hits = assetNode.match(/borderRadius: ASSET_NODE_IMAGE_RADIUS/g) ?? [];
     expect(
       hits.length,
-      `外轮廓出口数不对（期望 3，实得 ${hits.length}）—— ` +
-        `外层容器 / 内层描边容器 / 主图 <img> 三处必须是节点真实外圆角`
-    ).toBe(3);
+      `外轮廓出口数不对（期望 5，实得 ${hits.length}）—— ` +
+        `外层容器 / 属性面板描边层 / 内层描边容器 / 主图 <img> / 重绘对比前图 <img> ` +
+        `五处必须是节点真实外圆角`
+    ).toBe(5);
   });
 
   it("内层覆盖层必须用 INNER 半径（比裁剪路径大就会削角）", () => {
     const hits = assetNode.match(/borderRadius: ASSET_NODE_INNER_RADIUS/g) ?? [];
     expect(
       hits.length,
-      `覆盖层出口数不对（期望 4，实得 ${hits.length}）—— ` +
-        `模糊底图 / AI 处理中层 / 已过期层 / 未保存层，漏一个就四角被切`
-    ).toBe(4);
+      `覆盖层出口数不对（期望 5，实得 ${hits.length}）—— ` +
+        `模糊底图 / AI 处理中层 / 已过期层 / 未保存层 / 重绘对比裁剪层，漏一个就四角被切`
+    ).toBe(5);
   });
 
   it("INNER 半径必须由 IMAGE 半径减描边宽推导，不能写死", () => {

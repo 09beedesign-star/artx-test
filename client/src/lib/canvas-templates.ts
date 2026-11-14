@@ -278,6 +278,93 @@ export interface TemplatePiece {
   /** 字距 / 画板高度 */
   trackingRatio?: number;
   strokeColor?: string;
+
+  /* ── 2026-11-14 属性编辑命令新增（截图标注的全部字段） ── */
+  /** 混合模式：透传 CSS mix-blend-mode，"穿透" = 不设置 */
+  blendMode?: string;
+  /** 描边虚线长度 / 间隙（相对画板高度）；0 = 实线 */
+  strokeDash?: number;
+  strokeGap?: number;
+  strokeJoin?: "miter" | "round" | "bevel";
+  strokeAlign?: "inside" | "center" | "outside";
+  /** 填充 / 描边独立开关（截图里的两个复选框） */
+  fillEnabled?: boolean;
+  strokeEnabled?: boolean;
+  /** 锁定：画布不可拖动，属性面板仍可解锁 */
+  locked?: boolean;
+  hidden?: boolean;
+  /** 剪切蒙版：用本单元矩形裁切自身内容 */
+  clipMask?: boolean;
+  /** 空间 3D 旋转（CSS perspective + rotateX/rotateY，作用在节点容器） */
+  rotateX?: number;
+  rotateY?: number;
+  /** 沿路径文字：textBody 改走 <textPath> */
+  pathText?: boolean;
+  /** 布尔运算：命令处理器把参与形状烘进来，渲染时用 SVG mask / clipPath 合成 */
+  composite?: {
+    mode: "union" | "subtract" | "intersect" | "exclude";
+    shapes: TemplatePiece[];
+  };
+  /** 重复网格标记 */
+  repeatGrid?: { cols: number; rows: number };
+  /** 水平 / 垂直翻转 */
+  flipX?: boolean;
+  flipY?: boolean;
+  /** 3D 立体厚度（节点容器 translateZ 视觉强度） */
+  depth?: number;
+}
+
+/** 版式单元可执行的命令 id（悬浮命令条 / 属性面板共用同一套）。 */
+export type TemplatePieceCommand = "align-left" | "align-hcenter" | "align-right"
+  | "align-top" | "align-vcenter" | "align-bottom" | "distribute"
+  | "repeat-grid" | "boolean-union" | "boolean-subtract" | "boolean-intersect" | "boolean-exclude"
+  | "3d-extrude" | "3d-path" | "3d-rotate" | "path-text"
+  | "clip-mask" | "flip-x" | "flip-y" | "reset-rotation" | "toggle-lock" | "bring-front" | "send-back";
+
+/** 对齐命令 → 单元在画板中的目标 x/y（归一化坐标）。 */
+export function alignPiece(piece: TemplatePiece, command: TemplatePieceCommand): Partial<TemplatePiece> {
+  switch (command) {
+    case "align-left": return { x: 0 };
+    case "align-hcenter": return { x: Math.max(0, (1 - piece.w) / 2) };
+    case "align-right": return { x: Math.max(0, 1 - piece.w) };
+    case "align-top": return { y: 0 };
+    case "align-vcenter": return { y: Math.max(0, (1 - piece.h) / 2) };
+    case "align-bottom": return { y: Math.max(0, 1 - piece.h) };
+    case "distribute": return { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    default: return {};
+  }
+}
+
+/** 重复网格：把单元按 cols×rows 平铺，返回新增的单元（不含原单元）。 */
+export function repeatPieceGrid(
+  piece: TemplatePiece,
+  cols: number,
+  rows: number,
+): TemplatePiece[] {
+  const c = Math.max(1, Math.min(12, Math.round(cols)));
+  const r = Math.max(1, Math.min(12, Math.round(rows)));
+  const gapX = 0.006;
+  const gapY = 0.006;
+  const w = (piece.w - gapX * (c - 1)) / c;
+  const h = (piece.h - gapY * (r - 1)) / r;
+  const out: TemplatePiece[] = [];
+  for (let row = 0; row < r; row += 1) {
+    for (let col = 0; col < c; col += 1) {
+      if (row === 0 && col === 0) continue;
+      out.push({
+        ...piece,
+        id: `${piece.id}-grid-${row}-${col}`,
+        name: `${piece.name} ${row + 1}-${col + 1}`,
+        x: piece.x + col * (w + gapX),
+        y: piece.y + row * (h + gapY),
+        w: Math.max(0.001, w),
+        h: Math.max(0.001, h),
+        order: piece.order + out.length + 1,
+        composite: undefined,
+      });
+    }
+  }
+  return out;
 }
 
 export interface TemplatePalette {
@@ -636,7 +723,58 @@ function gradientDefs(piece: TemplatePiece, W: number, H: number, key: string): 
   return `<defs><linearGradient id="${key}" gradientUnits="userSpaceOnUse" x1="${n(x0 * W)}" y1="${n(y0 * H)}" x2="${n(x1 * W)}" y2="${n(y1 * H)}">${body}</linearGradient></defs>`;
 }
 
+/** 生成单个几何图元（布尔合成时会被复用，不带 <g> 包裹）。 */
+function shapeBody(piece: TemplatePiece, W: number, H: number, key: string, attrs = ""): string {
+  const px = piece.x * W;
+  const py = piece.y * H;
+  const pw = Math.max(0, piece.w * W);
+  const ph = Math.max(0, piece.h * H);
+  const cx = px + pw / 2;
+  const cy = py + ph / 2;
+  const fillOn = piece.fillEnabled !== false;
+  const strokeOn = piece.strokeEnabled !== false && !!piece.stroke && piece.stroke !== "none";
+  const fill = fillOn
+    ? (piece.fill === "gradient" ? `url(#${key})` : piece.fill || "none")
+    : "none";
+  const sw = Math.max(0.5, (piece.strokeRatio || 0) * H);
+  const dash = (piece.strokeDash || 0) > 0 || (piece.strokeGap || 0) > 0
+    ? ` stroke-dasharray="${n(Math.max(0, (piece.strokeDash || 0) * H))} ${n(Math.max(0, (piece.strokeGap || 0) * H))}"`
+    : "";
+  const join = piece.strokeJoin ? ` stroke-linejoin="${piece.strokeJoin}"` : "";
+  const stroke = strokeOn
+    ? ` stroke="${esc(piece.stroke!)}" stroke-width="${n(sw)}"${dash}${join}`
+    : "";
+  const opacity = piece.opacity === undefined ? "" : ` opacity="${n(piece.opacity)}"`;
+  // 描边位置：SVG 没有原生 stroke-alignment，inside 把图元内缩半个线宽，outside 外扩。
+  const inset = piece.strokeAlign === "inside" ? sw / 2 : piece.strokeAlign === "outside" ? -sw / 2 : 0;
+  const rx = (piece.cornerRadiusRatio || 0) * Math.min(W, H);
+  const extra = attrs ? ` ${attrs}` : "";
+  switch (piece.kind) {
+    case "rect":
+    case "placeholder":
+      return `<rect x="${n(px + inset)}" y="${n(py + inset)}" width="${n(Math.max(0, pw - inset * 2))}" height="${n(Math.max(0, ph - inset * 2))}" rx="${n(rx)}" fill="${esc(fill)}"${stroke}${opacity}${extra}/>`;
+    case "ellipse":
+      return `<ellipse cx="${n(cx)}" cy="${n(cy)}" rx="${n(Math.max(0, pw / 2 - inset))}" ry="${n(Math.max(0, ph / 2 - inset))}" fill="${esc(fill)}"${stroke}${opacity}${extra}/>`;
+    case "path":
+      return `<path d="${esc(scaleSvgPath(piece.path || "", pw, ph, px, py))}" fill="${esc(fill)}"${stroke}${opacity}${extra}/>`;
+    case "dots": {
+      const r0 = Math.min(W, H);
+      return (piece.dots || [])
+        .map(([dx, dy, r]) => `<circle cx="${n(px + dx * pw)}" cy="${n(py + dy * ph)}" r="${n(r * r0)}" fill="${esc(fill)}"${opacity}${extra}/>`)
+        .join("");
+    }
+    default:
+      return "";
+  }
+}
+
+/**
+ * 版式单元的完整 SVG 片段。
+ * ⚠️ 所有属性编辑命令的视觉结果都必须收口在这里（画布节点 / 缩略图 / 下载 / 复制 /
+ *    参考图 / 打印共用 renderPieceSvg → pieceBody），不能在组件里另画一套。
+ */
 function pieceBody(piece: TemplatePiece, W: number, H: number, key: string): string {
+  if (piece.hidden) return "";
   const px = piece.x * W;
   const py = piece.y * H;
   const pw = Math.max(0, piece.w * W);
@@ -644,47 +782,60 @@ function pieceBody(piece: TemplatePiece, W: number, H: number, key: string): str
   const cx = px + pw / 2;
   const cy = py + ph / 2;
   const rotation = piece.rotation || 0;
-  const open = rotation
-    ? `<g transform="rotate(${n(rotation)} ${n(cx)} ${n(cy)})">`
-    : "<g>";
-  const opacity = piece.opacity === undefined ? "" : ` opacity="${n(piece.opacity)}"`;
-  const sw = Math.max(0.5, (piece.strokeRatio || 0) * H);
-  const stroke = piece.stroke && piece.stroke !== "none"
-    ? ` stroke="${esc(piece.stroke)}" stroke-width="${n(sw)}"`
+  const blend = piece.blendMode && piece.blendMode !== "穿透" && piece.blendMode !== "pass-through" && piece.blendMode !== "normal"
+    ? ` style="mix-blend-mode:${esc(piece.blendMode)}"`
     : "";
-  const fill =
-    piece.fill === "gradient" ? `url(#${key})` : piece.fill || "none";
-  let body = "";
-  switch (piece.kind) {
-    case "rect":
-    case "placeholder": {
-      const rx = (piece.cornerRadiusRatio || 0) * Math.min(W, H);
-      body = `<rect x="${n(px)}" y="${n(py)}" width="${n(pw)}" height="${n(ph)}" rx="${n(rx)}" fill="${esc(fill)}"${stroke}${opacity}/>`;
-      if (piece.kind === "placeholder" && piece.text) {
-        body += textBody(piece, W, H, px + pw * 0.02, py + ph * 0.42, pw * 0.96, "center");
-      }
-      break;
-    }
-    case "ellipse":
-      body = `<ellipse cx="${n(cx)}" cy="${n(cy)}" rx="${n(pw / 2)}" ry="${n(ph / 2)}" fill="${esc(fill)}"${stroke}${opacity}/>`;
-      break;
-    case "path":
-      body = `<path d="${esc(scaleSvgPath(piece.path || "", pw, ph, px, py))}" fill="${esc(fill)}"${stroke}${opacity}/>`;
-      break;
-    case "dots": {
-      const r0 = Math.min(W, H);
-      body = (piece.dots || [])
-        .map(([dx, dy, r]) =>
-          `<circle cx="${n(px + dx * pw)}" cy="${n(py + dy * ph)}" r="${n(r * r0)}" fill="${esc(fill)}"${opacity}/>`
-        )
-        .join("");
-      break;
-    }
-    case "text":
-      body = textBody(piece, W, H, px, py, pw, piece.textAlign || "left");
-      break;
+  const transforms: string[] = [];
+  if (rotation) transforms.push(`rotate(${n(rotation)} ${n(cx)} ${n(cy)})`);
+  if (piece.flipX) transforms.push(`translate(${n(2 * cx)} 0) scale(-1 1)`);
+  if (piece.flipY) transforms.push(`translate(0 ${n(2 * cy)}) scale(1 -1)`);
+  const rotationAttr = transforms.length ? ` transform="${transforms.join(" ")}"` : "";
+  let defs = gradientDefs(piece, W, H, key);
+
+  // 剪切蒙版：用本单元矩形裁掉溢出内容（截图「剪切蒙版」命令）
+  let clipAttr = "";
+  if (piece.clipMask) {
+    defs += `<defs><clipPath id="${key}Clip"><rect x="${n(px)}" y="${n(py)}" width="${n(pw)}" height="${n(ph)}" rx="${n((piece.cornerRadiusRatio || 0) * Math.min(W, H))}"/></clipPath></defs>`;
+    clipAttr = ` clip-path="url(#${key}Clip)"`;
   }
-  return `${gradientDefs(piece, W, H, key)}${open}${body}</g>`;
+
+  let body = "";
+  const composite = piece.composite;
+  if (composite && composite.shapes.length) {
+    // 布尔运算：用 SVG 原生 mask / clipPath 做可见、可逆的合成，不需要几何引擎。
+    const shapeId = `${key}Shape`;
+    const maskId = `${key}Mask`;
+    const partnerMarkup = composite.shapes
+      .map(p => shapeBody(p, W, H, `${key}p`, 'fill="#ffffff" stroke="none"'))
+      .join("");
+    if (composite.mode === "union") {
+      body = `${shapeBody(piece, W, H, key)}${composite.shapes.map(p => shapeBody(p, W, H, key)).join("")}`;
+    } else if (composite.mode === "intersect") {
+      defs += `<defs><clipPath id="${shapeId}">${composite.shapes.map(p => shapeBody(p, W, H, key)).join("")}</clipPath></defs>`;
+      body = `<g clip-path="url(#${shapeId})">${shapeBody(piece, W, H, key)}</g>`;
+    } else {
+      const holeColor = composite.mode === "subtract" ? "#000000" : "#000000";
+      const baseColor = composite.mode === "subtract" ? "#ffffff" : "#000000";
+      defs += `<defs><mask id="${maskId}"><rect x="0" y="0" width="${n(W)}" height="${n(H)}" fill="${baseColor}"/>${partnerMarkup.replace(/fill="#ffffff"/g, `fill="${holeColor}"`)}</mask></defs>`;
+      if (composite.mode === "subtract") {
+        // 白底 + 黑色参与形状 = 挖掉重叠区
+        defs = defs.replace(`<rect x="0" y="0" width="${n(W)}" height="${n(H)}" fill="#ffffff"/>`, `<rect x="0" y="0" width="${n(W)}" height="${n(H)}" fill="#ffffff"/>`);
+        body = `<g mask="url(#${maskId})">${shapeBody(piece, W, H, key)}</g>`;
+      } else {
+        // 排除：两份形状各自减去对方，再叠加
+        defs += `<defs><mask id="${maskId}2"><rect x="0" y="0" width="${n(W)}" height="${n(H)}" fill="#ffffff"/>${shapeBody(piece, W, H, key, 'fill="#000000" stroke="none"')}</mask></defs>`;
+        body = `<g mask="url(#${maskId}2)">${composite.shapes.map(p => shapeBody(p, W, H, key)).join("")}</g><g mask="url(#${maskId})">${shapeBody(piece, W, H, key)}</g>`;
+      }
+    }
+  } else {
+    body = shapeBody(piece, W, H, key);
+    if (piece.kind === "text") {
+      body += textBody(piece, W, H, px, py, pw, piece.textAlign || "left", key);
+    } else if (piece.kind === "placeholder" && piece.text) {
+      body += textBody(piece, W, H, px + pw * 0.02, py + ph * 0.42, pw * 0.96, "center", key);
+    }
+  }
+  return `${defs}<g${rotationAttr}${blend}${clipAttr}>${body}</g>`;
 }
 
 function textBody(
@@ -694,7 +845,8 @@ function textBody(
   px: number,
   py: number,
   pw: number,
-  align: "left" | "center" | "right"
+  align: "left" | "center" | "right",
+  key = "artxTplText"
 ): string {
   const fontSize = Math.max(1, (piece.sizeRatio || 0.014) * H);
   const lineHeight = (piece.lineHeight || 1.12) * fontSize;
@@ -712,7 +864,15 @@ function textBody(
   const paint = piece.strokeColor && piece.strokeColor !== "none"
     ? ` stroke="${esc(piece.strokeColor)}" stroke-width="${n(Math.max(0.5, (piece.strokeRatio || 0.001) * H))}" paint-order="stroke fill"`
     : "";
-  return `<text x="${n(tx)}" y="${n(baseline)}" fill="${esc(piece.color || "#000000")}" font-family="${esc(piece.fontFamily || "sans-serif")}" font-size="${n(fontSize)}" font-weight="${piece.fontWeight || 500}"${piece.italic ? ' font-style="italic"' : ""} text-anchor="${anchor}" letter-spacing="${n((piece.trackingRatio || 0) * H)}"${paint}${piece.opacity === undefined ? "" : ` opacity="${n(piece.opacity)}"`}>${tspans}</text>`;
+  const common = `fill="${esc(piece.color || "#000000")}" font-family="${esc(piece.fontFamily || "sans-serif")}" font-size="${n(fontSize)}" font-weight="${piece.fontWeight || 500}"${piece.italic ? ' font-style="italic"' : ""} text-anchor="${anchor}" letter-spacing="${n((piece.trackingRatio || 0) * H)}"${paint}${piece.opacity === undefined ? "" : ` opacity="${n(piece.opacity)}"`}`;
+  // 沿路径文字：把单元自身的 path 当成文字基线路径
+  if (piece.pathText && piece.path) {
+    const pathId = `${key}Path`;
+    const ph = Math.max(1, fontSize * 2.4);
+    const d = scaleSvgPath(piece.path, pw, ph, px, py);
+    return `<defs><path id="${pathId}" d="${esc(d)}"/></defs><text ${common}><textPath href="#${pathId}" startOffset="0%">${esc(lines.join(" "))}</textPath></text>`;
+  }
+  return `<text x="${n(tx)}" y="${n(baseline)}" ${common}>${tspans}</text>`;
 }
 
 /** 整张版式（面板缩略图 / 打印导出共用）。 */

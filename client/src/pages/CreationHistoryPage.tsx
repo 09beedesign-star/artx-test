@@ -94,6 +94,16 @@ export default function CreationHistoryPage() {
     btnBg: isDark ? "#ffffff" : "#161616",
     btnFg: isDark ? "#161616" : "#ffffff",
   };
+  /** 卡片阴影：未选中只有极浅接触影，选中叠三层（接触影 + 中距 + 远距漫射）。 */
+  const cardShadow = isDark
+    ? {
+        idle: "0 1px 2px rgba(0,0,0,0.35)",
+        selected: "0 2px 4px rgba(0,0,0,0.5), 0 8px 18px rgba(0,0,0,0.6), 0 18px 40px rgba(0,0,0,0.7)",
+      }
+    : {
+        idle: "0 1px 2px rgba(22,22,22,0.05)",
+        selected: "0 1px 2px rgba(22,22,22,0.10), 0 4px 10px rgba(22,22,22,0.10), 0 12px 28px rgba(22,22,22,0.16)",
+      };
 
   const [records, setRecords] = useState<CreationHistoryRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -196,8 +206,12 @@ export default function CreationHistoryPage() {
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const tagCounts = useMemo(() => countTaggedRecords(records), [records]);
 
-  /** 单击=单选、Ctrl/Cmd=增量多选、Shift=范围多选（与文件管理器同一套心智）。 */
-  const toggleSelect = useCallback((id: string, event: ReactMouseEvent) => {
+  /**
+   * 单击卡片=单选、Ctrl/Cmd=增量多选、Shift=范围多选（与文件管理器同一套心智）。
+   * 🔒 2026-11-14 用户：「勾勾只能选一个」→ 右上角勾选框一律走**增量多选**
+   *    （additive=true），连点多张就是多选，不需要按任何修饰键。
+   */
+  const toggleSelect = useCallback((id: string, event: ReactMouseEvent, additive = false) => {
     if (event.shiftKey && lastAnchorRef.current) {
       const a = orderedIds.indexOf(lastAnchorRef.current);
       const b = orderedIds.indexOf(id);
@@ -206,13 +220,89 @@ export default function CreationHistoryPage() {
         return;
       }
     }
-    if (event.metaKey || event.ctrlKey) {
+    if (additive || event.metaKey || event.ctrlKey) {
       setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
     } else {
       setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
     }
     lastAnchorRef.current = id;
   }, [orderedIds]);
+
+  /**
+   * 🔒 2026-11-14 鼠标框选批量选择。
+   * 在卡片网格的空白处按下左键拖动 → 画出选框，与选框相交的卡片全部选中；
+   * 按住 Ctrl/Cmd/Shift 框选 = 在已有选中基础上追加。
+   * ⚠️ 只在空白处起框：从卡片/按钮上按下仍是点击语义，否则点一下就会被当成框选。
+   * ⚠️ 坐标统一用 viewport（clientX/Y + getBoundingClientRect），滚动容器里
+   *    也不会错位；拖动中滚动由 scroll 事件重新计算。
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const marqueeRef = useRef<{ x: number; y: number; scrollTop: number; base: string[] } | null>(null);
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  const handleMarqueeDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-artx-history-card], button, input, a, label")) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    event.preventDefault();
+    const additive = event.metaKey || event.ctrlKey || event.shiftKey;
+    marqueeRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      scrollTop: container.scrollTop,
+      base: additive ? selectedIds : [],
+    };
+    let lastX = event.clientX;
+    let lastY = event.clientY;
+    let moved = false;
+
+    const update = () => {
+      const start = marqueeRef.current;
+      if (!start) return;
+      const scrollDelta = container.scrollTop - start.scrollTop;
+      const startY = start.y - scrollDelta;
+      const rect = {
+        left: Math.min(start.x, lastX),
+        top: Math.min(startY, lastY),
+        right: Math.max(start.x, lastX),
+        bottom: Math.max(startY, lastY),
+      };
+      if (!moved && rect.right - rect.left < 4 && rect.bottom - rect.top < 4) return;
+      moved = true;
+      const box = container.getBoundingClientRect();
+      setMarquee({
+        left: rect.left - box.left,
+        top: rect.top - box.top + container.scrollTop,
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
+      });
+      const hit: string[] = [];
+      container.querySelectorAll<HTMLElement>("[data-artx-history-card]").forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.right >= rect.left && r.left <= rect.right && r.bottom >= rect.top && r.top <= rect.bottom) {
+          const id = el.getAttribute("data-artx-history-card");
+          if (id) hit.push(id);
+        }
+      });
+      setSelectedIds(Array.from(new Set([...start.base, ...hit])));
+    };
+    const onMove = (e: MouseEvent) => { lastX = e.clientX; lastY = e.clientY; update(); };
+    const onScroll = () => update();
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      container.removeEventListener("scroll", onScroll);
+      marqueeRef.current = null;
+      setMarquee(null);
+      // 空白处单击（没拖动）= 清空选择，与画布一致
+      if (!moved && !additive) setSelectedIds([]);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    container.addEventListener("scroll", onScroll);
+  }, [selectedIds]);
 
   const persistTagNames = useCallback(() => {
     const normalized = normalizeTagNames(tagNamesRef.current);
@@ -396,7 +486,29 @@ export default function CreationHistoryPage() {
           </div>
         )}
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 pb-10">
+        <div
+          ref={scrollRef}
+          data-artx-history-scroll=""
+          className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-8 pb-10"
+          onMouseDown={handleMarqueeDown}
+          style={{ userSelect: marquee ? "none" : undefined }}
+        >
+          {marquee && (
+            <div
+              data-artx-history-marquee=""
+              className="pointer-events-none absolute"
+              style={{
+                left: marquee.left,
+                top: marquee.top,
+                width: marquee.width,
+                height: marquee.height,
+                zIndex: 20,
+                borderRadius: 4,
+                background: isDark ? "rgba(255,255,255,0.08)" : "rgba(22,22,22,0.06)",
+                border: `1px dashed ${isDark ? "rgba(255,255,255,0.55)" : "rgba(22,22,22,0.45)"}`,
+              }}
+            />
+          )}
           {!loaded || folder.status === "loading" ? null : records.length === 0 ? (
             folderReady ? emptyRecordsBlock : emptyFolderBlock
           ) : (
@@ -438,8 +550,16 @@ export default function CreationHistoryPage() {
                         <div
                           key={record.id}
                           data-artx-history-card={record.id}
+                          data-artx-history-selected={selected ? "" : undefined}
                           className="group overflow-hidden rounded-xl"
-                          style={{ background: c.card, border: `1px solid ${selected ? c.text : c.border}`, boxShadow: selected ? `0 0 0 2px ${c.active}` : "none" }}
+                          style={{
+                            background: c.card,
+                            // 🔒 2026-11-14：选中态不用描边，用阴影层次抬起卡片（同画布开关按钮的投影质感）
+                            border: "none",
+                            boxShadow: selected ? cardShadow.selected : cardShadow.idle,
+                            transform: selected ? "translateY(-2px)" : "none",
+                            transition: "box-shadow 0.18s ease, transform 0.18s ease",
+                          }}
                         >
                           <div
                             className="relative aspect-square overflow-hidden"
@@ -495,7 +615,7 @@ export default function CreationHistoryPage() {
                               title={selected ? "取消选中" : "选中这张图片"}
                               onClick={event => {
                                 event.stopPropagation();
-                                toggleSelect(record.id, event);
+                                toggleSelect(record.id, event, true);
                               }}
                               className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md"
                               style={{

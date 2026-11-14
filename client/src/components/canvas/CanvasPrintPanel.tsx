@@ -36,6 +36,7 @@ import {
 } from "@/lib/canvas-print-precision";
 
 import type { PrintableItem } from "@/lib/canvas-print-items";
+import { buildImagePdf, mmToPt, type PdfPageImage } from "@/lib/canvas-print-pdf";
 
 type Destination = "pdf" | "png";
 
@@ -82,12 +83,17 @@ export function CanvasPrintPanel({
   const imagesRef = useRef<Record<string, HTMLImageElement>>({});
   const previewRef = useRef<HTMLCanvasElement>(null);
 
-  const ink = isDark ? "#f4f4f4" : "#161616";
-  const sub = isDark ? "rgba(255,255,255,0.52)" : "rgba(0,0,0,0.48)";
-  const line = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
-  const panelBg = isDark ? "#161616" : "#ffffff";
-  const sideBg = isDark ? "#202020" : "#f7f7f7";
-  const fieldBg = isDark ? "rgba(255,255,255,0.06)" : "#ffffff";
+  /*
+   * 🔒 2026-11-14：打印面板固定白色（用户只要白色那套，深色版视为重复界面去掉）。
+   * isDark 参数保留以兼容调用方，但不再参与配色。
+   */
+  void isDark;
+  const ink = "#161616";
+  const sub = "rgba(0,0,0,0.48)";
+  const line = "rgba(0,0,0,0.12)";
+  const panelBg = "#ffffff";
+  const sideBg = "#f7f7f7";
+  const fieldBg = "#ffffff";
 
   const resolution = useMemo<TemplateResolution>(() => {
     const found = TEMPLATE_RESOLUTIONS.find(r =>
@@ -196,45 +202,36 @@ export function CanvasPrintPanel({
     toast.success(`已导出 ${pages.length} 张（${size.print.width}×${size.print.height}，${PRINT_CREDIT_COST} 积分）`);
   };
 
-  const printViaSystem = async () => {
+  /**
+   * 🔒 2026-11-14 用户：「有两层打印界面，重复了，只保留可以调大小/位置的白色界面」。
+   * 原来这里会再唤起浏览器系统打印框（深色、自带一套预览设置），
+   * 和本面板重复。现改为本地直出 PDF 下载，不再打开任何第二层打印界面。
+   */
+  const exportPdf = async () => {
     const paper = TEMPLATE_PAPER_PRESETS.find(p => p.id === paperId) || TEMPLATE_PAPER_PRESETS[0];
     const pageWmm = orientation === "landscape" ? Math.max(paper.w, paper.h) : Math.min(paper.w, paper.h);
     const pageHmm = orientation === "landscape" ? Math.min(paper.w, paper.h) : Math.max(paper.w, paper.h);
-    const pagesHtml = pages.map(item => {
-      const canvas = renderPageCanvas(item, 2400);
-      const url = canvas ? canvas.toDataURL("image/png") : "";
-      return `<div class="page"><img src="${url}" alt="" /></div>`;
-    }).join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      @page { size: ${pageWmm}mm ${pageHmm}mm; margin: 0; }
-      * { box-sizing: border-box; }
-      html,body { margin:0; padding:0; background:#fff; }
-      .page { width:${pageWmm}mm; height:${pageHmm}mm; overflow:hidden; page-break-after:always; break-after:page; }
-      .page:last-child { page-break-after:auto; break-after:auto; }
-      img { width:100%; height:100%; object-fit:fill; display:block; }
-    </style></head><body>${pagesHtml}</body></html>`;
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
-    document.body.appendChild(iframe);
-    const doc = iframe.contentDocument;
-    if (!doc) { toast.error("无法创建打印预览"); document.body.removeChild(iframe); return; }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    await new Promise<void>(resolve => {
-      const imgs = Array.from(doc.querySelectorAll("img"));
-      let left = imgs.length;
-      if (!left) { setTimeout(resolve, 120); return; }
-      imgs.forEach(im => {
-        if (im.complete) { if (--left === 0) setTimeout(resolve, 120); return; }
-        im.onload = im.onerror = () => { if (--left === 0) setTimeout(resolve, 120); };
-      });
-      setTimeout(resolve, 4000); // 兜底，绝不卡死
-    });
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-    setTimeout(() => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); }, 60000);
-    toast.success(`已打开系统打印（${pages.length} 页，${PRINT_CREDIT_COST} 积分）`);
+    const pdfPages: PdfPageImage[] = [];
+    for (const item of pages) {
+      const canvas = renderPageCanvas(item);
+      if (!canvas) { toast.error(`「${item.name}」图片尚未加载完成`); continue; }
+      // JPEG 不支持透明：先垫白底，避免透明区变黑
+      const flat = document.createElement("canvas");
+      flat.width = canvas.width;
+      flat.height = canvas.height;
+      const fctx = flat.getContext("2d");
+      if (!fctx) continue;
+      fctx.fillStyle = "#ffffff";
+      fctx.fillRect(0, 0, flat.width, flat.height);
+      fctx.drawImage(canvas, 0, 0);
+      const blob = await new Promise<Blob | null>(resolve => flat.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) continue;
+      pdfPages.push({ jpeg: new Uint8Array(await blob.arrayBuffer()), width: flat.width, height: flat.height });
+    }
+    if (!pdfPages.length) return;
+    const bytes = buildImagePdf(pdfPages, mmToPt(pageWmm), mmToPt(pageHmm));
+    saveAs(new Blob([bytes], { type: "application/pdf" }), `ArtX-打印-${pdfPages.length}页.pdf`);
+    toast.success(`已导出 PDF（${pdfPages.length} 页，${PRINT_CREDIT_COST} 积分）`);
   };
 
   const handleSave = async () => {
@@ -242,7 +239,7 @@ export function CanvasPrintPanel({
     setBusy(true);
     try {
       if (destination === "png") await exportPng();
-      else await printViaSystem();
+      else await exportPdf();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "打印失败");
     } finally {
@@ -334,7 +331,7 @@ export function CanvasPrintPanel({
                   {items.map((item, index) => (
                     <label key={item.id} data-artx-print-container={item.id}
                       className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm-design)] px-2 py-2 text-[11.5px]"
-                      style={{ background: selectedIds.includes(item.id) ? (isDark ? "rgba(255,255,255,0.09)" : "#f1f1f1") : "transparent" }}>
+                      style={{ background: selectedIds.includes(item.id) ? "#f1f1f1" : "transparent" }}>
                       <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleItem(item.id)}
                         style={{ accentColor: ink }} />
                       <span className="truncate">{String(index + 1).padStart(2, "0")} · {item.name}</span>
@@ -397,7 +394,7 @@ export function CanvasPrintPanel({
             <div className="mt-4">
               {rowLabel("目标打印机")}
               <select data-artx-print-destination="" value={destination} onChange={e => setDestination(e.target.value as Destination)} style={selectStyle}>
-                <option value="pdf">另存为 PDF（系统打印）</option>
+                <option value="pdf">另存为 PDF</option>
                 <option value="png">导出 PNG 图片</option>
               </select>
             </div>
@@ -450,7 +447,7 @@ export function CanvasPrintPanel({
                 </div>
                 <p className="mt-2 text-[11px] leading-5" style={{ color: sub }}>{precision.suggestion}</p>
                 {precision.clamped && <p className="mt-1 text-[10.5px]" style={{ color: "#b42318" }}>输出已按浏览器 canvas 上限等比缩小。</p>}
-                <div className="mt-3 rounded-md p-2.5" style={{ background: isDark ? "rgba(255,255,255,0.05)" : "#f3f3f3" }}>
+                <div className="mt-3 rounded-md p-2.5" style={{ background: "#f3f3f3" }}>
                   <p className="text-[11px] font-semibold">精度与积分评估</p>
                   <p className="mt-1 text-[10.5px] leading-5" style={{ color: sub }}>
                     打印 / 导出：<b style={{ color: ink }}>{PRINT_CREDIT_COST} 积分</b>（永远免费）。<br />
@@ -470,7 +467,7 @@ export function CanvasPrintPanel({
             <p className="mt-4 text-[11px] font-semibold">打印不消耗积分（{PRINT_CREDIT_COST} 积分）</p>
             <p className="mt-1 text-[10.5px] leading-5" style={{ color: sub }}>
               {PAPER_WORDS[paperId] || "当前纸张"} · {size.print.width}×{size.print.height} px · 目标 {precision.targetDpi} DPI。
-              选「另存为 PDF」会打开系统打印框，在目标打印机里选「另存为 PDF」即可。
+              「另存为 PDF」直接按当前预览生成 PDF 下载，不再弹出系统打印框。
             </p>
           </div>
 

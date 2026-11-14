@@ -110,9 +110,16 @@ describe("打印面板功能", () => {
     expect(panel).toContain("enhanceImageToHd");
   });
 
-  it("系统打印走 iframe，导出 PNG 逐张下载", () => {
-    expect(panel).toContain("iframe.contentWindow?.print()");
-    expect(panel).toContain("@page { size:");
+  it("🔒 2026-11-14 去重：PDF 本地直出，不再弹第二层系统打印框；导出 PNG 逐张下载", () => {
+    expect(panel).not.toContain(".print()");
+    expect(panel).not.toContain("iframe");
+    expect(panel).toContain("buildImagePdf(pdfPages");
+    expect(panel).toContain('type: "application/pdf"');
     expect(panel).toContain("saveAs(blob");
+  });
+
+  it("🔒 打印面板固定白色，不随画布深色主题变深", () => {
+    expect(panel).toContain('const panelBg = "#ffffff";');
+    expect(panel).not.toContain('isDark ? "#161616"');
   });
 });

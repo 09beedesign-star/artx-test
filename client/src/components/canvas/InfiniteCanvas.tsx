@@ -193,8 +193,15 @@ import {
   Eye,
   EyeOff,
   PanelsTopLeft,
+  SlidersHorizontal,
 } from "lucide-react";
 import { TemplatePieceNode } from "./TemplatePieceNode";
+import { TemplatePiecePropertiesPanel } from "./TemplatePiecePropertiesPanel";
+import {
+  TEMPLATE_PIECE_COMMAND_EVENT,
+  runPieceCommand,
+  type PieceCommandPayload,
+} from "@/lib/canvas-template-piece-actions";
 import {
   CanvasTemplatePanel,
   TEMPLATE_PANEL_TOGGLE_EVENT,
@@ -226,6 +233,11 @@ import {
   type PrintableItem,
 } from "@/lib/canvas-print-items";
 import type { LayerOrderAction, NodePropertiesPatch } from "@/lib/canvas-node-properties";
+import {
+  PROPERTIES_ORIGINAL_KEY,
+  capturePropertiesSnapshot,
+  restorePropertiesSnapshot,
+} from "@/lib/canvas-node-properties";
 import { CanvasBackgroundControls, CanvasBackgroundLayer } from "./CanvasBackgroundControls";
 import {
   readCanvasBackgroundPreference,
@@ -3476,6 +3488,12 @@ function AssetFloatingToolbar({
   const assetTools: FloatingToolItem[] = [
     { icon: <Move size={15} />, label: "移动对象", action: "move-object" },
     { icon: <Crop size={15} />, label: "裁切", action: "crop" },
+    /*
+     * 2026-11-14：用户要求选中图片时命令条直接给「属性编辑」入口。
+     * 与图层右键「属性编辑」是同一个面板（同一份 propertiesTargetId），
+     * 分发在 handleSingleImageToolbarAction 的 "properties" 分支。
+     */
+    { icon: <SlidersHorizontal size={15} />, label: "属性编辑", action: "properties" },
     /*
      * 2026-09-21：用户要求把「引入对话」从图片命令条去掉。
      *
@@ -7855,6 +7873,18 @@ function AssetNodeComponent({
    */
   const ASSET_NODE_BORDER_WIDTH = 1;
   const ASSET_NODE_IMAGE_RADIUS = 12;
+  /*
+   * 属性面板的描边 / 填充（2026-11-14 用户实测「描边不生效」）。
+   *
+   * ⚠️ 根因：patchPropertiesNode 把它们写进 data.stroke / strokeWidth / fill，
+   *    但 visualStyle 只作用在 ReactFlow 外层节点 style 上，图片节点内部从不读，
+   *    所以改了值零报错、画面不变。这里直接在图片节点内渲染：
+   *    - 描边：叠一层内描边覆盖层（不改变节点尺寸，圆角跟随 12px）；
+   *    - 填充：内层容器背景（透明 PNG 的透明区可见）。
+   */
+  const panelStrokeWidth = Math.max(0, Number(data.strokeWidth) || 0);
+  const panelStrokeColor = typeof data.stroke === "string" && data.stroke ? data.stroke : "#161616";
+  const panelFill = typeof data.fill === "string" && data.fill ? data.fill : "";
   /**
    * 内层覆盖层的圆角（2026-09-23）。
    *
@@ -9002,6 +9032,21 @@ function AssetNodeComponent({
         onMouseEnter={() => setHoveringAssetNode(true)}
         onMouseLeave={() => setHoveringAssetNode(false)}
       >
+        {panelStrokeWidth > 0 && (
+          <div
+            aria-hidden
+            data-artx-asset-panel-stroke=""
+            style={{
+              position: "absolute",
+              inset: 0,
+              boxSizing: "border-box",
+              border: `${panelStrokeWidth}px solid ${panelStrokeColor}`,
+              borderRadius: ASSET_NODE_IMAGE_RADIUS,
+              pointerEvents: "none",
+              zIndex: 3,
+            }}
+          />
+        )}
         <div
           className="relative"
           style={{
@@ -9010,6 +9055,7 @@ function AssetNodeComponent({
             border: `${ASSET_NODE_BORDER_WIDTH}px solid ${borderColor}`,
             borderRadius: ASSET_NODE_IMAGE_RADIUS,
             boxShadow: shadow,
+            ...(panelFill ? { background: panelFill } : {}),
             overflow:
               isCropping ||
               isExpanding ||
@@ -20768,7 +20814,13 @@ function CanvasTopToolPalette({
     { id: "shape", label: "几何形", icon: <Triangle size={17} /> },
     { id: "draw", label: "铅笔", icon: <Pencil size={17} /> },
     { id: "text", label: "文字", icon: <Type size={17} /> },
-    { id: "layers", label: "图层", icon: <Layers size={17} /> },
+    {
+      id: "layers",
+      label: "图层",
+      icon: <Layers size={17} />,
+      // 2026-11-14 用户要求：hover 时除名称外给出功能描述
+      description: "查看与管理画布图层：排序、显隐、锁定、重命名、打组",
+    },
     // 2026-11-14：打印固定在命令栏最右侧；与图片右键共用同一个打印面板。
     { id: "print", label: "打印", icon: <Printer size={17} /> },
   ];
@@ -21128,6 +21180,14 @@ function CanvasTopToolPalette({
                     }}
                   />
                   {tool.label}
+                  {tool.description && (
+                    <div
+                      data-artx-toolbar-tooltip-desc=""
+                      style={{ marginTop: 2, fontSize: 10, color: "rgba(255,255,255,0.62)" }}
+                    >
+                      {tool.description}
+                    </div>
+                  )}
                 </div>
               )}
               <button
@@ -28426,6 +28486,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const d = { ...(n.data as Record<string, unknown>) };
       const style = { ...(n.style || {}) };
       const position = { ...n.position };
+      // 「恢复默认」的基准：第一次改属性前拍一份快照，之后不再覆盖。
+      if (!d[PROPERTIES_ORIGINAL_KEY]) {
+        d[PROPERTIES_ORIGINAL_KEY] = capturePropertiesSnapshot(n);
+      }
       if (patch.title !== undefined) d.title = patch.title;
       if (patch.x !== undefined) position.x = patch.x;
       if (patch.y !== undefined) position.y = patch.y;
@@ -28433,7 +28497,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (patch.height !== undefined) { style.height = patch.height; d.imgH = patch.height; }
       if (patch.rotation !== undefined) d.panelRotation = patch.rotation;
       if (patch.opacity !== undefined) d.panelOpacity = patch.opacity;
-      if (patch.cornerRadius !== undefined) d.panelCornerRadius = patch.cornerRadius;
       if (patch.fill !== undefined) d.fill = patch.fill;
       if (patch.stroke !== undefined) d.stroke = patch.stroke;
       if (patch.strokeWidth !== undefined) d.strokeWidth = patch.strokeWidth;
@@ -28445,6 +28508,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (patch.layerLocked !== undefined) d.layerLocked = patch.layerLocked;
       return { ...n, data: d, style, position };
     }));
+  }, [propertiesTargetId, setNodes]);
+
+  /** 属性面板「恢复默认」：把节点还原到第一次调节之前的快照。 */
+  const resetPropertiesNode = useCallback(() => {
+    if (!propertiesTargetId) return;
+    const target = nodesRef.current.find(n => n.id === propertiesTargetId);
+    if (!target) return;
+    const snapshot = (target.data as Record<string, unknown>)[PROPERTIES_ORIGINAL_KEY];
+    if (!snapshot) { toast("当前已是默认状态"); return; }
+    pushHistory();
+    setNodes(nds => nds.map(n => (n.id === propertiesTargetId ? restorePropertiesSnapshot(n) : n)));
+    toast("已恢复默认属性");
+  // pushHistory 在本回调之后声明，同 handlePropertiesLayerOrder 的说明，不进依赖数组。
   }, [propertiesTargetId, setNodes]);
 
   const handlePropertiesLayerOrder = useCallback((action: LayerOrderAction) => {
@@ -30613,6 +30689,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const H = Number(data.frameH) || 600;
           return {
             ...n,
+            draggable: !next.locked,
             position: frame
               ? {
                   x: frame.position.x + next.x * W,
@@ -30644,6 +30721,87 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       );
     };
 
+    /**
+     * 🔒 2026-11-14：悬浮命令条 / 属性面板的「全部命令」统一在这里写回。
+     * ⚠️ 只认一个出口：runPieceCommand 算结果 → 这里改节点，组件不直接碰 nodes。
+     */
+    const handlePieceCommand = (e: Event) => {
+      const { nodeId, command, args } = (e as CustomEvent<PieceCommandPayload>).detail;
+      if (!nodeId || !command) return;
+      const all = nodesRef.current;
+      const target = all.find(n => n.id === nodeId && n.type === "templatePiece");
+      if (!target) return;
+      const data = target.data as Record<string, unknown>;
+      const piece = data.piece as TemplatePiece;
+      const frameW = Number(data.frameW) || 800;
+      const frameH = Number(data.frameH) || 600;
+      const layoutName = String(data.title || piece.name || "版式");
+      const siblings = all
+        .filter(n =>
+          n.type === "templatePiece" &&
+          n.id !== nodeId &&
+          (n.data as Record<string, unknown>).embeddedInFrame === data.embeddedInFrame
+        )
+        .map(n => ({ nodeId: n.id, piece: (n.data as Record<string, unknown>).piece as TemplatePiece }));
+      const result = runPieceCommand(
+        { nodeId, piece, frameW, frameH, layoutName }, command, siblings, args
+      );
+      if (!result.patches.length && !result.additions.length && !result.removals.length) {
+        if (result.message) toast(result.message);
+        return;
+      }
+      setNodes(nds => {
+        let out = nds;
+        if (result.patches.length) {
+          out = out.map(n => {
+            const hit = result.patches.find(p => p.nodeId === n.id);
+            if (!hit || n.type !== "templatePiece") return n;
+            const d = n.data as Record<string, unknown>;
+            const prev = d.piece as TemplatePiece;
+            const next: TemplatePiece = { ...prev, ...hit.patch };
+            const frameId = d.embeddedInFrame as string | undefined;
+            const frame = frameId ? nds.find(f => f.id === frameId) : undefined;
+            const W = Number(d.frameW) || 800;
+            const H = Number(d.frameH) || 600;
+            return {
+              ...n,
+              draggable: !next.locked,
+              position: frame
+                ? { x: frame.position.x + next.x * W, y: frame.position.y + next.y * H }
+                : n.position,
+              style: { ...n.style, width: Math.max(1, next.w * W), height: Math.max(1, next.h * H) },
+              data: { ...d, piece: next, title: next.name },
+            };
+          });
+        }
+        if (result.removals.length) out = out.filter(n => !result.removals.includes(n.id));
+        if (result.additions.length) {
+          const source = out.find(n => n.id === nodeId);
+          if (source) {
+            const d = source.data as Record<string, unknown>;
+            const W = Number(d.frameW) || 800;
+            const H = Number(d.frameH) || 600;
+            const frameId = d.embeddedInFrame as string | undefined;
+            const frame = frameId ? out.find(f => f.id === frameId) : undefined;
+            const stamp = Date.now();
+            const added = result.additions.map((p, i) => ({
+              ...source,
+              id: `${nodeId}-cmd-${stamp}-${i}`,
+              selected: false,
+              position: frame
+                ? { x: frame.position.x + p.x * W, y: frame.position.y + p.y * H }
+                : { x: source.position.x + 24 * (i + 1), y: source.position.y + 24 * (i + 1) },
+              style: { ...source.style, width: Math.max(1, p.w * W), height: Math.max(1, p.h * H) },
+              data: { ...d, id: p.id, piece: p, title: p.name },
+            }));
+            out = [...out, ...added];
+          }
+        }
+        return out;
+      });
+      if (result.message) toast(result.message);
+    };
+
     window.addEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
     window.addEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
     window.addEventListener(TEMPLATE_PIECE_PATCH_EVENT, handlePiecePatch);
@@ -30651,6 +30809,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       TEMPLATE_PIECE_REFERENCE_EVENT,
       handlePieceReference
     );
+    window.addEventListener(TEMPLATE_PIECE_COMMAND_EVENT, handlePieceCommand);
     return () => {
       window.removeEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
       window.removeEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
@@ -30659,6 +30818,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         TEMPLATE_PIECE_REFERENCE_EVENT,
         handlePieceReference
       );
+      window.removeEventListener(TEMPLATE_PIECE_COMMAND_EVENT, handlePieceCommand);
     };
   }, [
     edgesRef,
@@ -38408,6 +38568,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         "camera-view",
       ]);
       if (aiToolbarActions.has(action) && !requireAiAccess()) return;
+      /*
+       * 「属性编辑」（2026-11-14）：与图层右键走同一个出口，只设面板目标节点。
+       * ⚠️ 放在 clearAssetCommandState 之前直接 return：打开属性面板不应清掉
+       *    图片上正在进行的其它命令状态。
+       */
+      if (action === "properties") {
+        setPropertiesTargetId(nodeId);
+        return;
+      }
       setNodes(nds =>
         nds.map(n =>
           n.id === nodeId && n.type === "asset"
@@ -39860,8 +40029,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         ? { mixBlendMode: nodeData.panelBlendMode } : {}),
       ...(nodeData.panelShadowEnabled === true
         ? { filter: `drop-shadow(0 6px ${Number(nodeData.panelShadowBlur) || 12}px ${String(nodeData.panelShadowColor || "#000000")})` } : {}),
-      ...(typeof nodeData.panelCornerRadius === "number"
-        ? { borderRadius: nodeData.panelCornerRadius } : {}),
+      // 2026-11-14：圆角字段已从属性面板移除（图片节点固定 12px 圆角），
+      // 旧数据里残留的 panelCornerRadius 不再应用。
     } as React.CSSProperties;
     return {
       ...baseNode,
@@ -40621,12 +40790,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           isDark={isDark}
           onClose={() => setPropertiesTargetId(null)}
           onPatch={patchPropertiesNode}
+          onReset={resetPropertiesNode}
           onLayerAction={handlePropertiesLayerOrder}
         />
       )}
 
-      {/* 版式工作台：左侧抽屉 + 单元属性抽屉 */}
+      {/* 模板面板（选择与导入）+ 选中单元的属性编辑面板 */}
       <CanvasTemplatePanel isDark={isDark} />
+      <TemplatePiecePropertiesPanel />
 
       {/* Back button — top-left */}
       {!imageGeneratorModalOpen && <BackButton isDark={isDark} />}

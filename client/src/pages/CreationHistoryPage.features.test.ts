@@ -122,6 +122,25 @@ describe("单选 / 多选 / 批量删除", () => {
     expect(store).toContain("if (!options.silent) notifyChanged();");
   });
 
+  it("🔒 2026-11-14 勾选框是增量多选（不再只能选一张）", () => {
+    expect(page).toContain("toggleSelect(record.id, event, true)");
+    expect(page).toContain("if (additive || event.metaKey || event.ctrlKey)");
+  });
+
+  it("🔒 鼠标框选：空白处起框，与选框相交的卡片全选", () => {
+    expect(page).toContain("onMouseDown={handleMarqueeDown}");
+    expect(page).toContain("data-artx-history-marquee=");
+    expect(page).toContain('querySelectorAll<HTMLElement>("[data-artx-history-card]")');
+    expect(page).toContain('target.closest("[data-artx-history-card], button, input, a, label")');
+    expect(page).toContain('window.removeEventListener("mouseup", onUp)');
+  });
+
+  it("🔒 选中卡片不用描边，用阴影层次", () => {
+    expect(page).toContain('border: "none",');
+    expect(page).toContain("boxShadow: selected ? cardShadow.selected : cardShadow.idle");
+    expect(page).not.toContain("border: `1px solid ${selected ? c.text : c.border}`");
+  });
+
   it("记录被删掉后清理选中态里的孤儿 id", () => {
     expect(page).toContain("const next = prev.filter(id => records.some(r => r.id === id))");
   });
