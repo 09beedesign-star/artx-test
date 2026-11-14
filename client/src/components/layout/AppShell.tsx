@@ -114,6 +114,25 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   /** 个人中心入口的小菜单（个人中心页 / 退出登录）与退出二次确认。 */
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  /**
+   * 🔒 2026-11-14 用户要求：在画布里点侧边栏「项目 / 最近」任意一项，先弹
+   * 「是否暂时跳出当前画布？」（是 / 否），点「是」才跳转。
+   * 不在画布里、或点的就是当前画布 → 直接跳，不打扰。
+   */
+  const [pendingCanvasJump, setPendingCanvasJump] = useState<string | null>(null);
+  const navigateFromSidebarList = (target: string) => {
+    const inCanvas = location.startsWith("/project/");
+    if (!inCanvas || target === location) {
+      if (target !== location) navigate(target);
+      return;
+    }
+    setPendingCanvasJump(target);
+  };
+  const confirmCanvasJump = () => {
+    const target = pendingCanvasJump;
+    setPendingCanvasJump(null);
+    if (target) navigate(target);
+  };
   const handleConfirmLogout = () => {
     setLogoutConfirmOpen(false);
     logout();
@@ -1165,7 +1184,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                   <button
                     key={folder.id}
                     type="button"
-                    onClick={() => navigate(`/workspace?p=${folder.id}`)}
+                    onClick={() => navigateFromSidebarList(`/workspace?p=${folder.id}`)}
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 text-left transition-all"
                     style={{
                       height: 30,
@@ -1209,7 +1228,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
                 <button
                   key={board.id}
                   type="button"
-                  onClick={() => navigate(`/project/${board.id}`)}
+                  onClick={() => navigateFromSidebarList(`/project/${board.id}`)}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 text-left transition-all"
                   style={{ height: 28, color: isDark ? "#888888" : "#777777" }}
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isDark ? "rgba(255,255,255,0.06)" : "rgba(22,22,22,0.05)")}
@@ -1399,6 +1418,41 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
               style={{ background: "#b43131", color: "#ffffff", boxShadow: "none", fontSize: 13 }}
             >
               确认退出
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 侧边栏「项目 / 最近」跳出画布确认 */}
+      <AlertDialog open={!!pendingCanvasJump} onOpenChange={open => { if (!open) setPendingCanvasJump(null); }}>
+        <AlertDialogContent
+          data-canvas-jump-confirm=""
+          className="w-[min(400px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-6"
+          style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.08)", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}
+        >
+          <AlertDialogHeader className="gap-2 text-center sm:text-center">
+            <AlertDialogTitle style={{ color: "#262627", fontSize: 18, fontWeight: 650 }}>
+              是否暂时跳出当前画布？
+            </AlertDialogTitle>
+            <AlertDialogDescription className="sr-only">
+              选择「是」将跳转到所选画布，选择「否」留在当前画布。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 flex-row justify-center gap-3 sm:justify-center">
+            <AlertDialogCancel
+              data-canvas-jump-cancel=""
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.16)", color: "#262627", fontSize: 13 }}
+            >
+              否
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-canvas-jump-confirm-action=""
+              onClick={confirmCanvasJump}
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#161616", color: "#ffffff", boxShadow: "none", fontSize: 13 }}
+            >
+              是
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

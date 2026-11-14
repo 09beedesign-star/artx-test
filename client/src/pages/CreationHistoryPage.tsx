@@ -27,6 +27,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   CREATION_HISTORY_CHANGED_EVENT,
   CREATION_HISTORY_SORT_OPTIONS,
   FORMAT_LABELS,
@@ -188,9 +192,27 @@ export default function CreationHistoryPage() {
     }
   };
 
-  const handleDelete = async (record: CreationHistoryRecord) => {
-    await deleteCreationHistoryRecords([record.id]);
-    toast.success("已从创作历史移除", { description: record.localFileName ? "本地文件夹里的图片不会被删除" : undefined });
+  /**
+   * 🔒 2026-11-14 用户要求：删除必须二次确认，防误删。
+   * 单删 / 批量删都只「登记待删」，真正删除只发生在 confirmPendingDelete 里（唯一出口）。
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ ids: string[]; record?: CreationHistoryRecord } | null>(null);
+
+  const handleDelete = (record: CreationHistoryRecord) => {
+    setPendingDelete({ ids: [record.id], record });
+  };
+
+  const confirmPendingDelete = async () => {
+    const pending = pendingDelete;
+    setPendingDelete(null);
+    if (!pending?.ids.length) return;
+    await deleteCreationHistoryRecords(pending.ids);
+    if (pending.record) {
+      toast.success("已从创作历史移除", { description: pending.record.localFileName ? "本地文件夹里的图片不会被删除" : undefined });
+    } else {
+      setSelectedIds(prev => prev.filter(id => !pending.ids.includes(id)));
+      toast.success(`已删除 ${pending.ids.length} 张创作记录`, { description: "本地文件夹里的图片不会被删除" });
+    }
   };
 
   const handleDownload = (record: CreationHistoryRecord) => {
@@ -329,12 +351,9 @@ export default function CreationHistoryPage() {
     await updateCreationHistoryRecords([toggleRecordTag(record, colorId)]);
   };
 
-  const deleteSelected = async () => {
+  const deleteSelected = () => {
     if (!selectedIds.length) return;
-    const count = selectedIds.length;
-    await deleteCreationHistoryRecords(selectedIds);
-    setSelectedIds([]);
-    toast.success(`已删除 ${count} 张创作记录`, { description: "本地文件夹里的图片不会被删除" });
+    setPendingDelete({ ids: [...selectedIds] });
   };
 
   const releaseFolderFiles = useCallback(() => {
@@ -474,7 +493,7 @@ export default function CreationHistoryPage() {
                 <button
                   type="button"
                   data-artx-history-delete-selected=""
-                  onClick={() => void deleteSelected()}
+                  onClick={deleteSelected}
                   className="flex h-8 items-center gap-1.5 rounded-lg px-3"
                   style={{ background: c.btnBg, color: c.btnFg, fontSize: 12, fontWeight: 600 }}
                 >
@@ -630,7 +649,7 @@ export default function CreationHistoryPage() {
                               <button type="button" title="下载" onClick={event => { event.stopPropagation(); handleDownload(record); }} className="flex h-7 w-7 items-center justify-center rounded-full" style={{ background: "#161616", color: "#fff" }}>
                                 <Download size={13} />
                               </button>
-                              <button type="button" title="从历史移除" onClick={event => { event.stopPropagation(); void handleDelete(record); }} className="flex h-7 w-7 items-center justify-center rounded-full" style={{ background: "#161616", color: "#fff" }}>
+                              <button type="button" title="从历史移除" onClick={event => { event.stopPropagation(); handleDelete(record); }} className="flex h-7 w-7 items-center justify-center rounded-full" style={{ background: "#161616", color: "#fff" }}>
                                 <Trash2 size={13} />
                               </button>
                             </div>
@@ -860,6 +879,42 @@ export default function CreationHistoryPage() {
         </div>,
         document.body,
       )}
+
+      {/* 删除二次确认（防误删） */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={open => { if (!open) setPendingDelete(null); }}>
+        <AlertDialogContent
+          data-history-delete-confirm=""
+          className="w-[min(400px,calc(100vw-32px))] rounded-[var(--radius-lg-design)] border p-6"
+          style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.08)", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }}
+        >
+          <AlertDialogHeader className="gap-2 text-center sm:text-center">
+            <AlertDialogTitle style={{ color: "#262627", fontSize: 18, fontWeight: 650 }}>
+              {pendingDelete && pendingDelete.ids.length > 1
+                ? `确认删除选中的 ${pendingDelete.ids.length} 张图片？`
+                : "确认删除这张图片？"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="leading-6" style={{ color: "#777472", fontSize: 13 }}>
+              删除后将从创作历史中移除且无法恢复；本地文件夹里已保存的图片不会被删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 flex-row justify-center gap-3 sm:justify-center">
+            <AlertDialogCancel
+              className="h-9 min-w-[96px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#ffffff", borderColor: "rgba(22,22,22,0.16)", color: "#262627", fontSize: 13 }}
+            >
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-history-delete-confirm-action=""
+              onClick={() => void confirmPendingDelete()}
+              className="h-9 min-w-[112px] rounded-[var(--radius-md-design)]"
+              style={{ background: "#b43131", color: "#ffffff", boxShadow: "none", fontSize: 13 }}
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

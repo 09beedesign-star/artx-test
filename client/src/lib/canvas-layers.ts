@@ -10,6 +10,17 @@
 
 import type { Node } from "@xyflow/react";
 
+/**
+ * 图层面板内部拖拽的 dataTransfer 标记。画布外部拖入判定见到它必须放行，
+ * 否则图层重排会触发画布全屏拖入蒙层（2026-11-14 黑屏 bug）。
+ */
+export const LAYER_ROW_DRAG_MIME = "application/x-artx-layer-row";
+
+/** 画布是否应把这次拖拽当成「外部拖入」（图片/文件/链接）。 */
+export function isInternalCanvasDrag(types: readonly string[]): boolean {
+  return types.includes(LAYER_ROW_DRAG_MIME) || types.includes("application/x-artx-composer-token");
+}
+
 // ─── 图层行描述 ──────────────────────────────────────────────────────────────
 
 export type LayerIcon = "frame" | "image" | "text" | "shape" | "draw" | "model3d" | "other";

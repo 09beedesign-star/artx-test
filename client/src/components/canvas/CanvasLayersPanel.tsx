@@ -23,7 +23,7 @@ import {
   Box, Boxes, Copy, Eye, EyeOff, Frame, GripVertical, Image as ImageIcon,
   Lock, PenLine, Pencil, SlidersHorizontal, Square, Type, Unlock, X,
 } from "lucide-react";
-import type { LayerRow } from "@/lib/canvas-layers";
+import { LAYER_ROW_DRAG_MIME, type LayerRow } from "@/lib/canvas-layers";
 import { useDraggablePanel } from "./useDraggablePanel";
 
 type ContextState = { x: number; y: number; rowId: string; ids: string[] };
@@ -100,9 +100,19 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
   const handleDragStart = (id: string, e: React.DragEvent) => {
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
+    /**
+     * 2026-11-14 黑屏修复：图层行内含缩略图 <img>，浏览器会自动往 dataTransfer 塞
+     * text/uri-list / text/html。拖拽事件冒泡到画布容器后，画布把它当成「外部拖入」，
+     * 弹出全屏 #161616 拖入蒙层 → 用户看到的就是黑屏。
+     * ✅ 打上内部 MIME 标记，画布侧 dataTransferMayContainExternalDrop 见到它直接放行。
+     */
+    try { e.dataTransfer.setData(LAYER_ROW_DRAG_MIME, id); } catch { /* 某些浏览器只读 */ }
+    e.stopPropagation();
   };
   const handleDragEnd = () => { setDragId(null); setDragOverId(null); stopAutoScroll(); };
   const handleDragOver = (targetId: string, e: React.DragEvent) => {
+    // 内部拖拽不再冒泡到画布容器（dragleave 刻意不拦，见 drag-drop-indicator-stuck）。
+    if (dragId) e.stopPropagation();
     if (!dragId || dragId === targetId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
@@ -119,6 +129,8 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
   };
   const handleDrop = (targetId: string, e: React.DragEvent) => {
     e.preventDefault();
+    // 必须拦：否则画布的 drop 会把行里的缩略图当外部图片再贴一张进画布。
+    if (dragId) e.stopPropagation();
     stopAutoScroll();
     if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
     const targetRow = rows.find(r => r.id === targetId);

@@ -221,6 +221,7 @@ import {
   resolveTemplateSize,
   svgToDataUrl,
   templateBackground,
+  CANVAS_TEMPLATES_ENABLED,
   type TemplatePiece,
 } from "@/lib/canvas-templates";
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
@@ -762,7 +763,7 @@ import {
   scheduleWorkspaceSync,
 } from "@/lib/workspace-sync";
 import { computeDraftNodeRect, isCanvasEmpty } from "@/lib/canvas-empty-state";
-import { buildLayerRows, applyLayerDrop, type LayerRow } from "@/lib/canvas-layers";
+import { buildLayerRows, applyLayerDrop, isInternalCanvasDrag, type LayerRow } from "@/lib/canvas-layers";
 import {
   buildSkillPromptContext,
   createPendingSkillLoad,
@@ -16409,7 +16410,8 @@ function dataTransferMayContainExternalDrop(
   dataTransfer: DataTransfer | null | undefined
 ) {
   const types = Array.from(dataTransfer?.types || []);
-  if (types.includes("application/x-artx-composer-token")) return false;
+  // 图层面板行拖拽 / composer token 拖拽都是内部拖拽，不能弹画布拖入蒙层（黑屏 bug）。
+  if (isInternalCanvasDrag(types)) return false;
   return (
     types.length > 0 ||
     (dataTransfer?.items?.length || 0) > 0 ||
@@ -20823,7 +20825,11 @@ function CanvasTopToolPalette({
     },
     // 2026-11-14：打印固定在命令栏最右侧；与图片右键共用同一个打印面板。
     { id: "print", label: "打印", icon: <Printer size={17} /> },
-  ];
+  ].filter(
+    // 🔒 2026-11-14 用户要求：版式工作台暂时屏蔽，前端不显示入口；代码保留，
+    //    恢复只需把 CANVAS_TEMPLATES_ENABLED 改回 true。
+    tool => tool.id !== "templates" || CANVAS_TEMPLATES_ENABLED
+  );
 
   // 几何形二级菜单
   const shapeItems = [

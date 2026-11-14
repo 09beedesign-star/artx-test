@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { TEMPLATE_CREDIT_COST } from "@/lib/canvas-templates";
+import { CANVAS_TEMPLATES_ENABLED, TEMPLATE_CREDIT_COST } from "@/lib/canvas-templates";
 
 const read = (relative: string) =>
   readFileSync(resolve(process.cwd(), relative), "utf8");
@@ -25,6 +25,11 @@ describe("版式工作台接线", () => {
     expect(templatesAt).toBeLessThan(moveAt);
     expect(canvas).toContain("TEMPLATE_PANEL_TOGGLE_EVENT");
     expect(canvas).toContain("PanelsTopLeft");
+  });
+
+  it("🔒 2026-11-14 暂时屏蔽：入口被开关过滤掉，前端不显示（代码保留）", () => {
+    expect(CANVAS_TEMPLATES_ENABLED).toBe(false);
+    expect(canvas).toContain('tool => tool.id !== "templates" || CANVAS_TEMPLATES_ENABLED');
   });
 
   it("新节点类型与画板联动都接上了（不是只建了组件）", () => {

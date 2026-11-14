@@ -108,8 +108,10 @@ describe("单选 / 多选 / 批量删除", () => {
   });
 
   it("批量删除走已有的批量函数，且清空选中态", () => {
-    expect(page).toContain("deleteCreationHistoryRecords(selectedIds)");
-    expect(page).toContain("setSelectedIds([])");
+    // 2026-11-14：删除改为二次确认，批量 id 先登记进 pendingDelete，确认后一次批量删。
+    expect(page).toContain("setPendingDelete({ ids: [...selectedIds] })");
+    expect(page).toContain("deleteCreationHistoryRecords(pending.ids)");
+    expect(page).toContain("setSelectedIds(prev => prev.filter(id => !pending.ids.includes(id)))");
     expect(page).toContain("data-artx-history-delete-selected=");
     // 不能退化成逐条删除
     expect(page).not.toContain("selectedIds.map(id => deleteCreationHistoryRecords([id]))");
