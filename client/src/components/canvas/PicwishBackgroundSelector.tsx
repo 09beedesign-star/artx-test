@@ -64,8 +64,14 @@ export function PicwishBackgroundSelector({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{visible.map(template => {
         const active = selectedTemplate?.id === template.id;
         return <button key={template.id} type="button" className="relative min-h-20 overflow-hidden rounded-md p-2 text-left" style={{ background: surface, border: `1px solid ${active ? "rgba(197,237,71,0.7)" : border}` }} onClick={() => { onSelect(template); if (!embedded) onClose?.(); }}>
-          {template.previewUrl ? <img src={template.previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" /> : null}{template.previewUrl ? <span className="absolute inset-0 bg-black/40" /> : null}
-          <span className="relative block text-[10px] font-semibold">{template.name}</span><span className="relative mt-1 block text-[9px] opacity-70">{template.category}</span>{active ? <Check className="absolute right-2 top-2" size={14} color="#C5ED47" /> : null}
+          {/*
+            【2026-11-14 用户要求】模板预览必须显示原图本色，禁止再加整卡遮罩。
+            以前是 img opacity-70 + bg-black/40 两层叠加，实测「White」原图均值 RGB≈210
+            被压到 ≈90，所有模板看起来都蒙了一层灰。
+            文字可读性改由「仅包住文字的白色小标签」负责，不再牺牲整张图。
+          */}
+          {template.previewUrl ? <img src={template.previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : null}
+          <span className="relative inline-flex flex-col rounded px-1.5 py-1" style={template.previewUrl ? { background: "rgba(255,255,255,0.88)", color: "#161616" } : undefined}><span className="block text-[10px] font-semibold">{template.name}</span><span className="mt-0.5 block text-[9px] opacity-70">{template.category}</span></span>{active ? <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: "#161616" }}><Check size={12} color="#C5ED47" /></span> : null}
         </button>;
       })}</div>
     </div>
