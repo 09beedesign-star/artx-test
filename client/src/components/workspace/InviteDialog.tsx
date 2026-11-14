@@ -226,9 +226,23 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
     }
   };
 
-  const subtleText = isDark ? "#999999" : "#666666";
-  const cardBg = isDark ? "rgba(255,255,255,0.05)" : "#161616";
-  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "#161616";
+  /*
+   * 【2026-11-14 用户定稿·浅色主题】除按钮外一律白底黑字：
+   *   容器 = 白底 + 浅灰描边（白卡放白弹窗上必须有描边，否则卡片边界消失）；
+   *   文字 = 黑；按钮 = 黑底白字（btnBg / btnText）。
+   * 以前浅色主题把容器也设成 #161616，导致黑卡上叠灰字、几乎不可读。
+   * 深色主题保持原样。
+   */
+  const textColor = isDark ? "#e5e5e5" : "#161616";
+  const subtleText = isDark ? "#999999" : "#161616";
+  const cardBg = isDark ? "rgba(255,255,255,0.05)" : "#ffffff";
+  const cardBorder = isDark ? "rgba(255,255,255,0.08)" : "#e5e5e5";
+  const btnBg = "#161616";
+  const btnText = "#ffffff";
+  // 深色主题下黑按钮会融进背景，次级按钮维持原来的描边卡片样式
+  const secondaryBtnStyle = isDark
+    ? { background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }
+    : { background: btnBg, border: "none", color: btnText };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -257,10 +271,10 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
       <DialogContent className="grid h-[800px] max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Gift size={18} style={{ color: "#999999" }} />
+            <Gift size={18} style={{ color: textColor }} />
             邀请好友，双方得积分
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription style={{ color: textColor }}>
             把链接分享给好友，好友注册并完成首次付费后，你和好友都会收到积分奖励。
           </DialogDescription>
         </DialogHeader>
@@ -282,7 +296,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
           )}
 
           {!loading && error && (
-            <div className="py-8 text-center text-sm" style={{ color: "#999999" }}>
+            <div className="py-8 text-center text-sm" style={{ color: subtleText }}>
               {error}
             </div>
           )}
@@ -294,14 +308,14 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="text-[11px] font-medium" style={{ color: subtleText }}>你可获得</div>
-                    <div className="text-[22px] font-bold" style={{ color: "#999999" }}>
+                    <div className="text-[22px] font-bold" style={{ color: textColor }}>
                       {summary.inviterCredits.toLocaleString("zh-CN")}
                       <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
                     </div>
                   </div>
                   <div>
                     <div className="text-[11px] font-medium" style={{ color: subtleText }}>好友可获得</div>
-                    <div className="text-[22px] font-bold" style={{ color: "#333333" }}>
+                    <div className="text-[22px] font-bold" style={{ color: textColor }}>
                       {summary.inviteeCredits.toLocaleString("zh-CN")}
                       <span className="ml-1 text-[12px] font-normal" style={{ color: subtleText }}>积分</span>
                     </div>
@@ -324,20 +338,20 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 <div
                   className="rounded-xl px-4 py-3"
                   style={{
-                    background: isDark ? "rgba(102,102,102,0.12)" : "#f5f6f8",
-                    border: `1px solid ${isDark ? "rgba(102,102,102,0.30)" : "#cccccc"}`,
+                    background: isDark ? "rgba(102,102,102,0.12)" : "#ffffff",
+                    border: `1px solid ${isDark ? "rgba(102,102,102,0.30)" : cardBorder}`,
                   }}
                 >
                   <div
                     className="flex items-center gap-1.5 text-[12px] font-semibold"
-                    style={{ color: isDark ? "#cccccc" : "#666666" }}
+                    style={{ color: isDark ? "#cccccc" : textColor }}
                   >
                     <PauseCircle size={14} />
                     邀请码已暂停，新好友无法再绑定到你名下
                   </div>
                   <p
                     className="mt-1.5 text-[11px] leading-relaxed"
-                    style={{ color: isDark ? "#aaaaaa" : "#666666" }}
+                    style={{ color: isDark ? "#aaaaaa" : textColor }}
                   >
                     已邀请的好友、已到账的积分、历史统计全部不受影响。
                     随时可以恢复，邀请码不会改变，之前发出去的链接恢复后照常有效。
@@ -379,9 +393,10 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   data-tour-id={TOUR_ANCHORS.inviteCopyMessage}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-[13px] font-semibold transition-colors"
                   style={{
-                    background: summary.acceptDisabled ? cardBg : "#161616",
-                    color: summary.acceptDisabled ? subtleText : "white",
-                    border: summary.acceptDisabled ? `1px solid ${cardBorder}` : "none",
+                    background: btnBg,
+                    color: btnText,
+                    border: "none",
+                    opacity: summary.acceptDisabled ? 0.4 : 1,
                     cursor: summary.acceptDisabled ? "not-allowed" : "pointer",
                   }}
                 >
@@ -403,7 +418,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   type="button"
                   onClick={() => void handleCopy("link")}
                   className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
-                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
+                  style={secondaryBtnStyle}
                 >
                   {copiedField === "link" ? <Check size={12} /> : <Copy size={12} />}
                   {copiedField === "link" ? "已复制" : "只复制链接"}
@@ -413,7 +428,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   onClick={() => void handleCopy("code")}
                   data-tour-id={TOUR_ANCHORS.inviteCode}
                   className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-medium transition-colors"
-                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, color: subtleText }}
+                  style={secondaryBtnStyle}
                 >
                   {copiedField === "code" ? <Check size={12} /> : <Copy size={12} />}
                   <span className="font-mono tracking-[0.12em]">{summary.inviteCode || "—"}</span>
@@ -428,15 +443,15 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <div className="text-[18px] font-bold">{summary.rewardedCount}</div>
+                    <div className="text-[18px] font-bold" style={{ color: textColor }}>{summary.rewardedCount}</div>
                     <div className="text-[11px]" style={{ color: subtleText }}>已获奖励</div>
                   </div>
                   <div>
-                    <div className="text-[18px] font-bold">{summary.pendingCount}</div>
+                    <div className="text-[18px] font-bold" style={{ color: textColor }}>{summary.pendingCount}</div>
                     <div className="text-[11px]" style={{ color: subtleText }}>待付费</div>
                   </div>
                   <div>
-                    <div className="text-[18px] font-bold">{summary.earnedCredits.toLocaleString("zh-CN")}</div>
+                    <div className="text-[18px] font-bold" style={{ color: textColor }}>{summary.earnedCredits.toLocaleString("zh-CN")}</div>
                     <div className="text-[11px]" style={{ color: subtleText }}>累计积分</div>
                   </div>
                 </div>
@@ -456,7 +471,7 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                 style={{ background: cardBg, border: `1px solid ${cardBorder}` }}
               >
                 <div className="min-w-0">
-                  <div className="text-[12px] font-medium">
+                  <div className="text-[12px] font-medium" style={{ color: textColor }}>
                     {summary.acceptDisabled ? "邀请已暂停" : "暂停接受新邀请"}
                   </div>
                   <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: subtleText }}>
@@ -471,9 +486,13 @@ export default function InviteDialog({ open, onOpenChange }: InviteDialogProps) 
                   onClick={() => void handleToggleAccept()}
                   className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
                   style={{
-                    background: summary.acceptDisabled ? "#999999" : "transparent",
-                    color: summary.acceptDisabled ? "white" : subtleText,
-                    border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
+                    ...(isDark
+                      ? {
+                          background: summary.acceptDisabled ? "#999999" : "transparent",
+                          color: summary.acceptDisabled ? "white" : subtleText,
+                          border: summary.acceptDisabled ? "none" : `1px solid ${cardBorder}`,
+                        }
+                      : { background: btnBg, color: btnText, border: "none" }),
                     opacity: toggling ? 0.6 : 1,
                     cursor: toggling ? "wait" : "pointer",
                   }}
