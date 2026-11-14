@@ -20,8 +20,6 @@ import {
 import { createPortal } from "react-dom";
 import {
   ReactFlow,
-  Background,
-  BackgroundVariant,
   Controls,
   MiniMap,
   addEdge,
@@ -121,6 +119,7 @@ import {
   X,
   Copy,
   Clipboard,
+  Info,
   PlusSquare,
   ZoomIn,
   Download,
@@ -216,6 +215,14 @@ import {
   templateBackground,
   type TemplatePiece,
 } from "@/lib/canvas-templates";
+import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
+import { CanvasBackgroundControls, CanvasBackgroundLayer } from "./CanvasBackgroundControls";
+import {
+  readCanvasBackgroundPreference,
+  snapToGrid,
+  writeCanvasBackgroundPreference,
+  type CanvasBackgroundPreference,
+} from "@/lib/canvas-background-preference";
 import {
   AssistantModelIcon,
   HighCostBadge,
@@ -17189,6 +17196,22 @@ function NodeContextMenu({
         ]
       : [];
 
+  /**
+   * 🔒 2026-11-14 用户要求：右键图片节点查看真实属性
+   * （分辨率 / 格式 / 时间 / 图片来源）。只对单张 asset 节点出现。
+   */
+  const assetPropertiesItems =
+    menu.nodeType === "asset" && selectedCount === 1
+      ? [
+          {
+            icon: <Info size={13} />,
+            label: "图片属性",
+            action: "asset-properties",
+            color: iconColor,
+          },
+        ]
+      : [];
+
   // Group container right-click menu: 解散打组 / 进入打组 / 重命名
   const isInsideGroup = menu.nodeType === "group-container-inside";
   const groupContainerItems = isInsideGroup
@@ -17290,6 +17313,7 @@ function NodeContextMenu({
     },
     ...textDownloadItems,
     ...setCoverItems,
+    ...assetPropertiesItems,
     {
       icon: <Type size={13} />,
       label: "添加文本备注",
@@ -20934,12 +20958,17 @@ function CanvasTopToolPalette({
   canvasRightInset,
   allowedAiModels,
   onImageGeneratorOpenChange,
+  bgPref,
+  onBgPrefChange,
 }: {
   isDark: boolean;
   projectId: string;
   canvasRightInset: number;
   allowedAiModels?: string[];
   onImageGeneratorOpenChange?: (open: boolean) => void;
+  /** 画布底纹 / 吸附偏好：由 InnerCanvas 统一持有，避免两套状态不同步 */
+  bgPref: CanvasBackgroundPreference;
+  onBgPrefChange: (next: CanvasBackgroundPreference) => void;
 }) {
   const [active, setActive] = useState("move");
   const [shapeOpen, setShapeOpen] = useState(false);
@@ -21434,6 +21463,8 @@ function CanvasTopToolPalette({
             </div>
           </Fragment>
         ))}
+        {/* 2026-11-14：命令栏旁的磁铁（吸附网格顶点）+ 底纹设置 */}
+        <CanvasBackgroundControls isDark={isDark} pref={bgPref} onChange={onBgPrefChange} />
       </div>
       {layersOpen && (
         <CanvasLayersPanel
@@ -28616,6 +28647,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, []);
   const didHydrateCanvasStateRef = useRef(false);
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
+  /** 右键「图片属性」弹窗的目标节点；null = 关闭 */
+  const [assetPropertiesTarget, setAssetPropertiesTarget] = useState<AssetPropertiesTarget | null>(null);
+  /**
+   * 画布底纹 / 网格吸附偏好（2026-11-14）。用 ref 镜像供 onNodeDragStop 读取，
+   * 避免把整条拖动回调的依赖数组改成随偏好变化。
+   */
+  const [canvasBackgroundPref, setCanvasBackgroundPref] = useState<CanvasBackgroundPreference>(readCanvasBackgroundPreference);
+  const canvasBackgroundPrefRef = useRef(canvasBackgroundPref);
+  canvasBackgroundPrefRef.current = canvasBackgroundPref;
+  const updateCanvasBackgroundPref = useCallback((next: CanvasBackgroundPreference) => {
+    setCanvasBackgroundPref(next);
+    writeCanvasBackgroundPreference(next);
+  }, []);
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const pasteEventSeenAtRef = useRef(0);
   const pendingCrossCanvasCopyRef = useRef<Promise<Node[]> | null>(null);
@@ -31974,6 +32018,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   tags: DEFAULT_ASSET_TAGS,
                   imgW: nodeWidth,
                   imgH: nodeHeight,
+                  // 右键「图片属性」的真实依据，不用事后推断
+                  assetSource: "upload",
+                  assetCreatedAt: Date.now(),
+                  fileName: file.name,
+                  naturalWidth: img.naturalWidth,
+                  naturalHeight: img.naturalHeight,
                 },
               },
             ]);
@@ -32294,6 +32344,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   // ── Node context menu actions ──
   const handleNodeAction = useCallback(
     async (action: string, nodeId: string) => {
+      if (action === "asset-properties") {
+        const node = getNodes().find(n => n.id === nodeId);
+        if (node && node.type === "asset") {
+          setAssetPropertiesTarget({ nodeId, data: (node.data || {}) as Record<string, unknown> });
+        } else {
+          toast("找不到这张图片的属性");
+        }
+        return;
+      }
       const actionIds =
         nodeId === "__selection__"
           ? nodeCtxMenu?.selectedIds || selectedNodeIdsRef.current
@@ -33763,6 +33822,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ],
               imgW: fittedSize.w,
               imgH: fittedSize.h,
+              assetSource: "ai",
+              assetCreatedAt: Date.now(),
               sourceBackgroundSrc: undefined,
               ...getImageGenerationNodeMetadata(detail),
             },
@@ -35141,6 +35202,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             sourceUrl: src,
             visualFingerprint,
             sourcePixelArea,
+            assetSource: "web",
+            assetCreatedAt: Date.now(),
+            naturalWidth: img.naturalWidth || img.width,
+            naturalHeight: img.naturalHeight || img.height,
             title: `拖入图片 ${index + 1}`,
             assetType: "图片",
             tags: DEFAULT_ASSET_TAGS,
@@ -37534,11 +37599,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
   const canvasBg = isDark ? "#0a0a0b" : "var(--design-surface-soft)";
   /*
-   * 点阵：2026-11-10 按参考截图调小并降对比。
-   * 旧值 gap 30 / size 2.6 在 100% 缩放下颗粒感太重，一进画布像铺了层网格纸；
-   * 现在 gap 24 / size 1.5，透明度在原基础上再降 20%（0.32→0.26、0.14→0.11）。
+   * 点阵 / 棋盘格 / 轴测网格三种底纹统一由 CanvasBackgroundLayer 渲染
+   * （2026-11-14），颜色与每种底纹的透明度在 canvas-background-preference 里。
+   * 这里只保留画布底色；网格间距 24 沿用原点阵，磁铁吸附也按它对齐。
    */
-  const dotColor = isDark ? "rgba(180,180,184,0.11)" : "rgba(0,0,0,0.26)";
 
   // ── Compute group containers for overlay rendering ──
   const groupOverlayData: GroupInfo[] = useMemo(() => {
@@ -40197,14 +40261,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         onNodeDragStop={(event, node, nodes) => {
           handleAltDragStop(event as unknown as MouseEvent, node);
           handleNormalDragStop(event as unknown as MouseEvent, node);
+          // 🔒 2026-11-14：磁铁开启时，把本次被拖动的节点对齐到网格顶点。
+          // ⚠️ 只处理没有 parentId 的普通节点；嵌入画板的节点坐标是相对坐标，
+          //    量化会把它们从画板里甩出去。
+          if (canvasBackgroundPrefRef.current.snapEnabled) {
+            const draggedIds = new Set(nodes.map(n => n.id));
+            setNodes(nds =>
+              nds.map(n =>
+                draggedIds.has(n.id) && !n.parentId
+                  ? {
+                      ...n,
+                      position: {
+                        x: snapToGrid(n.position.x, true),
+                        y: snapToGrid(n.position.y, true),
+                      },
+                    }
+                  : n
+              )
+            );
+          }
         }}
       >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={24}
-          size={1.5}
-          color={dotColor}
-        />
+        <CanvasBackgroundLayer pref={canvasBackgroundPref} isDark={isDark} />
         <MiniMap
           style={{
             width: 100,
@@ -40635,6 +40713,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         canvasRightInset={isAssistantCollapsed ? 112 : assistantPanelWidth}
         allowedAiModels={user?.allowedAiModels}
         onImageGeneratorOpenChange={setImageGeneratorModalOpen}
+        bgPref={canvasBackgroundPref}
+        onBgPrefChange={updateCanvasBackgroundPref}
       />
 
       {/* 版式工作台：左侧抽屉 + 单元属性抽屉 */}
@@ -40665,6 +40745,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             setNodeCtxMenu(null);
           }}
           isDark={isDark}
+        />
+      )}
+
+      {/* 图片节点右键「图片属性」（portal 到 body，不受画布层叠上下文影响） */}
+      {assetPropertiesTarget && (
+        <AssetPropertiesDialog
+          target={assetPropertiesTarget}
+          isDark={isDark}
+          onClose={() => setAssetPropertiesTarget(null)}
         />
       )}
 

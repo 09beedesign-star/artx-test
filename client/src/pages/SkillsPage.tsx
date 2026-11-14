@@ -71,6 +71,8 @@ export default function SkillsPage() {
   const [query, setQuery] = useState("");
   /** hover 中的技能卡 id。用 state 而不是 CSS group-hover：操作层要能判断「该不该接住点击」。 */
   const [hoveredSkillId, setHoveredSkillId] = useState<string | null>(null);
+  /** 底部「快速加载」按钮的 hover 态：悬停切黑色按钮（内联 style 顶掉 className，必须用 state 切色值）。 */
+  const [hoveredQuickLoadId, setHoveredQuickLoadId] = useState<string | null>(null);
 
   const bg = isDark ? "#222222" : "var(--design-surface-soft)";
   const panel = isDark ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.78)";
@@ -128,25 +130,6 @@ export default function SkillsPage() {
     }
     toast("Skill 已快速加载", { description: `正在进入画布：${skill.name}` });
     navigate("/project/__blank-workspace__");
-  };
-
-  /**
-   * 复制技能提示词。
-   * hover 操作层里与「快速加载」并列的第二枚按钮 ——
-   * 与灵感模板的「一键同款 / 复制提示词」保持同一套动作心智。
-   */
-  const copySkillPrompt = async (skill: (typeof skillStoreItems)[number]) => {
-    const prompt = (skill.capabilityPrompt || "").trim();
-    if (!prompt) {
-      toast("这个技能还没有可用提示词", { description: skill.name });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast("提示词已复制", { description: skill.name });
-    } catch {
-      toast("复制失败", { description: "请稍后重试" });
-    }
   };
 
   const skillIconColor = (id: string) => {
@@ -260,15 +243,12 @@ export default function SkillsPage() {
                       decoding="async"
                       className="block h-full w-full object-cover"
                     />
-                    {/* hover 操作层：与灵感模板同一份实现（压暗 + 居中两枚胶囊） */}
-                    <CardHoverOverlay
-                      visible={hoveredSkillId === skill.id}
-                      compact
-                      actions={[
-                        { label: "快速加载", onClick: () => handleQuickLoad(skill) },
-                        { label: "复制提示词", onClick: () => void copySkillPrompt(skill), variant: "ghost" },
-                      ]}
-                    />
+                    {/*
+                      🔒 2026-11-14 用户要求：封面 hover 内的两枚胶囊按钮整块删掉，
+                      只保留轻微压暗（与灵感模板卡片同一份实现、同一档暗度）。
+                      ⚠️ 别把 actions 加回来 —— 底部已有常驻「快速加载」。
+                    */}
+                    <CardHoverOverlay visible={hoveredSkillId === skill.id} dim={0.18} />
                   </div>
                   <div className="flex items-start gap-3">
                     <div
@@ -303,13 +283,22 @@ export default function SkillsPage() {
                     <button
                       type="button"
                       onClick={() => handleQuickLoad(skill)}
+                      onMouseEnter={() => setHoveredQuickLoadId(skill.id)}
+                      onMouseLeave={() =>
+                        setHoveredQuickLoadId(current => (current === skill.id ? null : current))
+                      }
                       data-tour-id={isTourAnchorCard ? TOUR_ANCHORS.skillsQuickLoad : undefined}
-                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-opacity hover:opacity-90 active:scale-[0.99]"
-                      style={{
-                        background: "var(--artx-action-bg)",
-                        color: "var(--artx-action-fg)",
-                        border: "1px solid var(--artx-action-border)",
-                      }}
+                      data-skills-quick-load=""
+                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[var(--radius-md-design)] text-xs font-semibold transition-colors active:scale-[0.99]"
+                      style={
+                        hoveredQuickLoadId === skill.id
+                          ? { background: "#161616", color: "#ffffff", border: "1px solid #161616" }
+                          : {
+                              background: "var(--artx-action-bg)",
+                              color: "var(--artx-action-fg)",
+                              border: "1px solid var(--artx-action-border)",
+                            }
+                      }
                     >
                       快速加载
                     </button>

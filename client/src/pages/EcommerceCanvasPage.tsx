@@ -51,6 +51,7 @@ import {
   USER_MEMORY_CHANGED_EVENT,
 } from "@/lib/user-memory-client";
 import { buildUserMemoryContext, ECOMMERCE_MEMORY_SCOPE, type UserMemoryDocument } from "@shared/user-memory";
+import { recordCompletedImages } from "@/lib/creation-history-recorder";
 import {
   ECOMMERCE_TEMPLATES,
   ECOMMERCE_PLATFORMS,
@@ -733,6 +734,24 @@ export default function EcommerceCanvasPage() {
       }
       if (urls.length === 0) throw new Error("生成结果为空，请重试");
       setModeResults(startedMode, urls);
+      /*
+       * 🔒 2026-11-14 用户要求：AI 能力生成的所有图片（不限格式）一律被动自动
+       * 存进用户指定的本地创作历史文件夹，不需要用户点保存。
+       * ⚠️ 电商画布不经过画布事件总线，这里是「产品图 / 带货图文」两条模式的
+       *    唯一共同收口，必须在这里补记；⚠️ 禁止改成派发
+       *    image-generator-submit —— 那会被 InfiniteCanvas 当成新的生成请求。
+       */
+      if (accountId) {
+        void recordCompletedImages(accountId, {
+          status: "completed",
+          generationId,
+          projectId: "ecommerce-canvas",
+          prompt: startedPrompt,
+          model: draft.model,
+          style: startedMode === "product" ? startedBackgroundName : startedTemplateName,
+          images: urls.map(src => ({ src })),
+        });
+      }
       const newEntry: EcommerceHistoryEntry = {
         id: `ec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         mode: startedMode,
