@@ -6,6 +6,8 @@
  *    图片文件写进用户自己选的本地文件夹。
  */
 
+import type { TagColorId } from "./creation-history-tags";
+
 export type CreationImageFormat = "png" | "jpg" | "webp" | "gif" | "svg" | "other";
 
 export interface CreationHistoryRecord {
@@ -29,6 +31,12 @@ export interface CreationHistoryRecord {
   createdAt: number;
   /** 已写入本地文件夹的文件名；空 = 还没落盘 */
   localFileName?: string;
+  /**
+   * 色彩标签 id（🔒 2026-11-14）。⚠️ 只在创作历史界面渲染，
+   * 画布 / 社区 / 其他页面不得读取；标签名称配置存在本库的 settings store。
+   * 删除记录时标签随之消失，不需要额外的映射表。
+   */
+  tagIds?: TagColorId[];
 }
 
 export type CreationHistorySortKey = "history" | "project" | "format" | "folder" | "time";

@@ -15,6 +15,10 @@ import {
   formatFromMime,
   type CreationHistoryRecord,
 } from "./creation-history-core";
+import {
+  normalizeTagNames,
+  type TagNames,
+} from "./creation-history-tags";
 
 export * from "./creation-history-core";
 
@@ -28,6 +32,13 @@ export const CREATION_HISTORY_LIMIT = 2000;
 
 type DirPermission = "granted" | "denied" | "prompt";
 
+/** 目录里的文件句柄（只读 getFile 用于「打开文件夹」列表）。 */
+export interface LocalFileHandleLike {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+}
+
 /** File System Access API 的最小类型（TS DOM lib 里还没有 showDirectoryPicker）。 */
 export interface LocalDirectoryHandle {
   kind: "directory";
@@ -35,8 +46,18 @@ export interface LocalDirectoryHandle {
   getFileHandle(name: string, options?: { create?: boolean }): Promise<{
     createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
   }>;
+  /** 遍历目录条目；浏览器从 IndexedDB 取回的句柄同样支持。 */
+  values?(): AsyncIterable<LocalFileHandleLike | { kind: "directory"; name: string }>;
   queryPermission?(descriptor: { mode: "readwrite" }): Promise<DirPermission>;
   requestPermission?(descriptor: { mode: "readwrite" }): Promise<DirPermission>;
+}
+
+/** 「快速打开本地文件夹」视图里的一张图片。url 是 objectURL，关闭视图时须 revoke。 */
+export interface LocalFolderFile {
+  name: string;
+  size: number;
+  lastModified: number;
+  url: string;
 }
 
 export function isLocalFolderSupported(): boolean {
@@ -125,9 +146,21 @@ export async function addCreationHistoryRecords(records: CreationHistoryRecord[]
   return fresh;
 }
 
+/**
+ * 批量更新记录：一次事务写完整批，只广播一次变更。
+ * ⚠️ 打标签 / 取消标签必须走这里 —— 逐条调 updateCreationHistoryRecord 会并发开 N 个
+ *    事务并触发 N 次 refresh，页面读到中间态（多出口事故 A 的变体）。
+ */
+export async function updateCreationHistoryRecords(
+  records: CreationHistoryRecord[],
+  options: { silent?: boolean } = {},
+): Promise<void> {
+  await putRecords(records);
+  if (!options.silent) notifyChanged();
+}
+
 export async function updateCreationHistoryRecord(record: CreationHistoryRecord): Promise<void> {
-  await putRecords([record]);
-  notifyChanged();
+  await updateCreationHistoryRecords([record]);
 }
 
 export async function deleteCreationHistoryRecords(ids: string[], options: { silent?: boolean } = {}): Promise<void> {
@@ -150,6 +183,51 @@ export async function deleteCreationHistoryRecords(ids: string[], options: { sil
 
 function dirKey(ownerId: string) {
   return `dir:${ownerId}`;
+}
+
+function tagNamesKey(ownerId: string) {
+  return `tags:${ownerId}`;
+}
+
+async function readSetting<T>(key: string): Promise<T | null> {
+  const db = await openDb();
+  if (!db) return null;
+  try {
+    const tx = db.transaction(SETTINGS_STORE, "readonly");
+    const value = await reqToPromise(tx.objectStore(SETTINGS_STORE).get(key));
+    return (value as T) ?? null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+async function writeSetting<T>(key: string, value: T): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  try {
+    const tx = db.transaction(SETTINGS_STORE, "readwrite");
+    tx.objectStore(SETTINGS_STORE).put(value, key);
+    await new Promise<void>(resolve => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * 六种颜色标签的名称。⚠️ 只存在创作历史自己的 IndexedDB settings store，
+ * 不进 workspace-sync、不进云端；只有创作历史界面会读它。
+ */
+export async function readTagNames(ownerId: string): Promise<TagNames> {
+  return normalizeTagNames(await readSetting<unknown>(tagNamesKey(ownerId)));
+}
+
+export async function writeTagNames(ownerId: string, names: TagNames): Promise<void> {
+  await writeSetting(tagNamesKey(ownerId), normalizeTagNames(names));
 }
 
 export async function getSavedDirectory(ownerId: string): Promise<LocalDirectoryHandle | null> {
@@ -242,6 +320,59 @@ async function fetchImageBlob(src: string): Promise<Blob | null> {
       }
     }
     return null;
+  }
+}
+
+/** 图片扩展名：文件夹视图只列图片，忽略目录与非图片文件。 */
+const IMAGE_FILE_RE = /\.(png|jpe?g|webp|gif|svg|bmp|avif)$/i;
+
+/**
+ * 列出本地文件夹里的图片（🔒 2026-11-14「快速打开保存的本地文件夹」）。
+ * ⚠️ 浏览器不允许网页直接唤起 Finder / 资源管理器，所以这里在页面内把文件夹内容读出来展示；
+ *    另有 openLocalFolderInSystemPicker 用系统文件窗口定位到该目录。
+ * ⚠️ 没权限 / 不支持 values() 时返回空数组，不抛 —— 页面据此显示提示而不是白屏。
+ */
+export async function readLocalFolderImages(handle: LocalDirectoryHandle): Promise<LocalFolderFile[]> {
+  if (!handle.values || (await getDirectoryPermission(handle)) !== "granted") return [];
+  const out: LocalFolderFile[] = [];
+  try {
+    for await (const entry of handle.values()) {
+      if (entry.kind !== "file" || !IMAGE_FILE_RE.test(entry.name)) continue;
+      const file = await (entry as LocalFileHandleLike).getFile();
+      out.push({
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+        url: URL.createObjectURL(file),
+      });
+    }
+  } catch {
+    return out;
+  }
+  return out.sort((a, b) => b.lastModified - a.lastModified).slice(0, 200);
+}
+
+export type SystemPickerResult = "opened" | "cancelled" | "unsupported";
+
+/** 在系统文件窗口里定位到已保存的文件夹（startIn 接受目录句柄）。必须在点击事件里调。 */
+export async function openLocalFolderInSystemPicker(handle: LocalDirectoryHandle): Promise<SystemPickerResult> {
+  const picker = (window as unknown as {
+    showOpenFilePicker?: (options?: {
+      startIn?: unknown;
+      multiple?: boolean;
+      types?: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<unknown[]>;
+  }).showOpenFilePicker;
+  if (typeof picker !== "function") return "unsupported";
+  try {
+    await picker({
+      startIn: handle,
+      multiple: false,
+      types: [{ description: "图片", accept: { "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] } }],
+    });
+    return "opened";
+  } catch {
+    return "cancelled";
   }
 }
 
