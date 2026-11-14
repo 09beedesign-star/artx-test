@@ -465,6 +465,11 @@ function CameraViewCubeAiIcon({
   cutoutBg?: string;
 }) {
   const glyphSize = Math.round(size * glyphScale);
+  /*
+   * 2026-11-15 重绘：原线稿只占 viewBox 5~19、线宽 1.35~1.55，与 lucide
+   * （外沿 ~3~21、线宽 2）放一排明显小一号、细一号。现按 lucide 规格重画：
+   * 立方体加大并左移避开右上角 Sparkles 角标，环绕箭头贴着底边铺满。
+   */
   return (
     <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
       <svg
@@ -472,34 +477,54 @@ function CameraViewCubeAiIcon({
         height={glyphSize}
         viewBox="0 0 24 24"
         fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path
-          d="M7 7.8 12 5l5 2.8v5.6l-5 2.9-5-2.9V7.8Z"
-          stroke="currentColor"
-          strokeWidth="1.55"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M7.2 8 12 10.7 16.8 8M12 10.7v5.5"
-          stroke="currentColor"
-          strokeWidth="1.35"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M5.6 15.7c1.5 2 3.7 3.1 6.4 3.1 2.1 0 3.9-.65 5.3-1.86"
-          stroke="currentColor"
-          strokeWidth="1.45"
-          strokeLinecap="round"
-        />
-        <path
-          d="m17 14.6.55 2.4-2.45.14"
-          stroke="currentColor"
-          strokeWidth="1.45"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M11 2.5 17.5 6v7L11 16.5 4.5 13V6Z" />
+        <path d="M4.7 6.1 11 9.6l6.3-3.5M11 9.6v6.8" />
+        <path d="M2.4 15.8c1.6 3.5 5 5.7 8.9 5.7 3.2 0 6-1.4 7.8-3.8" />
+        <path d="m20.9 14.6-1.8 3.1-3.4-.9" />
+      </svg>
+    </AiDecoratedIcon>
+  );
+}
+
+/**
+ * 「提示词反推」图标（2026-11-15 重绘）。
+ *
+ * 原来直接用 lucide ScanSearch：中间放大镜只有 r=3，四角取景框又被右上
+ * Sparkles 角标挖掉一角，整体视觉重量明显轻于 Move / Crop。
+ * 重画：取景框外沿 3~21 与 lucide 对齐，放大镜放大到 r=4.6，线宽统一 2。
+ */
+function ReversePromptAiIcon({
+  size = 15,
+  cutoutBg = "rgba(22,22,30,0.96)",
+}: {
+  size?: number;
+  cutoutBg?: string;
+}) {
+  return (
+    <AiDecoratedIcon size={size} cutoutBg={cutoutBg}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8" />
+        <path d="M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8" />
+        <path d="M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16" />
+        <path d="M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16" />
+        <circle cx="11.2" cy="11.2" r="4.6" />
+        <path d="m14.6 14.6 3 3" />
       </svg>
     </AiDecoratedIcon>
   );
@@ -3569,17 +3594,17 @@ function AssetFloatingToolbar({
      *    AiDecoratedIcon 的 size 决定容器与右上角 Sparkles 角标的位置，
      *    一起放大会把角标推出去，并挤动相邻按钮的间距。
      */
+    /*
+     * 2026-11-15：放大 20% 仍显小（用户截图），两个图标改为按 lucide 规格重绘
+     * （外沿 3~21、线宽 2），尺寸与其他图标一样按 15 走，不再靠放大补偿。
+     */
     {
-      icon: (
-        <AiDecoratedIcon size={15} cutoutBg={toolBg}>
-          <ScanSearch size={18} />
-        </AiDecoratedIcon>
-      ),
+      icon: <ReversePromptAiIcon size={15} cutoutBg={toolBg} />,
       label: "提示词反推",
       action: "reverse-prompt",
     },
     {
-      icon: <CameraViewCubeAiIcon size={15} glyphScale={1.2} cutoutBg={toolBg} />,
+      icon: <CameraViewCubeAiIcon size={15} cutoutBg={toolBg} />,
       label: "视角",
       action: "camera-view",
     },

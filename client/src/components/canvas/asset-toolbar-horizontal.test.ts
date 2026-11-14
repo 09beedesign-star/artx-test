@@ -398,25 +398,23 @@ describe("提示词反推 / 视角：图标主体放大 20%（2026-09-21）", ()
     expect(assetTools.length, "assetTools 片段为空").toBeGreaterThan(400);
   });
 
-  it("提示词反推的线稿必须比容器大一号（15 → 18 ≈ +20%）", () => {
-    const block = assetTools.slice(
-      assetTools.indexOf("<ScanSearch") - 200,
-      assetTools.indexOf('label: "提示词反推"')
-    );
-    expect(block.length, "提示词反推片段为空").toBeGreaterThan(50);
-    expect(block, "线稿没放大，仍与其他图标同尺寸").toContain(
-      "<ScanSearch size={18} />"
-    );
-    expect(
-      block,
-      "容器尺寸必须仍是 15，否则会挤动相邻按钮并推走 Sparkles 角标"
-    ).toContain("<AiDecoratedIcon size={15} cutoutBg={toolBg}>");
+  /*
+   * 2026-11-15：放大 20% 仍显小（用户截图），改为按 lucide 规格重绘
+   * （外沿 3~21、线宽 2），容器与其他图标同为 15，不再靠放大补偿。
+   */
+  it("提示词反推改用重绘图标，容器仍是 15", () => {
+    expect(assetTools).toContain("<ReversePromptAiIcon size={15} cutoutBg={toolBg} />");
+    const icon = sliceFunction("function ReversePromptAiIcon(");
+    expect(icon).toContain('strokeWidth="2"');
+    expect(icon, "放大镜要比 lucide ScanSearch(r=3) 大").toContain('r="4.6"');
+    expect(icon).toContain("<AiDecoratedIcon size={size} cutoutBg={cutoutBg}>");
   });
 
-  it("视角图标必须通过 glyphScale 放大主体，而不是放大整颗按钮", () => {
-    expect(assetTools, "视角图标没传 glyphScale").toContain(
-      "<CameraViewCubeAiIcon size={15} glyphScale={1.2} cutoutBg={toolBg} />"
-    );
+  it("视角图标按 lucide 线宽 2 重绘，不再靠 glyphScale 放大", () => {
+    expect(assetTools).toContain("<CameraViewCubeAiIcon size={15} cutoutBg={toolBg} />");
+    const icon = sliceFunction("function CameraViewCubeAiIcon(");
+    expect(icon).toContain('strokeWidth="2"');
+    expect(icon, "旧的细线稿（1.35~1.55）又回来了").not.toMatch(/strokeWidth="1\.\d+"/);
   });
 
   it("CameraViewCubeAiIcon 必须真的支持 glyphScale（否则传了也白传）", () => {
