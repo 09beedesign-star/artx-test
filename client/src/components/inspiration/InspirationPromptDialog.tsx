@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
+import { MasonryColumns, type MasonryBreakpoint } from "@/components/ui/masonry-columns";
 import {
   fetchInspirationFeed,
   getInspirationFallbackFeed,
@@ -27,6 +28,13 @@ export type InspirationPromptDialogProps = {
   /** 「一键同款」：图片进画布 + 输入框引用该图。登录门禁在画布「生成」时触发。 */
   onApplySameStyle: (item: InspirationPromptItem) => void;
 };
+
+/** 弹窗内容区宽度 ≤ 940px：<480 一列，≥480 两列，≥720 三列（与原 sm/lg 网格档位相当）。 */
+const DIALOG_MASONRY_BREAKPOINTS: MasonryBreakpoint[] = [
+  { minWidth: 0, columns: 1 },
+  { minWidth: 480, columns: 2 },
+  { minWidth: 720, columns: 3 },
+];
 
 /** 每批渲染条数。弹窗可滚动，分批是为了不一次性塞 900 张卡片进 DOM。 */
 const DIALOG_PAGE_SIZE = 120;
@@ -169,7 +177,7 @@ export function InspirationPromptDialog({
                 <button type="button" onClick={() => setSelectedItem(null)} className="mb-4 type-caption" style={{ color: sub }}>← 返回灵感列表</button>
                 <span className="inline-flex rounded-[var(--radius-pill)] border px-2.5 py-1 type-caption" style={{ background: "transparent", color: "var(--artx-action-fg)", borderColor: "var(--artx-action-border)" }}>{selectedItem.field}</span>
                 <h3 className="mt-3 type-title-sm" style={{ color: text, fontWeight: 760 }}>{selectedItem.title}</h3>
-                <p className="mt-2 type-caption leading-5" style={{ color: sub }}>{selectedItem.description}</p>
+                {/* 🔒 2026-11-14：「灵感提示词描述」一行随提示词屏蔽一并删除，别加回。 */}
                 <button
                   type="button"
                   data-inspiration-dialog-detail-same-style=""
@@ -184,21 +192,26 @@ export function InspirationPromptDialog({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {visibleItems.map(item => (
+            <>
+            {/* 🔒 2026-11-14 用户要求：等宽列瀑布流，卡片高度随图片自适应，整图完整可见（不再 16:10 裁切）。 */}
+            <MasonryColumns
+              items={visibleItems}
+              getKey={item => `${item.rank}-${item.title}`}
+              breakpoints={DIALOG_MASONRY_BREAKPOINTS}
+              gap={16}
+              renderItem={item => (
                 <article
-                  key={`${item.rank}-${item.title}`}
                   className="cursor-pointer overflow-hidden rounded-[var(--radius-lg-design)]"
                   style={{ background: cardBg, border: `1px solid ${border}` }}
                   onMouseEnter={() => handleInspirationCardMouseEnter(`${item.rank}-${item.title}`)}
                   onMouseLeave={handleInspirationCardMouseLeave}
                   onDoubleClick={() => setSelectedItem(item)}
                 >
-                  <div className="relative aspect-[16/10] overflow-hidden bg-[#171717]">
+                  <div className="relative overflow-hidden bg-[#171717]" data-inspiration-dialog-card-fit="" style={{ minHeight: 120 }}>
                     <img
                       src={item.imageUrl}
                       alt={item.title}
-                      className="h-full w-full object-cover transition-transform duration-300 ease-out"
+                      className="block h-auto w-full transition-transform duration-300 ease-out"
                       style={{ transform: hoveredItemKey === `${item.rank}-${item.title}` ? "scale(1.08)" : "scale(1)" }}
                       loading="lazy"
                     />
@@ -233,9 +246,10 @@ export function InspirationPromptDialog({
                     </div>
                   </div>
                 </article>
-              ))}
-              {visibleItems.length === 0 && <p className="col-span-full py-12 text-center type-body-sm" style={{ color: sub }}>暂无可用灵感</p>}
-            </div>
+              )}
+            />
+            {visibleItems.length === 0 && <p className="py-12 text-center type-body-sm" style={{ color: sub }}>暂无可用灵感</p>}
+            </>
           )}
           {!selectedItem && canLoadMore && (
             <div className="col-span-full flex justify-center pt-2 pb-1">

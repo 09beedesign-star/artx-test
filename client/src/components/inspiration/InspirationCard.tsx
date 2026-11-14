@@ -16,7 +16,7 @@
  * ⚠️ `onCopyPrompt` 已随居中按钮一并移除：复制提示词的入口在「点卡片打开的详情弹窗」里，
  *    卡片上再放一个是同一动作的第二个出口。
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
 
 export type InspirationCardItem = {
@@ -44,6 +44,11 @@ export type InspirationCardProps = {
   onApplySameStyle?: () => void;
   /** 赞的位置上要渲染的内容（点赞按钮）。头像就贴在它旁边 */
   reactionSlot?: ReactNode;
+  /**
+   * 🔒 2026-11-14：瀑布流模式 —— 宽度跟随列宽、高度随图片原始比例自适应，整图完整可见。
+   * 默认 false = 原 16:10 裁切封面（个人中心仍是等高网格，不受影响）。
+   */
+  fitImage?: boolean;
 };
 
 export function InspirationCard({
@@ -60,7 +65,10 @@ export function InspirationCard({
   onMouseLeave,
   onApplySameStyle,
   reactionSlot,
+  fitImage = false,
 }: InspirationCardProps) {
+  // 瀑布流下图片未加载前高度为 0，给个占位最小高；加载完撤掉，矮图不留空白。
+  const [imageLoaded, setImageLoaded] = useState(false);
   return (
     <article
       onClick={onOpen}
@@ -86,13 +94,22 @@ export function InspirationCard({
       onMouseLeave={onMouseLeave}
     >
       {/* ── 封面图区 16:10 ── */}
-      <div className="relative overflow-hidden bg-[#1a1a1a]" style={{ aspectRatio: "16 / 10" }}>
+      <div
+        className="relative overflow-hidden bg-[#1a1a1a]"
+        data-inspiration-card-fit={fitImage ? "" : undefined}
+        style={fitImage ? { minHeight: imageLoaded ? undefined : 160 } : { aspectRatio: "16 / 10" }}
+      >
         <img
           src={item.imageUrl}
           alt={item.title}
-          className="relative z-10 h-full w-full object-cover transition-transform duration-500 ease-out"
+          className={
+            fitImage
+              ? "relative z-10 block h-auto w-full transition-transform duration-500 ease-out"
+              : "relative z-10 h-full w-full object-cover transition-transform duration-500 ease-out"
+          }
           style={{ transform: hovered ? "scale(1.08)" : "scale(1)" }}
           loading="lazy"
+          onLoad={() => setImageLoaded(true)}
           onError={event => {
             event.currentTarget.style.display = "none";
           }}

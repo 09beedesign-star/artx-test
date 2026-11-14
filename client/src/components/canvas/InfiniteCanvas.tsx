@@ -20595,9 +20595,6 @@ function CanvasTopToolPalette({
   const activeColor = textColor;
   const popBg = isDark ? "rgba(24,24,34,0.96)" : "rgba(255,255,255,0.96)";
   const tooltipBg = isDark ? "rgba(18,18,26,0.96)" : "rgba(30,30,40,0.92)";
-  const toolbarDividerColor = isDark
-    ? "rgba(255,255,255,0.28)"
-    : "rgba(28,28,40,0.22)";
 
   // 工具列表
   // 2026-09-20：「智能注释」已从这里移入**图片命令条**（AssetFloatingToolbar）。
@@ -20916,19 +20913,7 @@ function CanvasTopToolPalette({
       >
         {tools.map(tool => (
           <Fragment key={tool.id}>
-            {tool.id === "move" && (
-              <div
-                aria-hidden="true"
-                style={{
-                  width: 2,
-                  height: 24,
-                  borderRadius: 999,
-                  background: toolbarDividerColor,
-                  margin: "0 6px",
-                  flex: "0 0 auto",
-                }}
-              />
-            )}
+            {/* 2026-11-14：用户要求去掉「移动」左侧的分割线（左侧已无其它按钮，分割线多余）。 */}
             <div className="relative">
               {/* Hover tooltip — 显示在图标下方 */}
               {hoveredId === tool.id && (

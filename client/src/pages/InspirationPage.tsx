@@ -9,6 +9,15 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { Search, Sparkles, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
+import { MasonryColumns, type MasonryBreakpoint } from "@/components/ui/masonry-columns";
+
+/** 列数按网格容器宽度：<560 一列，≥560 两列，≥840 三列，≥1100 四列（与原 sm/lg/xl 网格档位相当）。 */
+const INSPIRATION_PAGE_MASONRY_BREAKPOINTS: MasonryBreakpoint[] = [
+  { minWidth: 0, columns: 1 },
+  { minWidth: 560, columns: 2 },
+  { minWidth: 840, columns: 3 },
+  { minWidth: 1100, columns: 4 },
+];
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
 import { normalizeInspirationIdentity } from "@/lib/inspiration-identity";
@@ -82,10 +91,7 @@ export default function InspirationPage() {
   const [activeEditorTab, setActiveEditorTab] = useState<string>(EDITOR_TABS[0]);
   const [featuredScrollPos, setFeaturedScrollPos] = useState(0);
   const featuredScrollRef = useRef<HTMLDivElement | null>(null);
-  const selectedImageRef = useRef<HTMLImageElement | null>(null);
-  const promptScrollRef = useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
-  const [detailImageHeight, setDetailImageHeight] = useState<number | null>(null);
   /**
    * 点赞 / 收藏状态。与首页、个人中心共用同一份唯一事实源，
    * ⚠️ 这里取消收藏，个人中心对应 tab 必须同步消失（用户明确要求）。
@@ -211,35 +217,6 @@ export default function InspirationPage() {
 
     return () => controller.abort();
   }, []);
-
-  const measureSelectedImage = () => {
-    const height = selectedImageRef.current?.getBoundingClientRect().height || 0;
-    if (height > 0) setDetailImageHeight(Math.round(height));
-  };
-
-  useEffect(() => {
-    if (!selectedItem) {
-      setDetailImageHeight(null);
-      return;
-    }
-
-    const animationFrame = window.requestAnimationFrame(measureSelectedImage);
-    window.addEventListener("resize", measureSelectedImage);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", measureSelectedImage);
-    };
-  }, [selectedItem]);
-
-  const scrollPromptDetail = (event: React.WheelEvent<HTMLDivElement>) => {
-    const promptPanel = promptScrollRef.current;
-    if (!promptPanel) return;
-    const target = event.target as Node;
-    if (promptPanel.contains(target)) return;
-
-    event.preventDefault();
-    promptPanel.scrollTop += event.deltaY;
-  };
 
   const updateFilters = (nextGroup: string, nextSubcategory = ALL_SUBCATEGORIES) => {
     setActiveGroup(nextGroup);
@@ -524,12 +501,17 @@ export default function InspirationPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {visibleItems.map((item) => {
+            {/* 🔒 2026-11-14 用户要求：等宽列瀑布流，卡片高度随图片自适应，整图完整可见。 */}
+            <MasonryColumns
+              items={visibleItems}
+              getKey={item => `${item.rank}-${item.title}`}
+              breakpoints={INSPIRATION_PAGE_MASONRY_BREAKPOINTS}
+              gap={16}
+              renderItem={(item) => {
                 const identity = normalizeInspirationIdentity(item.title);
                 return (
                   <InspirationCard
-                    key={`${item.rank}-${item.title}`}
+                    fitImage
                     item={item}
                     isDark={isDark}
                     cardBg={cardBg}
@@ -557,8 +539,8 @@ export default function InspirationPage() {
                     }
                   />
                 );
-              })}
-            </div>
+              }}
+            />
 
             {filteredItems.length === 0 && (
               <div className="rounded-[var(--radius-lg-design)] p-10 text-center" style={{ background: panelBg, border: `1px solid ${border}` }}>
@@ -696,40 +678,29 @@ export default function InspirationPage() {
               </div>
             </div>
 
+            {/*
+              🔒 2026-11-14 用户要求：灵感模板提示词全站已屏蔽，详情右侧的「提示词描述」容器整块删除，
+              详情只留：图片 + 右上角点赞/收藏 + 一键同款。⚠️ 别再加回右栏。
+            */}
             <div
-              className="grid items-start overflow-hidden lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]"
-              style={{ maxHeight: "calc(100vh - 160px)", overscrollBehavior: "contain" }}
-              onWheel={scrollPromptDetail}
+              data-inspiration-detail-image-only=""
+              className="flex items-center justify-center overflow-hidden bg-[#222222]"
+              style={{ maxHeight: "calc(100vh - 160px)" }}
             >
-              <div className="bg-[#222222]">
-                <div className="relative">
-                  <img
-                    ref={selectedImageRef}
-                    src={selectedItem.imageUrl}
-                    alt={selectedItem.title}
-                    className="relative z-10 block h-auto max-h-[calc(100vh-160px)] w-full object-contain"
-                    onLoad={measureSelectedImage}
-                    onError={(event) => {
-                      event.currentTarget.style.display = "none";
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)" }}>
-                    <span className="type-body-sm" style={{ color: "#e6e3df", fontWeight: 650 }}>
-                      本地图片待同步
-                    </span>
-                  </div>
+              <div className="relative">
+                <img
+                  src={selectedItem.imageUrl}
+                  alt={selectedItem.title}
+                  className="relative z-10 mx-auto block h-auto max-h-[calc(100vh-160px)] w-auto max-w-full object-contain"
+                  onError={(event) => {
+                    event.currentTarget.style.display = "none";
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center px-8 text-center" style={{ background: "linear-gradient(135deg, #1a1a1a, #1a1a1a)" }}>
+                  <span className="type-body-sm" style={{ color: "#e6e3df", fontWeight: 650 }}>
+                    本地图片待同步
+                  </span>
                 </div>
-              </div>
-              <div
-                ref={promptScrollRef}
-                className="overflow-y-auto p-4"
-                style={{
-                  height: detailImageHeight ? `${detailImageHeight}px` : "auto",
-                  maxHeight: detailImageHeight ? `${detailImageHeight}px` : "calc(100vh - 160px)",
-                  overscrollBehavior: "contain",
-                }}
-              >
-                <p className="type-caption leading-5" style={{ color: sub, letterSpacing: 0, textTransform: "none" }}>{selectedItem.description}</p>
               </div>
             </div>
           </section>
