@@ -7452,6 +7452,11 @@ function AssetNodeComponent({
    * 🔒 2026-11-13 用户反馈「按钮样式非常巨大」：节点内悬浮按钮（再次生成 / GIF / SVG）
    * 都是固定像素，节点窄（竖图常只有 ~180px 宽）时按钮能占半张图。
    * 按节点短边等比缩小，宽节点（≥360）保持原尺寸，下限 0.55 防止小到点不中。
+   *
+   * 🔒 2026-11-15 用户反馈「再次生成按钮太小」：按钮是 flow 坐标系 30px，
+   * 画布缩放（zoom）会把整个节点一并缩小，zoom=0.6 时屏幕高只剩 18px，不可读。
+   * 加 1/zoom 反补偿，让屏幕像素高保持约 30px；上限 1（zoom>1 时不额外放大）。
+   * 节点尺寸因子（nodeOverlayControlScale）保留，确保窄节点上按钮不占满图片。
    */
   const isDisplayImageReady =
     Boolean(displaySrc) && loadedDisplaySrc === displaySrc && !isImageExpired;
@@ -7459,6 +7464,13 @@ function AssetNodeComponent({
     1,
     Math.max(0.55, Math.min(dispW, dispH) / 360)
   );
+  // zoom 反补偿：按钮目标屏幕高 ~30px；zoom 越小需要越大的 flow scale 来抵消缩放。
+  // 上限 1/nodeOverlayControlScale 保证最终屏幕尺寸不超过 zoom=1 时的基准大小。
+  const overlayZoomCompensation = Math.min(
+    1 / nodeOverlayControlScale,
+    Math.max(1, 1 / (viewport.zoom || 1))
+  );
+  const overlayFinalScale = nodeOverlayControlScale * overlayZoomCompensation;
 
   /**
    * ⭐⭐⭐ 画框与图片外轮廓对齐的**唯一收口**。
@@ -10563,8 +10575,8 @@ function AssetNodeComponent({
                   border: "1px solid rgba(255,255,255,0.18)",
                   opacity: hoveringAssetNode ? 1 : 0,
                   transform: hoveringAssetNode
-                    ? `translateY(0) scale(${nodeOverlayControlScale})`
-                    : `translateY(4px) scale(${nodeOverlayControlScale * 0.94})`,
+                    ? `translateY(0) scale(${overlayFinalScale})`
+                    : `translateY(4px) scale(${overlayFinalScale * 0.94})`,
                   pointerEvents: hoveringAssetNode ? "auto" : "none",
                   boxShadow: "none",
                   fontSize: 11,
@@ -10610,7 +10622,7 @@ function AssetNodeComponent({
               zIndex: 116,
               transformOrigin: "bottom left",
               opacity: hoveringAssetNode ? 1 : 0,
-              transform: `scale(${nodeOverlayControlScale})`,
+              transform: `scale(${overlayFinalScale})`,
               pointerEvents: hoveringAssetNode ? "auto" : "none",
             }}
           >
