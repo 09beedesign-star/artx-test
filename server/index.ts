@@ -60,6 +60,12 @@ import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays
 import { ProjectCoverError, storeProjectCover } from "./project-cover-storage";
 import { handleModel3DDelete, handleModel3DGet, handleModel3DUpload } from "./model3d-routes";
 import { cleanupExpiredModels3D } from "./model3d-storage";
+import {
+  failInterruptedThreeDTasks,
+  getThreeDTask,
+  handleThreeDGenerate,
+  type ThreeDGenerationTask,
+} from "./threed-generation";
 import { searchReferenceImages } from "./reference-search";
 import { finishVoiceSession, startVoiceSession } from "./voice-routes";
 import { generateText } from "./text-generation";
@@ -536,6 +542,9 @@ function getRouteImageProvider(body: unknown) {
 function resolveProviderByCapability(capabilityKey: AiBillingCapability, model: string): string {
   if (capabilityKey === "text_generation" || capabilityKey === "text_to_mindmap") {
     return TEXT_PROVIDER_BKEEL;
+  }
+  if (capabilityKey === "text_to_3d") {
+    return "AI_3D";
   }
   // OCR 走中转站的视觉模型，不是 VOD 出图链路，
   // 归属固定为 AI_IMAGE（与 /api/images/ocr 路由写入的值保持一致）。
@@ -2438,6 +2447,131 @@ async function startServer() {
     await handleModel3DDelete(req, res, user.username, req.params.modelId);
   });
 
+  // ─── 3D 生成任务 ───────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/threed/generate
+   * body: { prompt, model?, referenceImageUrl?, taskId? }
+   * 立即返回 { taskId, status: "pending", ... }，后台异步生成。
+   *
+   * ⚠️ 不能用 handleTrackedAiRequest：那个函数是同步请求-响应模式，
+   *    在 handler 返回后立即记录 success + 释放预扣费，
+   *    而 3D 生成是后台异步任务，真正的成功/失败在几秒后才发生。
+   *    正确模式完全参照 /api/images/tasks（第 1724 行）。
+   */
+  app.post("/api/threed/generate", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+
+    const rawModel = String(req.body?.model ?? "hunyuan3d-2.5");
+    const rawTaskId = typeof req.body?.taskId === "string" && req.body.taskId.trim()
+      ? req.body.taskId.trim()
+      : `threed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // 幂等：同一个 taskId 再次请求时直接返回已有任务
+    const existing = await getThreeDTask(rawTaskId);
+    if (existing) {
+      if (existing.ownerUserId !== user.id) {
+        res.status(404).json({ error: "3D task not found", taskId: rawTaskId, status: "failed" });
+        return;
+      }
+      res.json(existing);
+      return;
+    }
+
+    const threedTracking: AiRouteTracking = {
+      capabilityKey: "text_to_3d",
+      capability: "3D 生成",
+      provider: resolveProviderByCapability("text_to_3d", rawModel),
+      model: rawModel,
+      failureMessage: "3D generation failed",
+    };
+
+    let reservation: AiUsageReservation;
+    try {
+      assertUserCanUseSelectableModel(user, threedTracking.model, threedTracking.capabilityKey);
+      reservation = await reserveAiRouteUsage({
+        user,
+        tracking: threedTracking,
+        request: req.body,
+        taskId: rawTaskId,
+      });
+    } catch (error) {
+      const billingError = error instanceof AiBillingError ? error : null;
+      if (billingError) {
+        res.status(402).json(aiBillingErrorBody(billingError));
+        return;
+      }
+      const message = error instanceof Error ? error.message : "3D generation failed";
+      res.status(aiRequestErrorStatus(error)).json({ error: message, taskId: rawTaskId, status: "failed" });
+      return;
+    }
+
+    const startedAt = Date.now();
+
+    // ⚠️ 先落库再 res.json：前端拿到 taskId 后立即开始轮询，
+    //    先回包再写库会出现"刚创建就查不到 → 404"的窗口。
+    let pendingTask: ThreeDGenerationTask;
+    try {
+      pendingTask = await handleThreeDGenerate(
+        { ...req.body, taskId: rawTaskId },
+        user.id,
+        // onComplete：生成完成后才记录真实用量
+        async (completed: ThreeDGenerationTask) => {
+          try {
+            await recordAiRouteUsage({
+              user,
+              tracking: { ...threedTracking, model: completed.model },
+              startedAt,
+              status: "success",
+              result: completed,
+              request: req.body,
+            });
+          } catch (recordErr) {
+            console.warn("[ai-usage] 3D task success record failed", recordErr instanceof Error ? recordErr.message : "unknown");
+          } finally {
+            await releaseAiRouteUsage(user, reservation);
+          }
+        },
+        // onFailed：记录失败用量
+        async (failed: ThreeDGenerationTask) => {
+          try {
+            await recordAiRouteUsage({
+              user,
+              tracking: { ...threedTracking, model: failed.model },
+              startedAt,
+              status: "failed",
+              error: failed.error,
+            });
+          } catch (recordErr) {
+            console.warn("[ai-usage] 3D task failure record failed", recordErr instanceof Error ? recordErr.message : "unknown");
+          } finally {
+            await releaseAiRouteUsage(user, reservation);
+          }
+        }
+      );
+    } catch (error) {
+      await releaseAiRouteUsage(user, reservation);
+      const message = error instanceof Error ? error.message : "3D generation failed";
+      res.status(400).json({ error: message, taskId: rawTaskId, status: "failed" });
+      return;
+    }
+
+    res.json(pendingTask);
+  });
+
+  /** GET /api/threed/tasks/:taskId — 轮询任务状态 */
+  app.get("/api/threed/tasks/:taskId", async (req, res) => {
+    const user = await requireSessionUser(req, res);
+    if (!user) return;
+    const task = await getThreeDTask(req.params.taskId);
+    if (!task || task.ownerUserId !== user.id) {
+      res.status(404).json({ error: "Task not found", taskId: req.params.taskId, status: "failed" });
+      return;
+    }
+    res.json(task);
+  });
+
   app.post("/api/brand-kits/parse", async (req, res) => {
     const imageSrc = req.body?.imageSrc || req.body?.image_url || (
       req.body?.image_base64 ? `data:image/png;base64,${req.body.image_base64}` : ""
@@ -3196,6 +3330,19 @@ async function startServer() {
       .catch((error) => {
         console.warn(
           "[background-image-task] 启动清理失败",
+          error instanceof Error ? error.message : "unknown error"
+        );
+      });
+
+    void failInterruptedThreeDTasks()
+      .then((count) => {
+        if (count > 0) {
+          console.log(`[threed-generation] 已把 ${count} 个被重启打断的 3D 生成任务标记为失败`);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          "[threed-generation] 启动清理失败",
           error instanceof Error ? error.message : "unknown error"
         );
       });

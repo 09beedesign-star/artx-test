@@ -168,12 +168,21 @@ describe("canvas empty state wiring", () => {
   });
 
   it("scales the inner panel instead of reflowing it when the node is small", () => {
-    // 节点小于设计尺寸时整体 scale，而不是让固定像素的控件换行
-    expect(draftNodeBlock).toContain("Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE");
-    expect(draftNodeBlock).toContain("transform: contentScale !== 1 ? `scale(${contentScale})` : undefined");
-    // 2026-11-15：画布缩放 < 100% 时内容不得跟着被乘小 → 按 1/zoom 反向补偿
+    /*
+     * 2026-12-xx 修复（问题 1）：去掉旧的 Math.min(w,h)/DRAFT_NODE_DESIGN_SIZE 上限，
+     * 只按 1/canvasZoom 反向补偿，外框改 overflow-visible，内容始终屏幕原生像素大小。
+     * 旧的双条件取小在 zoom>1 时会把内容乘小 → 整个面板随画布缩放。
+     */
+    // 反向补偿：内容始终是屏幕原生尺寸
+    expect(draftNodeBlock).toContain("const contentScale = 1 / canvasZoom;");
+    // 读取画布缩放比
     expect(draftNodeBlock).toContain("const canvasZoom = useStore(state => state.transform[2]) || 1;");
-    expect(draftNodeBlock).toContain("1 / canvasZoom,");
+    // 应用 scale 变换
+    expect(draftNodeBlock).toContain("transform: contentScale !== 1 ? `scale(${contentScale})` : undefined");
+    // 外框必须 overflow-visible，否则内容层（flow 坐标外）被截断
+    expect(draftNodeBlock).toContain("overflow-visible");
+    // 旧的节点尺寸上限逻辑已移除（确保不会回退）
+    expect(draftNodeBlock).not.toContain("Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE");
     // 「生成」按钮不允许被挤成竖排
     expect(draftNodeBlock).toContain("shrink-0 whitespace-nowrap");
   });

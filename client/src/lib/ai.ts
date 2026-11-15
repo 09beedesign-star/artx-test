@@ -1216,3 +1216,61 @@ export async function expandImageWithMask({
   }
   return normalized;
 }
+
+// ─── 3D 生成 ──────────────────────────────────────────────────────────────────
+
+export type ThreeDGenerationTask = ApiErrorResponse & {
+  taskId: string;
+  status: "pending" | "completed" | "failed";
+  prompt: string;
+  model: string;
+  referenceImageUrl?: string;
+  modelUrl?: string;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ThreeDGenerateInput = {
+  taskId: string;
+  prompt: string;
+  model?: string;
+  referenceImageUrl?: string;
+};
+
+const THREED_TASK_POLL_MAX_ATTEMPTS = 160; // 160 × 3s ≈ 8 min
+const THREED_TASK_POLL_INTERVAL_MS = 3000;
+
+export async function startThreeDGenerationTask(
+  input: ThreeDGenerateInput,
+): Promise<ThreeDGenerationTask> {
+  requireAiAuth();
+  const endpoint = `${getAiApiBaseUrl()}/api/threed/generate`;
+  return fetchAiJson<ThreeDGenerationTask>(
+    endpoint,
+    input as unknown as Record<string, unknown>,
+    "3D 生成启动失败",
+  );
+}
+
+export async function getThreeDGenerationTask(
+  taskId: string,
+): Promise<ThreeDGenerationTask> {
+  requireAiAuth();
+  const endpoint = `${getAiApiBaseUrl()}/api/threed/tasks/${encodeURIComponent(taskId)}`;
+  return fetchAiJsonGet<ThreeDGenerationTask>(endpoint, "3D 任务查询失败");
+}
+
+export async function waitForThreeDGenerationTask(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<ThreeDGenerationTask> {
+  for (let attempt = 0; attempt < THREED_TASK_POLL_MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw createAiAbortError();
+    const task = await getThreeDGenerationTask(taskId);
+    if (task.status === "completed") return task;
+    if (task.status === "failed") throw new Error(task.error || "3D 生成失败");
+    await new Promise<void>((resolve) => setTimeout(resolve, THREED_TASK_POLL_INTERVAL_MS));
+  }
+  throw new Error("3D 生成超时，请稍后重试");
+}

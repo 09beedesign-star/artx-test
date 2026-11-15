@@ -225,6 +225,8 @@ import {
   type TemplatePiece,
 } from "@/lib/canvas-templates";
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
+import { ThreeDGeneratorPanel } from "./ThreeDGeneratorPanel";
+import { ThreeDViewerDialog } from "./ThreeDViewerDialog";
 import { CanvasLayersPanel } from "./CanvasLayersPanel";
 import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
 import { CanvasPrintPanel } from "./CanvasPrintPanel";
@@ -13545,10 +13547,13 @@ function DraftImageNodeComponent({
    *    再按 min(width,height)/设计尺寸 等比缩进（两者取小，永不溢出节点）。
    */
   const canvasZoom = useStore(state => state.transform[2]) || 1;
-  const contentScale = Math.min(
-    1 / canvasZoom,
-    Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE
-  );
+  /*
+   * ⚠️⚠️ 2026-12-xx 修复：只做 1/zoom 反补偿，去掉 min(w,h)/440 上限。
+   * 旧逻辑两个条件取小，zoom 变大时 contentScale 被压小，内容跟着缩 → 问题 1。
+   * 新逻辑：内容始终是屏幕原生像素大小（scale=1/zoom），外框改为 overflow: visible，
+   * 视觉上面板不受画布缩放影响。
+   */
+  const contentScale = 1 / canvasZoom;
   const projectId = (data.projectId as string) || "p1";
 
   // 与 ImageGeneratorPopover 同源的配色变量，保证「复用现成样式」。
@@ -13722,10 +13727,11 @@ function DraftImageNodeComponent({
         ⚠️ relative 是给右上角 ✕ 用的定位上下文。
            少了它，absolute 的按钮会往上找到祖先的定位元素，跑到画布别处去，
            且**不报任何错** —— 只是按钮不在该在的位置。
-        ⚠️ overflow-hidden 会裁掉溢出边框的内容，所以 ✕ 必须完全落在容器内
-           （用 top-2 right-2，不要用负偏移把它挂到边框外）。
+        ⚠️ overflow-visible（原 overflow-hidden）：内容层用 1/zoom 反补偿后始终是
+           屏幕原生大小，外框是 flow 坐标（随 zoom 缩放）—— 溢出时不能裁掉，否则
+           面板被截断。关闭按钮始终在内容层内部，不会被裁。
       */
-      className="relative overflow-hidden rounded-[var(--radius-xl-design)]"
+      className="relative overflow-visible rounded-[var(--radius-xl-design)]"
       style={{
         width,
         height,
@@ -13915,6 +13921,7 @@ function DraftImageNodeComponent({
               activeSkill={activeSkill}
               onChange={handleSkillChange}
               isDark={isDark}
+              compact
             />
             <ImageCountSelector
               value={imageCount}
@@ -17338,6 +17345,21 @@ function NodeContextMenu({
       : [];
 
   /**
+   * 3D 生成入口：只在单选 asset 节点时出现。
+   */
+  const threeDGenerateItems =
+    menu.nodeType === "asset" && selectedCount === 1
+      ? [
+          {
+            icon: <Box size={13} />,
+            label: "生成 3D 模型",
+            action: "generate-3d",
+            color: iconColor,
+          },
+        ]
+      : [];
+
+  /**
    * 🔒 2026-11-14：每个图片节点右键都能打印；多选时也能批量打印。
    * ⚠️ 与命令栏按钮共用同一个 CanvasPrintPanel（多出口只认一个面板）。
    */
@@ -17454,6 +17476,7 @@ function NodeContextMenu({
     ...textDownloadItems,
     ...setCoverItems,
     ...assetPropertiesItems,
+    ...threeDGenerateItems,
     ...assetPrintItems,
     {
       icon: <Type size={13} />,
@@ -19777,7 +19800,7 @@ function ImageGeneratorPopover({
                 onClick={() => setModelOpen(open => !open)}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <AssistantModelIcon modelId={selectedModel.id} icon={selectedModel.icon} />
+                  <AssistantModelIcon modelId={selectedModel.id} icon={selectedModel.icon} color={text} />
                   <span className="truncate">{selectedModel.label}</span>
                 </span>
                 <ChevronDown
@@ -19796,7 +19819,7 @@ function ImageGeneratorPopover({
                   style={{
                     background: isDark
                       ? "#161616"
-                      : "#161616",
+                      : "rgba(255,255,255,0.97)",
                     border: `1px solid ${border}`,
                     minWidth: 220,
                     width: "max-content",
@@ -19854,7 +19877,7 @@ function ImageGeneratorPopover({
                           }}
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
-                            <AssistantModelIcon modelId={item.id} icon={item.icon} />
+                            <AssistantModelIcon modelId={item.id} icon={item.icon} color={text} />
                             <span className="flex min-w-0 flex-col leading-tight">
                               <span className="flex min-w-0 items-center gap-1.5">
                                 <span
@@ -28544,6 +28567,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [nodeCtxMenu, setNodeCtxMenu] = useState<NodeCtxState | null>(null);
   /** 右键「图片属性」弹窗的目标节点；null = 关闭 */
   const [assetPropertiesTarget, setAssetPropertiesTarget] = useState<AssetPropertiesTarget | null>(null);
+  /** 右键「生成 3D 模型」面板的目标节点；null = 关闭 */
+  const [threeDGeneratorTarget, setThreeDGeneratorTarget] = useState<{ nodeId: string; imageUrl: string } | null>(null);
+  /** 3D 预览弹窗状态；null = 关闭 */
+  const [threeDViewerState, setThreeDViewerState] = useState<{ modelUrl: string; model: string; prompt: string } | null>(null);
   /**
    * 画布底纹 / 网格吸附偏好（2026-11-14）。用 ref 镜像供 onNodeDragStop 读取，
    * 避免把整条拖动回调的依赖数组改成随偏好变化。
@@ -32477,6 +32504,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           setAssetPropertiesTarget({ nodeId, data: (node.data || {}) as Record<string, unknown> });
         } else {
           toast("找不到这张图片的属性");
+        }
+        return;
+      }
+      if (action === "generate-3d") {
+        const node = getNodes().find(n => n.id === nodeId);
+        const imageUrl =
+          node?.type === "asset"
+            ? String((node.data as Record<string, unknown>).localSrc || (node.data as Record<string, unknown>).src || "")
+            : "";
+        if (imageUrl) {
+          setThreeDGeneratorTarget({ nodeId, imageUrl });
+        } else {
+          toast("该图片节点没有可用的图片地址");
         }
         return;
       }
@@ -40918,6 +40958,30 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           target={assetPropertiesTarget}
           isDark={isDark}
           onClose={() => setAssetPropertiesTarget(null)}
+        />
+      )}
+
+      {/* 图片节点右键「生成 3D 模型」面板 */}
+      {threeDGeneratorTarget && (
+        <ThreeDGeneratorPanel
+          referenceImageUrl={threeDGeneratorTarget.imageUrl}
+          isDark={isDark}
+          onClose={() => setThreeDGeneratorTarget(null)}
+          onGenerated={(modelUrl, model, prompt) => {
+            setThreeDGeneratorTarget(null);
+            setThreeDViewerState({ modelUrl, model, prompt });
+          }}
+        />
+      )}
+
+      {/* 3D 模型预览弹窗 */}
+      {threeDViewerState && (
+        <ThreeDViewerDialog
+          modelUrl={threeDViewerState.modelUrl}
+          modelId={threeDViewerState.model}
+          prompt={threeDViewerState.prompt}
+          isDark={isDark}
+          onClose={() => setThreeDViewerState(null)}
         />
       )}
 
