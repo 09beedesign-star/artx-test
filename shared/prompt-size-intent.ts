@@ -114,6 +114,35 @@ export function mmToPixels(mm: number, dpi: number = PRINT_DPI): number {
 }
 
 /**
+ * 从提示词里找「宽×高」直接像素尺寸（600×800、600x800、600*800 等）。
+ *
+ * 覆盖格式：
+ *   - 600×800（中文乘号 ×，U+00D7）
+ *   - 600x800 / 600X800（英文 x/X）
+ *   - 600*800（星号）
+ *   - 两数之间可以有空格：600 × 800
+ *
+ * ⚠️ 要求两个数字都在 [64, 32768] 内，排除日期、坐标等误判。
+ * ⚠️ 要求前后有词边界，排除「A600×800」这类型号字符串。
+ * ⚠️ 原始正则在提示词里需处理中文全角乘号，故用 Unicode 字符直接嵌入。
+ */
+function matchExplicitDimensions(
+  rawText: string,
+  matched: string[]
+): { width: number; height: number } | undefined {
+  // 支持中文乘号 ×（U+00D7）、英文 x/X、星号 *，及前后空格。
+  // 注意：pattern 直接作用于原始字符串（不 toLowerCase），因为像素值不涉及大小写敏感内容。
+  const pattern = /(?<!\d)(\d{2,5})\s*[\u00D7xX*]\s*(\d{2,5})(?!\d)/;
+  const m = rawText.match(pattern);
+  if (!m) return undefined;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (w < 64 || h < 64 || w > 32768 || h > 32768) return undefined;
+  matched.push(`${w}x${h}`);
+  return { width: w, height: h };
+}
+
+/**
  * 从提示词里找分辨率档位（2k / 4k / 8k / 高清 / 4096px 等）。
  *
  * @returns 长边像素；没提到返回 undefined。
@@ -288,6 +317,18 @@ export function parsePromptSizeIntent(
   if (!prompt) return null;
   const text = prompt.toLowerCase();
   const matched: string[] = [];
+
+  // ⓪ 最高优先：用户直接写出「宽×高」像素数值（如 600×800、1920x1080）。
+  // 形状和分辨率一次全确定，无需再走比例 / 档位逻辑。
+  const explicitDims = matchExplicitDimensions(prompt, matched);
+  if (explicitDims) {
+    return {
+      ratio: toSupportedRatio(explicitDims.width, explicitDims.height),
+      width: Math.min(explicitDims.width, MAX_INTENT_LONG_SIDE),
+      height: Math.min(explicitDims.height, MAX_INTENT_LONG_SIDE),
+      matched,
+    };
+  }
 
   const printFormat = matchPrintFormat(text, matched);
   const explicitRatio = parseExplicitRatioFromPrompt(prompt);
