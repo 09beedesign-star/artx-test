@@ -116,7 +116,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   /**
    * 🔒 2026-11-14 用户要求：在画布里点侧边栏「项目 / 最近」任意一项，先弹
-   * 「是否暂时跳出当前画布？」（是 / 否），点「是」才跳转。
+   * 「是否跳到指定画布？」（是 / 否，2026-11-15 改文案），点「是」才跳转。
    * 不在画布里、或点的就是当前画布 → 直接跳，不打扰。
    */
   const [pendingCanvasJump, setPendingCanvasJump] = useState<string | null>(null);
@@ -1432,7 +1432,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         >
           <AlertDialogHeader className="gap-2 text-center sm:text-center">
             <AlertDialogTitle style={{ color: "#262627", fontSize: 18, fontWeight: 650 }}>
-              是否暂时跳出当前画布？
+              是否跳到指定画布？
             </AlertDialogTitle>
             <AlertDialogDescription className="sr-only">
               选择「是」将跳转到所选画布，选择「否」留在当前画布。

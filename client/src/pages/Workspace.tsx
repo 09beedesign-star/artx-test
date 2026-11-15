@@ -10,7 +10,7 @@
  *    这不是能力丢失，而是收敛到唯一出口：同一块画板的名字本来就有两个入口，
  *    在那条顶栏里双击改名会绕开工作台的列表刷新，反而不一致。
  */
-import { useState } from "react";
+import { useMemo } from "react";
 import InfiniteCanvas from "@/components/canvas/InfiniteCanvas";
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -48,10 +48,18 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
     ⚠️ 这一步原先靠顶栏渲染时顺带触发；顶栏去掉后必须自己调，
        否则新画布不会出现在「最近」里，而且零报错。
   */
-  const [activeProjectId] = useState(() => {
+  /*
+   * ⚠️⚠️ 2026-11-15 用户反馈：在画布里点侧边栏「最近」的另一个画布，弹窗点「是」后
+   * URL 变了但画面仍是当前画布。根因：以前这里是 useState(() => projectId)，
+   * 只在首次挂载取一次值；画布→画布跳转时 wouter 复用同一个组件实例，
+   * 新 projectId 被永久忽略 —— 零报错。
+   * ✅ 跟随 prop，并用 key 让 InfiniteCanvas 按画布 id 整体重挂载
+   *    （它内部大量状态按 projectId 初始化，不重挂会串画布内容）。
+   */
+  const activeProjectId = useMemo(() => {
     ensureProjectMeta(projectId);
     return projectId;
-  });
+  }, [projectId]);
 
   return (
     <div
@@ -78,7 +86,7 @@ export default function Workspace({ projectId = "__blank-workspace__" }: { proje
 
       {/* Full-width canvas */}
       <div className="flex flex-1 overflow-hidden" style={{ position: "relative", zIndex: 1, background: "#0a0a0b" }}>
-        <InfiniteCanvas projectId={activeProjectId} />
+        <InfiniteCanvas key={activeProjectId} projectId={activeProjectId} />
       </div>
     </div>
   );

@@ -84,9 +84,18 @@ describe("画布内点侧边栏跳出确认", () => {
     const guard = block(shell, "const navigateFromSidebarList", "const confirmCanvasJump");
     expect(guard).toContain('location.startsWith("/project/")');
     const dialog = block(shell, 'data-canvas-jump-confirm=""', "</AlertDialog>");
-    expect(dialog).toContain("是否暂时跳出当前画布？");
+    expect(dialog).toContain("是否跳到指定画布？");
+    expect(dialog).not.toContain("是否暂时跳出当前画布？");
     expect(dialog).toMatch(/>\s*否\s*</);
     expect(dialog).toMatch(/>\s*是\s*</);
     expect(dialog).toContain("onClick={confirmCanvasJump}");
+  });
+
+  it("画布→画布跳转真的换画布：Workspace 跟随 projectId 并按 id 重挂载画布", () => {
+    const ws = read("client/src/pages/Workspace.tsx");
+    // 旧写法 useState(() => projectId) 只取首值，/project/a → /project/b 画面不变
+    expect(ws).not.toMatch(/const \[activeProjectId\] = useState\(/);
+    expect(ws).toContain("}, [projectId]);");
+    expect(ws).toContain("<InfiniteCanvas key={activeProjectId} projectId={activeProjectId} />");
   });
 });
