@@ -162,7 +162,6 @@ import {
   Boxes,
   Triangle,
   Pencil,
-  MessageCircle,
   Star,
   Minus as MinusIcon,
   BadgeCheck,
@@ -388,54 +387,9 @@ function HdIcon({ size = 15 }: { size?: number }) {
   );
 }
 
-function AiAnnotationIcon({
-  size = 17,
-  cutoutBg = "rgba(22,22,30,0.96)",
-}: {
-  size?: number;
-  cutoutBg?: string;
-}) {
-  return (
-    <span
-      style={{
-        position: "relative",
-        display: "inline-flex",
-        width: size,
-        height: size,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <MessageCircle size={size} />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          right: -2,
-          top: -3,
-          width: Math.max(10, Math.round(size * 0.64)),
-          height: Math.max(10, Math.round(size * 0.64)),
-          borderRadius: "50%",
-          background: cutoutBg,
-          boxShadow: `0 0 0 1px ${cutoutBg}`,
-          pointerEvents: "none",
-        }}
-      />
-      <Sparkles
-        size={Math.max(7, Math.round(size * 0.52))}
-        strokeWidth={2.4}
-        style={{
-          position: "absolute",
-          right: -1,
-          top: -3,
-          color: "#161616",
-          filter: "drop-shadow(0 0 5px rgba(22,22,22,0.4))",
-          pointerEvents: "none",
-        }}
-      />
-    </span>
-  );
-}
+/*
+ * 2026-11-15：AiAnnotationIcon 已随「智能注释」命令一并删除（唯一使用方）。
+ */
 
 /*
  * 2026-09-21：IntroduceToChatIcon 已随「引入对话」命令一并删除。
@@ -672,6 +626,7 @@ import {
 } from "@shared/viewpoint-lock";
 import { computeFrameAutoArrange } from "@shared/frame-auto-arrange";
 import { resolveOutputSizeFromPromptAndSelector } from "@shared/prompt-size-intent";
+import { resolveImageCountFromPromptAndSelector } from "@shared/prompt-count-intent";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
@@ -3530,11 +3485,12 @@ function AssetFloatingToolbar({
      * 图片加入对话的能力本身没消失 —— 仍可直接把图拖进右下角输入框。
      */
     { type: "divider" as const, key: "after-transform" },
-    {
-      icon: <AiAnnotationIcon size={15} cutoutBg={toolBg} />,
-      label: "智能注释",
-      action: "annotate",
-    },
+    /*
+     * 2026-11-15：用户要求去掉「智能注释」命令。
+     * 这是该功能唯一的入口（顶部工具盘早已移除），handler 的 annotate 分支
+     * 一并删掉；toolMode "annotate" 的落点逻辑与注释标签渲染保留不动
+     * （已有画布里的注释标签仍需正常显示/删除）。
+     */
     {
       icon: (
         <AiDecoratedIcon cutoutBg={toolBg}>
@@ -13665,14 +13621,29 @@ function DraftImageNodeComponent({
      * ⚠️ 草稿节点先删再派发：真正的生成占位节点由 InnerCanvas 统一创建。
      * 不删的话画布上会同时留着草稿框和占位框，用户看到「点一次冒出两个」。
      */
+    /**
+     * 提示词优先（2026-11-15 用户规则）：写了张数/尺寸/分辨率 → 用提示词；
+     * 没写 → 用本节点的张数 / 比例选择器。用户原话 trimmed 解析，不用改写后的 finalPrompt。
+     */
+    const draftSizeDecision = resolveOutputSizeFromPromptAndSelector({
+      prompt: trimmed,
+      selectorRatio: imageRatio,
+      resolvedSelectorRatio: resolveImageRatio(ratio),
+    });
+    const draftCount = resolveImageCountFromPromptAndSelector({
+      prompt: trimmed,
+      selectorCount: imageCount,
+    }).count;
     deleteElements({ nodes: [{ id }] });
     dispatchImageGenerationTask(
       {
         projectId,
         prompt: finalPrompt,
         model,
-        ratio,
-        count: imageCount,
+        ratio: draftSizeDecision.ratio,
+        targetWidth: draftSizeDecision.width,
+        targetHeight: draftSizeDecision.height,
+        count: draftCount,
         style: activeSkill?.name || "图像生成器",
         referencesEnabled: uploadedRefs.length > 0,
         referencedAssets: uploadedRefs.map(ref => ({
@@ -13680,7 +13651,7 @@ function DraftImageNodeComponent({
           title: ref.title,
         })),
         generationId,
-        displaySize: getImageDisplaySizeForRatio(ratio),
+        displaySize: getImageDisplaySizeForRatio(draftSizeDecision.ratio),
         skillId: activeSkill?.id,
         status: "pending",
       },
@@ -16610,6 +16581,11 @@ function BottomPromptBar({
           ? `${skillContext}\n\n用户提示：${effectivePrompt}`
           : effectivePrompt;
       const visiblePrompt = effectivePrompt;
+      // 提示词写了「N 张」→ 用提示词；没写 → 用底部张数选择器（2026-11-15）。
+      const bottomPromptCount = resolveImageCountFromPromptAndSelector({
+        prompt: visiblePrompt,
+        selectorCount: count,
+      }).count;
       const submittedRefs =
         typeof overridePrompt === "string"
           ? []
@@ -16659,6 +16635,12 @@ function BottomPromptBar({
             prompt: visiblePrompt,
             selectedRatio: getSkillPreferredRatio(activeSkill, "") || ratio,
           });
+          // 提示词优先（2026-11-15）：尺寸/分辨率 → 盖过技能画幅；没写 → 用 skillRatio。
+          const bottomSkillSizeDecision = resolveOutputSizeFromPromptAndSelector({
+            prompt: visiblePrompt,
+            selectorRatio: skillRatio,
+            resolvedSelectorRatio: resolveImageRatio(skillRatio),
+          });
           const payload: ImageGeneratorPayload = {
             projectId,
             prompt: finalImagePrompt,
@@ -16667,8 +16649,14 @@ function BottomPromptBar({
               : selectedGenerationModel,
             ratio: shouldEditTargetReference
               ? bottomSkillAspectLock.ratio
-              : skillRatio,
-            count: shouldEditTargetReference ? 1 : count,
+              : bottomSkillSizeDecision.ratio,
+            targetWidth: shouldEditTargetReference
+              ? undefined
+              : bottomSkillSizeDecision.width,
+            targetHeight: shouldEditTargetReference
+              ? undefined
+              : bottomSkillSizeDecision.height,
+            count: shouldEditTargetReference ? 1 : bottomPromptCount,
             style: activeSkill.name,
             referencesEnabled: submittedRefs.length > 0,
             referencedAssets: submittedRefs,
@@ -16776,17 +16764,25 @@ function BottomPromptBar({
             imagePrompt,
           });
           const generationId = `bottom-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const bottomSizeDecision = resolveOutputSizeFromPromptAndSelector({
+            prompt: visiblePrompt,
+            selectorRatio: ratio,
+            resolvedSelectorRatio: resolveImageRatio(ratio),
+          });
           const payload: ImageGeneratorPayload = {
             projectId,
             prompt: finalImagePrompt,
             model: selectedGenerationModel,
-            ratio,
-            count,
+            ratio: bottomSizeDecision.ratio,
+            targetWidth: bottomSizeDecision.width,
+            targetHeight: bottomSizeDecision.height,
+            count: bottomPromptCount,
             style: "智能判断",
             referencesEnabled: submittedRefs.length > 0,
             generationId,
             displaySize:
-              targetDisplaySize || getImageDisplaySizeForRatio(ratio),
+              targetDisplaySize ||
+              getImageDisplaySizeForRatio(bottomSizeDecision.ratio),
           };
           dispatchImageGenerationTask(
             { ...payload, status: "pending" },
@@ -18230,7 +18226,12 @@ function AssetEditPromptBar({
     if (canSendPrompt) {
       const refText =
         uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
-      const countText = imageCount > 1 ? ` · ${imageCount} 张` : "";
+      const submittedImageCount = resolveImageCountFromPromptAndSelector({
+        prompt,
+        selectorCount: imageCount,
+      }).count;
+      const countText =
+        submittedImageCount > 1 ? ` · ${submittedImageCount} 张` : "";
       const regionText = regionRef ? " · 局部区域" : "";
       toast(regionRef ? "AI 正在局部重绘" : "AI 正在智能优化", {
         description:
@@ -18241,7 +18242,8 @@ function AssetEditPromptBar({
         model,
         references: uploadedRefs,
         ratio: imageRatio,
-        count: imageCount,
+        // 提示词写了「N 张」→ 用提示词；没写 → 用本面板张数选择器（2026-11-15）。
+        count: submittedImageCount,
         /*
          * ⚠️ 这里传的是**选区比例**，不是蒙版图。蒙版要拿"节点当前真实显示的
          *    那张图"去渲染（用户可能已经做过几轮重绘），而面板手上的 asset.src
@@ -25454,9 +25456,17 @@ function CanvasAssistantPanel({
           targetReference?.width && targetReference?.height
             ? { w: targetReference.width, h: targetReference.height }
             : undefined;
+        /**
+         * 张数：提示词写了「N 张」→ 用提示词；没写 → 用张数选择器。
+         * 2026-11-15 用户规则，事实源 shared/prompt-count-intent.ts。
+         * 📌 用 rawSubmittedComposerPrompt（用户原话），理由同下方尺寸裁决。
+         */
         const requestedImageCount = shouldEditTargetReference
           ? 1
-          : assistantImageCount;
+          : resolveImageCountFromPromptAndSelector({
+              prompt: rawSubmittedComposerPrompt,
+              selectorCount: assistantImageCount,
+            }).count;
         /**
          * 与无 skill 分支共用同一套角色引导语。
          *
@@ -25823,9 +25833,17 @@ function CanvasAssistantPanel({
           prompt: rawSubmittedComposerPrompt,
           selectedRatio: assistantImageRatio,
         });
+        /**
+         * 张数：提示词写了「N 张」→ 用提示词；没写 → 用张数选择器。
+         * 2026-11-15 用户规则，事实源 shared/prompt-count-intent.ts。
+         * 📌 用 rawSubmittedComposerPrompt（用户原话），理由同下方尺寸裁决。
+         */
         const requestedImageCount = shouldEditTargetReference
           ? 1
-          : assistantImageCount;
+          : resolveImageCountFromPromptAndSelector({
+              prompt: rawSubmittedComposerPrompt,
+              selectorCount: assistantImageCount,
+            }).count;
         /**
          * 图文混排出图优先用 gem。
          *
@@ -38623,21 +38641,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         n => n.id === nodeId && (n.type === "asset" || n.type === "canvasFrame")
       );
       const isCanvasFrame = targetNode?.type === "canvasFrame";
-      /**
-       * 「智能注释」（2026-09-20 从顶部工具盘移入图片命令条）。
-       *
-       * 它不是一次性动作，而是切换全局 toolMode 到 "annotate"：
-       * 切换后在图片上点击才会落下注释点（见 handleImageAnnotateClick）。
-       * 所以这里必须走和顶部工具盘**同一个**出口 —— 派发 tool-mode-change 事件，
-       * 而不是自己 setActiveToolMode，否则清绘制状态那一套逻辑会被绕过去。
-       */
-      if (action === "annotate") {
-        window.dispatchEvent(
-          new CustomEvent("tool-mode-change", { detail: { mode: "annotate" } })
-        );
-        toast("智能注释已开启", { description: "在图片上点击即可添加注释" });
-        return;
-      }
+      // 2026-11-15：「智能注释」命令已按用户要求移除（见 assetTools 注释）。
       /*
        * 2026-09-21：「引入对话」整条链路已按用户要求移除。
        *

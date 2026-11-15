@@ -83,7 +83,8 @@ describe("onboarding content", () => {
     );
     expect(paletteStep).toBeDefined();
     // 命令面板的注解必须真的说明它是干什么的，而不是一句空话
-    expect(paletteStep?.body).toContain("智能注释");
+    expect(paletteStep?.body).not.toContain("智能注释"); // 2026-11-15 命令已去掉
+    expect(paletteStep?.body).toContain("智能产品图");
     expect(paletteStep?.body).toContain("文字");
   });
 });

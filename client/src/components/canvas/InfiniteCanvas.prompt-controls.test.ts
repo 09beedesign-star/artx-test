@@ -145,10 +145,9 @@ describe("InfiniteCanvas prompt controls", () => {
 
     // 提交 payload 带齐全部参数。
     expect(barBlock).toContain("ratio: imageRatio");
-    expect(barBlock).toContain("count: imageCount");
-
-    expect(barBlock).toContain("ratio: imageRatio");
-    expect(barBlock).toContain("count: imageCount");
+    // 2026-11-15：张数先过「提示词优先」裁决（提示词写了 N 张 → 盖过选择器）。
+    expect(barBlock).toContain("selectorCount: imageCount");
+    expect(barBlock).toContain("count: submittedImageCount");
 
     // Skill 按钮已移除（2026-09-21）：面板里不再有「Skill 加载后联动画幅」
     // 的逻辑 —— 那段代码跟着按钮一起删了，不许以死代码形式残留。
@@ -182,7 +181,10 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(draftBlock).toContain('aria-label="上传参考图片"');
 
     // 提交 payload 全部来自控件，不再写死默认值。
-    expect(draftBlock).toContain("model,\n        ratio,\n        count: imageCount,");
+    // 2026-11-15：张数/尺寸先过「提示词优先」裁决，再进 payload。
+    expect(draftBlock).toContain("selectorCount: imageCount");
+    expect(draftBlock).toContain("count: draftCount,");
+    expect(draftBlock).toContain("ratio: draftSizeDecision.ratio,");
     expect(draftBlock).toContain("skillId: activeSkill?.id");
     expect(draftBlock).toContain("referencedAssets: uploadedRefs.map");
     expect(draftBlock).toContain("buildSkillPromptContext(activeSkill)");

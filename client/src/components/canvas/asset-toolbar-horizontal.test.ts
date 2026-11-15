@@ -9,7 +9,7 @@ import { join } from "node:path";
  *   1. 命令条由竖向改横向
  *   2. 浮在图片上方 8px，与图片左右居中
  *   3. 旋转与反转 / 去背景 / 橡皮工具 / HD 4K / 去水印 / 扩展 收进「更多」
- *   4. 顶部工具盘的「智能注释」移入图片命令条
+ *   4. 顶部工具盘的「智能注释」移入图片命令条（2026-11-15 已整体去掉）
  *
  * ⚠️ 这些都是源码文本断言，必须配合变异自证使用 —— 光跑绿说明不了任何问题。
  */
@@ -173,17 +173,18 @@ describe("图片命令条：6 个命令收进「更多」菜单", () => {
   });
 });
 
-describe("智能注释：从顶部工具盘移入图片命令条", () => {
-  it("必须出现在图片命令条的主条里", () => {
+describe("智能注释：2026-11-15 按用户要求整体去掉入口", () => {
+  it("图片命令条不再有智能注释", () => {
     const assetTools = toolbar.slice(
       toolbar.indexOf("const assetTools"),
       toolbar.indexOf("const frameTools")
     );
-    expect(assetTools, "智能注释没进图片命令条").toContain('action: "annotate"');
-    expect(assetTools, "智能注释缺少 label").toContain('label: "智能注释"');
+    expect(assetTools.length, "assetTools 片段为空").toBeGreaterThan(200);
+    expect(assetTools).not.toContain('action: "annotate"');
+    expect(assetTools).not.toContain('label: "智能注释"');
   });
 
-  it("必须从顶部工具盘移除", () => {
+  it("顶部工具盘也没有（不能换个地方又冒出来）", () => {
     const palette = source.slice(
       source.indexOf("function CanvasTopToolPalette")
     );
@@ -191,42 +192,19 @@ describe("智能注释：从顶部工具盘移入图片命令条", () => {
     const toolsEnd = palette.indexOf("];", toolsStart);
     const paletteTools = palette.slice(toolsStart, toolsEnd);
     expect(paletteTools.length, "顶部工具盘 tools 片段为空").toBeGreaterThan(100);
-    expect(
-      paletteTools,
-      "智能注释仍留在顶部工具盘 —— 会出现两个入口"
-    ).not.toContain('id: "annotate"');
+    expect(paletteTools).not.toContain('id: "annotate"');
   });
 
-  it("点击必须派发 tool-mode-change 而不是自己改 state", () => {
-    /*
-     * ⚠️ 终止锚原本是 `if (action === "introduce-to-chat")`，
-     *    该分支已于 2026-09-21 随「引入对话」一起删除。
-     *    继续用它会让 indexOf 返回 -1 → slice 切出空片段 → 断言恒假。
-     *    改锚到仍然存在的 isCanvasFrame 分支。
-     */
-    const start = source.indexOf("const handleSingleImageToolbarAction");
-    const end = source.indexOf("if (isCanvasFrame) {", start);
-    expect(start, "handler 起始锚点失效").toBeGreaterThan(-1);
-    expect(end, "handler 终止锚点失效").toBeGreaterThan(start);
-    const handler = source.slice(start, end);
-    expect(handler.length, "action 分发片段为空").toBeGreaterThan(200);
-    expect(handler, "缺少 annotate 分支，按钮会点了没反应").toContain(
-      'if (action === "annotate")'
-    );
-    expect(handler, "必须走 tool-mode-change 统一出口").toContain(
-      '"tool-mode-change"'
-    );
-    expect(handler, "必须切到 annotate 模式").toContain('mode: "annotate"');
+  it("全文件再没有任何地方派发 annotate 模式（没有暗门入口）", () => {
+    expect(source).not.toContain('mode: "annotate"');
+    expect(source).not.toContain('if (action === "annotate")');
+    expect(source).not.toContain("function AiAnnotationIcon");
+    expect(source).not.toContain("<AiAnnotationIcon");
   });
 
-  it("toolMode annotate 的落点逻辑不能被误删", () => {
-    expect(
-      source,
-      "注释落点逻辑被删了，智能注释会变成空壳"
-    ).toContain('if (toolMode !== "annotate") return;');
-    expect(source, "annotation-create 事件被删了").toContain(
-      '"annotation-create"'
-    );
+  it("已有注释标签的渲染/删除逻辑保留（老画布里的注释不能变空壳）", () => {
+    expect(source).toContain('"annotation-create"');
+    expect(source).toContain("删除该智能注释标签？");
   });
 });
 

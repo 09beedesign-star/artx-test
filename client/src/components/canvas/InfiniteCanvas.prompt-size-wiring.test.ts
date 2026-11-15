@@ -120,9 +120,19 @@ describe("prompt size intent wiring", () => {
       /resolveOutputSizeFromPromptAndSelector\(\{[\s\S]{0,260}?\}\);/g
     );
     expect(decisionBlocks?.length ?? 0).toBeGreaterThanOrEqual(2);
+    // 2026-11-15：草稿节点 / 底部输入框也接入了尺寸裁决（全站提示词优先）。
+    // 它们没有记忆上下文，所以「原话 + 分层记忆」的强约束只针对右侧助手的两条出口
+    // （const promptSizeDecision = ...）；所有出口都不许拿改写后的提示词去解析。
     for (const block of decisionBlocks || []) {
-      expect(block).toContain("prompt: rawSubmittedComposerPrompt");
       expect(block).not.toContain("prompt: finalImagePrompt");
+      expect(block).not.toContain("prompt: finalPrompt");
+    }
+    const assistantBlocks = source.match(
+      /const promptSizeDecision = resolveOutputSizeFromPromptAndSelector\(\{[\s\S]{0,260}?\}\);/g
+    );
+    expect(assistantBlocks?.length ?? 0).toBe(2);
+    for (const block of assistantBlocks || []) {
+      expect(block).toContain("prompt: rawSubmittedComposerPrompt");
       // 2026-10-17：记忆里写的分辨率是回退层。技能/非技能两条出口都必须带上，
       // 只接一条 = 挂着技能时记忆分辨率静默失效。
       // 必须传分层来源（对话 > 项目 > 长期），不能传拼好的整段文本：

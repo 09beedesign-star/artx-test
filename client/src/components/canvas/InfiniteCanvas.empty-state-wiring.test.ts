@@ -144,7 +144,7 @@ describe("canvas empty state wiring", () => {
      *    现在守的是「画幅来自统一的 resolveRatio，而不是又写死一个值」。
      */
     expect(draftNodeBlock).toContain("const ratio = resolveRatio(activeSkill, imageRatio);");
-    expect(draftNodeBlock).toContain("displaySize: getImageDisplaySizeForRatio(ratio)");
+    expect(draftNodeBlock).toContain("displaySize: getImageDisplaySizeForRatio(draftSizeDecision.ratio)");
   });
 
   it("records history before mutating nodes so undo still works", () => {
