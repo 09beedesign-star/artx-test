@@ -22444,24 +22444,24 @@ function CanvasAssistantPanel({
   /**
    * 右下角对话框 composer「模型」按钮上的图标色。
    *
-   * 2026-11-15 用户反馈：浅色主题下这颗图标完全看不见。原因是这里直接调用
-   * AssistantModelIcon 却没传 color，而它的默认值是 #FFFFFF —— 白图标画在
-   * 白色按钮底上，视觉上只剩右边那颗展开箭头。
+   * 2026-11-15 用户口径（最终版）：这颗图标只要和同一排的「上传 / 技能 /
+   * 张数 / 图片尺寸」几颗 icon **同色**即可，不要单独定一套配色。
    *
-   * ⚠️ 不能改 AssistantModelIcon 的默认值：组件是被多处共用的，同文件的
-   * 模型下拉列表（深色 #161616 底）就依赖白色，改默认值等于一次改掉全站
-   * 所有调用点。这里只在调用点显式传一份，并按主题 / 交互态跟随按钮文字色：
-   *   - 默认态：浅色 #161616（黑，和旁边 ⊙ / 图片 / 画幅几颗线性图标同色），
-   *     深色用浅白；
-   *   - hover / 展开态：按钮底色转深（#262627），图标必须同步转白，
-   *     否则又会变成「深底深图标」看不见。
+   * 最初看不见是因为这里调用 AssistantModelIcon 没传 color，吃了组件默认
+   * 的 #FFFFFF（白图标画在白色按钮底上）。中途曾改写成纯黑 #161616，
+   * 又和旁边那排 #777472 的线性图标深浅不一 —— 现在直接复用按钮文字色：
+   *   - 默认态 compactSelectorText（浅色 #777472，深色 #bbbbbb），
+   *     与隔壁几颗 icon 的 currentColor 完全同源；
+   *   - hover / 展开态按钮底色转深，图标跟随按钮文字转白，
+   *     与隔壁选择器 hover 时的表现一致。
+   *
+   * ⚠️ 不能改 AssistantModelIcon 的默认值：多处共用，展开面板是浅色底时
+   *    另有显式传色，改默认值等于一次改掉全站所有调用点。
    */
   const assistantComposerModelIconColor =
     agentMenuOpen || agentButtonHover
       ? compactSelectorActiveText
-      : isDark
-        ? "#f5f5f5"
-        : "#161616";
+      : compactSelectorText;
   /*
    * ⚠️ `activeGlow`（聚焦态的绿色光晕 + 黑色重投影）已于 2026-11-10 按用户要求移除。
    * 不要再加回来：输入框聚焦是**常态**，不是需要用户响应的临时提示。
@@ -27709,9 +27709,11 @@ function CanvasAssistantPanel({
                           className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
                           style={{
                             ...(agentMenuStyle || {}),
-                            background: isDark
-                              ? "#161616"
-                              : "#161616",
+                            /* 2026-11-15 用户要求：浅色主题下 restored 白面板。
+                               原写法两个分支都是 #161616（历史遗留的黑底深字），
+                               与共享 ModelSelector 的 modelPopoverTokens("light")
+                               白色面板不一致 —— 同一份视觉的多个出口只改了一处。 */
+                            background: isDark ? "#161616" : "#ffffff",
                             border: `1px solid ${border}`,
                             color: text,
                             backdropFilter: "blur(16px)",
@@ -27820,7 +27822,20 @@ function CanvasAssistantPanel({
                               }}
                             >
                               <div className="flex min-w-0 items-start gap-2.5">
-                                <AssistantModelIcon modelId={model.id} icon={model.icon} />
+                                {/* 白面板必须配深图标：AssistantModelIcon 默认 #FFFFFF，
+                                    直接沿用会变成「白底白图标」。选中行是反相实心底
+                                    （浅色主题黑底、深色主题白底），图标要跟着反过来。 */}
+                                <AssistantModelIcon
+                                  modelId={model.id}
+                                  icon={model.icon}
+                                  color={
+                                    (isDark
+                                      ? assistantModel.id !== model.id
+                                      : assistantModel.id === model.id)
+                                      ? "#ffffff"
+                                      : "#161616"
+                                  }
+                                />
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 items-center gap-1.5">
                                     <p
