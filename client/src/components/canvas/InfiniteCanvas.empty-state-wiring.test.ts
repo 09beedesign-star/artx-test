@@ -167,24 +167,42 @@ describe("canvas empty state wiring", () => {
     );
   });
 
-  it("scales the inner panel instead of reflowing it when the node is small", () => {
+  it("renders the draft panel in a fixed viewport portal so canvas zoom cannot scale it", () => {
     /*
-     * 2026-12-xx 修复（问题 1）：去掉旧的 Math.min(w,h)/DRAFT_NODE_DESIGN_SIZE 上限，
-     * 只按 1/canvasZoom 反向补偿，外框改 overflow-visible，内容始终屏幕原生像素大小。
-     * 旧的双条件取小在 zoom>1 时会把内容乘小 → 整个面板随画布缩放。
+     * 2026-11-15 用户截图：缩放画布时「生成图片」弹窗整体跟着放大/缩小，
+     * 字与控件被挤成多行。根因是弹窗作为 ReactFlow 节点渲染，祖先 viewport
+     * 带 scale(zoom)。此前两轮试图用缩放比的倒数补偿，但百分比宽度与 scale
+     * 变换互相抵消，实测 zoom 1.00 / 1.44 / 0.694 时弹窗宽度 669 / 963 / 465 px，
+     * 等于恒等变换 —— 所以这条锁的是「DOM 脱离 transform 链」这个语义，
+     * 而不是某个会被数学错误绕过的补偿写法。
      */
-    // 反向补偿：内容始终是屏幕原生尺寸
-    expect(draftNodeBlock).toContain("const contentScale = 1 / canvasZoom;");
-    // 读取画布缩放比
-    expect(draftNodeBlock).toContain("const canvasZoom = useStore(state => state.transform[2]) || 1;");
-    // 应用 scale 变换
-    expect(draftNodeBlock).toContain("transform: contentScale !== 1 ? `scale(${contentScale})` : undefined");
-    // 外框必须 overflow-visible，否则内容层（flow 坐标外）被截断
+    // 面板必须挂到 body；留在节点 DOM 里必然吃到画布缩放
+    expect(draftNodeBlock).toContain("createPortal(panel, document.body)");
+    expect(draftNodeBlock).toContain('data-artx-draft-panel="fixed-viewport"');
+    expect(draftNodeBlock).toContain('position: "fixed"');
+    // 宽高必须是硬编码常量，不能是 flow 坐标 / 视口百分比 / 缩放比函数
+    expect(draftNodeBlock).toContain("width: DRAFT_PANEL_WIDTH");
+    expect(draftNodeBlock).toContain("height: DRAFT_PANEL_HEIGHT");
+    expect(source).toMatch(/const DRAFT_PANEL_WIDTH = \d+;/);
+    expect(source).toMatch(/const DRAFT_PANEL_HEIGHT = \d+;/);
+    // 反向：不许把 zoom 依赖或任何 scale 变换重新引回这块面板
+    expect(draftNodeBlock).not.toContain("state.transform[2]");
+    expect(draftNodeBlock).not.toContain("scale(${");
+    // 内容层铺满固定面板，自身不再带任何变换
+    expect(draftNodeBlock).toContain('style={{ width: "100%", height: "100%" }}');
+    // 外框仍要 overflow-visible，关闭按钮不被裁
     expect(draftNodeBlock).toContain("overflow-visible");
-    // 旧的节点尺寸上限逻辑已移除（确保不会回退）
-    expect(draftNodeBlock).not.toContain("Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE");
     // 「生成」按钮不允许被挤成竖排
     expect(draftNodeBlock).toContain("shrink-0 whitespace-nowrap");
+  });
+
+  it("keeps the invisible anchor node click-through so the canvas stays interactive", () => {
+    /*
+     * 面板 portal 走后，ReactFlow 仍会留下一个带尺寸的透明节点矩形。
+     * 不穿透的话它会盖在画布中央吞掉框选/拖拽 —— 用户只会觉得「画布点不动了」，
+     * 控制台零报错。
+     */
+    expect(generateBlock).toContain('pointerEvents: "none"');
   });
 
   it("gives the draft node a close button in its top-right corner", () => {

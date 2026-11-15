@@ -37,7 +37,6 @@ import {
   Handle,
   Position,
   useReactFlow,
-  useStore,
   useStoreApi,
   useViewport,
   type Viewport,
@@ -13494,10 +13493,12 @@ function FreehandNodeComponent({
 }
 
 /**
- * 「生成图片」引导产生的**空白图片节点**。
+ * 「生成图片」引导产生的**提示词弹窗**（以 ReactFlow 节点作为状态容器）。
  *
- * 用户要求：点「生成图片」后画布正中出现一个空白图片节点，占画面 70%、
- * 正方形，**下半部分内嵌一个提示词输入框**，输入框直接复用现成样式。
+ * 2026-11-15 用户要求：点「生成图片」后出现的这个弹窗，尺寸和排版不能随画布
+ * 缩放变化。因此视觉层整块 portal 到 body 并固定居中，节点只留一个不吃事件的
+ * 锚点用于挂载 React 状态 / 撤销 / 删除。弹窗仍是「上方空白画框 + 下半部分
+ * 提示词输入框」，输入框样式复用图像生成器那一套。
  *
  * 【为什么不复用 PromptNodeComponent】
  * PromptNodeComponent 是固定 300px 宽的「提示词说明卡」，调的是 callLLM
@@ -13530,30 +13531,16 @@ function DraftImageNodeComponent({
     Array<{ id: string; title: string; src: string }>
   >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const width = (data.width as number) || DRAFT_NODE_DESIGN_SIZE;
-  const height = (data.height as number) || DRAFT_NODE_DESIGN_SIZE;
   /*
-   * ⚠️⚠️ 节点尺寸是 flow 坐标（= 屏幕 70% ÷ 当前缩放），画布放大到 1.6x 时
-   * 节点只有 ~260 flow-px；而内部面板是固定像素（控制条一行就要 ~400px），
-   * 于是被挤成：控件换两行、「生成」竖排、面板把 LOGO 和说明文案盖住 —— 零报错。
-   * ✅ 小于设计尺寸时，内部按 520 设计稿排版再整体 scale 缩进节点；
-   *    大于设计尺寸时 scale=1，面板保持原生大小、上方画框区自然变大。
+   * ⚠️⚠️⚠️ 弹窗绝不能渲染在 ReactFlow 节点内部。
+   * 节点是画布内容，祖先 `.react-flow__viewport` 带 transform: scale(zoom)，
+   * 里面所有 CSS 像素都会被乘上 zoom。曾两次尝试用缩放比的倒数做反向补偿，
+   * 但内容层宽度按 zoom 写成百分比后与 scale 变换相互抵消，净效果是恒等变换：
+   * 实测 zoom 1.00 / 1.44 / 0.694 时弹窗宽度是 669 / 963 / 465 px，完全跟着缩。
+   * ✅ 唯一稳的解法：整块面板 createPortal 到 body + position: fixed +
+   *    硬编码像素尺寸。DOM 脱离 transform 链，缩放、平移、窗口尺寸一概不影响。
+   *    React 树位置不变，useReactFlow / useTheme / deleteElements 照常可用。
    */
-  /*
-   * ⚠️⚠️ 2026-11-15 用户截图：画布缩放 < 100% 时，节点框按屏幕 70% 算得很大，
-   * 但内部字号/按钮是 flow 坐标下的固定像素，会跟着画布缩放一起被乘小 →
-   * 「整个面板的 UI 和字都被强行缩小」。
-   * ✅ 内容按 1/zoom 反向补偿，屏幕上始终是原生尺寸；节点本身放不下设计稿时
-   *    再按 min(width,height)/设计尺寸 等比缩进（两者取小，永不溢出节点）。
-   */
-  const canvasZoom = useStore(state => state.transform[2]) || 1;
-  /*
-   * ⚠️⚠️ 2026-12-xx 修复：只做 1/zoom 反补偿，去掉 min(w,h)/440 上限。
-   * 旧逻辑两个条件取小，zoom 变大时 contentScale 被压小，内容跟着缩 → 问题 1。
-   * 新逻辑：内容始终是屏幕原生像素大小（scale=1/zoom），外框改为 overflow: visible，
-   * 视觉上面板不受画布缩放影响。
-   */
-  const contentScale = 1 / canvasZoom;
   const projectId = (data.projectId as string) || "p1";
 
   // 与 ImageGeneratorPopover 同源的配色变量，保证「复用现成样式」。
@@ -13720,21 +13707,24 @@ function DraftImageNodeComponent({
     deleteElements({ nodes: [{ id }] });
   }, [deleteElements, id]);
 
-  return (
+  const panel = (
     <div
       data-testid="canvas-draft-image-node"
+      data-artx-draft-panel="fixed-viewport"
       /*
-        ⚠️ relative 是给右上角 ✕ 用的定位上下文。
-           少了它，absolute 的按钮会往上找到祖先的定位元素，跑到画布别处去，
-           且**不报任何错** —— 只是按钮不在该在的位置。
-        ⚠️ overflow-visible（原 overflow-hidden）：内容层用 1/zoom 反补偿后始终是
-           屏幕原生大小，外框是 flow 坐标（随 zoom 缩放）—— 溢出时不能裁掉，否则
-           面板被截断。关闭按钮始终在内容层内部，不会被裁。
+        ⚠️ relative 是给右上角 ✕ 用的定位上下文（少了它按钮会跑到画布别处，零报错）。
+        ⚠️ position: fixed + createPortal 到 body：画布的缩放链完全作用不到这里，
+           宽高是硬编码 CSS 像素，缩放、平移、窗口变化都不会改变弹窗尺寸。
       */
       className="relative overflow-visible rounded-[var(--radius-xl-design)]"
       style={{
-        width,
-        height,
+        position: "fixed",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: DRAFT_PANEL_WIDTH,
+        height: DRAFT_PANEL_HEIGHT,
+        zIndex: 1200,
         background: surfaceBg,
         border: `1.5px dashed ${border}`,
         backdropFilter: "blur(12px)",
@@ -13743,12 +13733,7 @@ function DraftImageNodeComponent({
       <div
         data-testid="canvas-draft-image-node-content"
         className="relative flex flex-col"
-        style={{
-          width: `${100 / contentScale}%`,
-          height: `${100 / contentScale}%`,
-          transform: contentScale !== 1 ? `scale(${contentScale})` : undefined,
-          transformOrigin: "top left",
-        }}
+        style={{ width: "100%", height: "100%" }}
       >
       {/*
         右上角关闭按钮。
@@ -13954,13 +13939,20 @@ function DraftImageNodeComponent({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return panel;
+  return createPortal(panel, document.body);
 }
 
 /**
- * 草稿节点内部面板的设计稿边长：控制条单行（实测约 360px）+ 上方画框区都放得下的最小尺寸。
- * 节点比它小才整体缩放；取得越大，常见屏幕上缩得越狠、字越小。
+ * 「生成图片」弹窗的固定屏幕尺寸（CSS 像素）。
+ *
+ * ⚠️⚠️ 绝不能改成按画布缩放比、flow 坐标或视口百分比计算 —— 用户明确要求
+ * 弹窗尺寸恒定，任何「随画布/窗口自适应」的写法都会把缩放重新引回来。
+ * 480 宽足够让底部控制条（实测约 360px）保持单行，不会挤成两行。
  */
-const DRAFT_NODE_DESIGN_SIZE = 440;
+const DRAFT_PANEL_WIDTH = 480;
+const DRAFT_PANEL_HEIGHT = 520;
 
 /**
  * 空白画布的暗纹引导层。
@@ -30955,7 +30947,12 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         id: `draft-image-${Date.now()}`,
         type: "draftImage",
         position: topLeft,
-        style: { width: side, height: side },
+        /*
+         * 视觉层已 portal 到 body，节点本体只是挂载 React 状态/撤销/删除的锚点。
+         * ⚠️ 必须让它不吃事件：否则这块透明矩形仍会盖在画布中央，吞掉框选和拖拽
+         *    （最典型的静默故障 —— 用户只觉得「画布点不动了」，控制台零报错）。
+         */
+        style: { width: side, height: side, pointerEvents: "none" },
         data: { width: side, height: side, projectId },
       } as Node,
     ]);
