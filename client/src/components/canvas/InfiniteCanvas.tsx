@@ -19676,8 +19676,8 @@ function ImageGeneratorPopover({
       style={{
         left: position?.x ?? 0,
         top: position?.y ?? 80,
-        width: "min(680px, calc(100vw - 24px))",
-        height: "min(439px, calc(100dvh - 24px))",
+        width: 680,
+        height: 439,
         borderRadius: 16,
         background: bg,
         border: `1px solid ${border}`,
@@ -22545,7 +22545,7 @@ function CanvasAssistantPanel({
   const bg = isDark ? "#171718" : "rgba(245,246,248,0.98)";
   const border = isDark ? "rgba(42,42,45,0.72)" : "rgba(0,0,0,0.10)";
   const text = isDark ? "#b4b4b8" : "#262627";
-  const sub = isDark ? "#99999e" : "#888888";
+  const sub = isDark ? "#99999e" : "#5b5b5f";
   const chipBg = isDark ? "#232326" : "rgba(0,0,0,0.04)";
   const elevatedBg = isDark ? "#353535" : "rgba(255,255,255,0.98)";
   const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
