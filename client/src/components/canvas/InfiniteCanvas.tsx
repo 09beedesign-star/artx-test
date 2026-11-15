@@ -18815,9 +18815,9 @@ function AssetEditPromptBar({
             surface={{
               background: iconRowButton.background,
               border: "transparent",
-              text: iconRowButton.text,
+              text: text,
               hoverBackground: iconRowButton.hoverBackground,
-              hoverText: iconRowButton.text,
+              hoverText: text,
             }}
           />
           <ImageCountSelector
