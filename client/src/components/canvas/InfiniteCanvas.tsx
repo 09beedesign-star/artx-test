@@ -37,6 +37,7 @@ import {
   Handle,
   Position,
   useReactFlow,
+  useStore,
   useStoreApi,
   useViewport,
   type Viewport,
@@ -13524,8 +13525,16 @@ function DraftImageNodeComponent({
    * ✅ 小于设计尺寸时，内部按 520 设计稿排版再整体 scale 缩进节点；
    *    大于设计尺寸时 scale=1，面板保持原生大小、上方画框区自然变大。
    */
+  /*
+   * ⚠️⚠️ 2026-11-15 用户截图：画布缩放 < 100% 时，节点框按屏幕 70% 算得很大，
+   * 但内部字号/按钮是 flow 坐标下的固定像素，会跟着画布缩放一起被乘小 →
+   * 「整个面板的 UI 和字都被强行缩小」。
+   * ✅ 内容按 1/zoom 反向补偿，屏幕上始终是原生尺寸；节点本身放不下设计稿时
+   *    再按 min(width,height)/设计尺寸 等比缩进（两者取小，永不溢出节点）。
+   */
+  const canvasZoom = useStore(state => state.transform[2]) || 1;
   const contentScale = Math.min(
-    1,
+    1 / canvasZoom,
     Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE
   );
   const projectId = (data.projectId as string) || "p1";
@@ -13712,7 +13721,7 @@ function DraftImageNodeComponent({
         style={{
           width: `${100 / contentScale}%`,
           height: `${100 / contentScale}%`,
-          transform: contentScale < 1 ? `scale(${contentScale})` : undefined,
+          transform: contentScale !== 1 ? `scale(${contentScale})` : undefined,
           transformOrigin: "top left",
         }}
       >

@@ -170,7 +170,10 @@ describe("canvas empty state wiring", () => {
   it("scales the inner panel instead of reflowing it when the node is small", () => {
     // 节点小于设计尺寸时整体 scale，而不是让固定像素的控件换行
     expect(draftNodeBlock).toContain("Math.min(width, height) / DRAFT_NODE_DESIGN_SIZE");
-    expect(draftNodeBlock).toContain("transform: contentScale < 1 ? `scale(${contentScale})` : undefined");
+    expect(draftNodeBlock).toContain("transform: contentScale !== 1 ? `scale(${contentScale})` : undefined");
+    // 2026-11-15：画布缩放 < 100% 时内容不得跟着被乘小 → 按 1/zoom 反向补偿
+    expect(draftNodeBlock).toContain("const canvasZoom = useStore(state => state.transform[2]) || 1;");
+    expect(draftNodeBlock).toContain("1 / canvasZoom,");
     // 「生成」按钮不允许被挤成竖排
     expect(draftNodeBlock).toContain("shrink-0 whitespace-nowrap");
   });
