@@ -929,7 +929,30 @@ export default function MindMapPage() {
                     e.preventDefault();
                     e.stopPropagation();
                     setSelectedId(node.id);
-                    setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+                    // 计算节点右侧 12px 的屏幕坐标
+                    // 节点在 SVG 画布里的左上角 = (node.x, node.y)
+                    // SVG 画布的 g transform = translate(pan.x, pan.y) scale(zoom)
+                    // 屏幕坐标 = svgRect.left + pan.x + (node.x + NODE_W) * zoom
+                    const svgEl = svgRef.current;
+                    const MENU_W = 160; // 菜单约宽
+                    const MENU_H = 120; // 菜单约高
+                    const GAP = 12;
+                    if (svgEl) {
+                      const svgRect = svgEl.getBoundingClientRect();
+                      const nodeScreenX = svgRect.left + pan.x + (node.x + NODE_W) * zoom;
+                      const nodeScreenY = svgRect.top + pan.y + node.y * zoom;
+                      // 超出右侧 → 显示在节点左侧
+                      const finalX = nodeScreenX + GAP + MENU_W > window.innerWidth
+                        ? svgRect.left + pan.x + node.x * zoom - MENU_W - GAP
+                        : nodeScreenX + GAP;
+                      // 超出底部 → 向上偏移
+                      const finalY = nodeScreenY + MENU_H > window.innerHeight
+                        ? window.innerHeight - MENU_H - 8
+                        : nodeScreenY;
+                      setCtxMenu({ x: finalX, y: finalY, nodeId: node.id });
+                    } else {
+                      setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+                    }
                   }}
                 >
                   {/* 节点矩形 */}
