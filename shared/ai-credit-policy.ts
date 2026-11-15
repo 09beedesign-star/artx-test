@@ -10,7 +10,9 @@ export type AiBillingCapability =
   | "image_edit"
   | "image_erase"
   | "image_expansion"
-  | "image_ocr";
+  | "image_ocr"
+  | "text_to_mindmap"
+  | "text_to_3d";
 
 export type AiBillingPolicy = {
   capability: AiBillingCapability;
@@ -238,6 +240,14 @@ export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
     baseCredits: 40,
     estimatedCostPerUnit: 0.022,
     providerDefault: "PicWish/佐糖",
+  },
+  {
+    capability: "text_to_mindmap",
+    label: "AI 生成思维导图",
+    billingUnit: "per_request",
+    baseCredits: 40,
+    estimatedCostPerUnit: 0.05,
+    providerDefault: "OpenAI",
   },
 ];
 
@@ -598,4 +608,45 @@ export function quoteAiUsage(input: {
     estimatedCost,
     deliverable,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3D 生成积分策略
+// 按次计费（per_request），与图片「per_image」口径不同。
+// 成本参考：混元3D ≈ ¥0.50/次，Tripo ≈ ¥0.65/次，Meshy ≈ ¥0.45/次，Stability3D ≈ ¥0.38/次。
+// 定价以 55% 毛利为底线，向上取整到 50 积分倍数（1 积分 ≈ ¥0.0013 HKD）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AiThreeDModelCreditPolicy = {
+  model: string;
+  creditsPerGeneration: number;
+  estimatedCostPerGeneration: number;
+};
+
+export const AI_THREED_MODEL_CREDIT_POLICIES: AiThreeDModelCreditPolicy[] = [
+  {
+    model: "hunyuan3d-2.5",
+    creditsPerGeneration: 400,
+    estimatedCostPerGeneration: 0.5,
+  },
+  {
+    model: "tripo3d-v2.5",
+    creditsPerGeneration: 500,
+    estimatedCostPerGeneration: 0.65,
+  },
+  {
+    model: "meshy-4",
+    creditsPerGeneration: 350,
+    estimatedCostPerGeneration: 0.45,
+  },
+  {
+    model: "stability3d-fast",
+    creditsPerGeneration: 300,
+    estimatedCostPerGeneration: 0.38,
+  },
+];
+
+export function getAiThreeDModelCreditPolicy(model?: string): AiThreeDModelCreditPolicy | null {
+  if (!model) return null;
+  return AI_THREED_MODEL_CREDIT_POLICIES.find((p) => p.model === model) ?? null;
 }

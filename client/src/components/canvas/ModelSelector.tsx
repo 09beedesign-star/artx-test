@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import {
   AUTO_AI_MODEL,
   IMAGE_AI_MODEL_OPTIONS,
+  THREED_AI_MODEL_OPTIONS,
   mergeImageAiModelOptions,
   type AiModelOption,
 } from "../../lib/workspace-data";
@@ -21,6 +22,7 @@ import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
 import { modelPopoverTokens, type ModelPopoverTheme } from "./model-popover-tokens";
 import {
   getAiImageModelCreditPolicy,
+  getAiThreeDModelCreditPolicy,
   HIGH_COST_IMAGE_CREDITS_THRESHOLD,
   isHighCostImageModel,
 } from "../../../../shared/ai-credit-policy";
@@ -307,6 +309,11 @@ export function ModelSelector({
    * 浅色页面（电商画布）显式传 "light" 才是白底深字。
    */
   popoverTheme = "dark",
+  /**
+   * 是否展示 3D 分类 tab（默认 true）。
+   * 电商画布只用图片模型，显式传 false 隐藏 tab 行并排除 3D 模型列表。
+   */
+  enable3D = true,
 }: {
   model: string;
   onChange: (m: string) => void;
@@ -317,13 +324,25 @@ export function ModelSelector({
   triggerClassName?: string;
   iconOnly?: boolean;
   popoverTheme?: ModelPopoverTheme;
+  enable3D?: boolean;
 }) {
   const entitledModels = useImageModelOptions();
   const models = modelsProp ?? entitledModels;
   /**
+   * 分类 tab 状态。enable3D=false 时固定在 "image"，不渲染 tab 行。
+   * 切到 3D tab 后选图片模型不会回跳 —— category 只控制「面板里展示哪批」，
+   * 不影响外部 model 值（3D 模型选中时外部拿到的就是 3D model id）。
+   */
+  const [category, setCategory] = useState<"image" | "3d">("image");
+  const show3D = enable3D !== false;
+  const TAB_ROW_HEIGHT = 32;
+  /** 当前 category 下可见的模型列表 */
+  const displayModels = show3D && category === "3d" ? THREED_AI_MODEL_OPTIONS : models;
+  /**
    * 当前选中的模型被权益置灰（典型：免费用户 + 节点悬浮条默认即梦 / 本地偏好
    * 里存着 banana）→ 自动切回默认档。不切的话按钮上显示的是一个用不了的模型，
    * 用户一点生成就 403，体验等于「默认就是坏的」。
+   * ⚠️ 只在图片模型里做自动回退，3D 模型当前无权益限制。
    */
   useEffect(() => {
     const selected = models.find(m => m.id === model);
@@ -339,7 +358,9 @@ export function ModelSelector({
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(
     null
   );
-  const current = models.find(m => m.id === model) || AUTO_AI_MODEL;
+  const current = models.find(m => m.id === model)
+    || THREED_AI_MODEL_OPTIONS.find(m => m.id === model)
+    || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);
   const selectedBg = surface?.hoverBackground
     ?? (isDark ? "#161616" : "rgba(255,255,255,0.97)");
@@ -364,9 +385,11 @@ export function ModelSelector({
   const rowHeight = 40;
   /**
    * 展开栏高度上限（2026-09-21 用户点名 220）。
+   * show3D=true 时额外加 tab 行高度（32px）。
    * 超出的模型行走下方滚动条（overflowY auto + model-selector-scroll）。
    */
-  const panelHeight = Math.min(models.length * rowHeight, 220);
+  const panelHeight = Math.min(displayModels.length * rowHeight, 220)
+    + (show3D ? TAB_ROW_HEIGHT : 0);
   const popMinWidth = 160;
   const POP_GAP = 4;
   const VIEWPORT_MARGIN = 8;
@@ -498,10 +521,47 @@ export function ModelSelector({
             }}
             onClick={e => e.stopPropagation()}
           >
+            {/* 分类 tab 行 —— 仅 enable3D=true 时渲染 */}
+            {show3D && (
+              <div
+                style={{
+                  display: "flex",
+                  borderBottom: `1px solid ${pop.border}`,
+                  height: TAB_ROW_HEIGHT,
+                  flexShrink: 0,
+                }}
+              >
+                {(["image", "3d"] as const).map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategory(cat)}
+                    style={{
+                      flex: 1,
+                      fontSize: 11,
+                      fontWeight: category === cat ? 600 : 400,
+                      color: pop.text,
+                      opacity: category === cat ? 1 : 0.46,
+                      borderBottom: category === cat
+                        ? `2px solid ${pop.text}`
+                        : "2px solid transparent",
+                      background: "transparent",
+                      cursor: "pointer",
+                      letterSpacing: 0,
+                      transition: "color 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    {cat === "image" ? "🖼 图片" : "📦 3D"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div
               className="model-selector-scroll"
               style={{
-                maxHeight: (popoverStyle?.maxHeight as number | undefined) ?? panelHeight,
+                maxHeight: (popoverStyle?.maxHeight != null
+                  ? (popoverStyle.maxHeight as number) - (show3D ? TAB_ROW_HEIGHT : 0)
+                  : panelHeight - (show3D ? TAB_ROW_HEIGHT : 0)),
                 overflowY: "auto",
                 overscrollBehavior: "contain",
                 scrollbarWidth: "thin",
@@ -509,7 +569,7 @@ export function ModelSelector({
               }}
               onWheel={e => e.stopPropagation()}
             >
-            {models.map(m => (
+            {displayModels.map(m => (
               <button
                 key={m.id}
                 type="button"
@@ -546,7 +606,29 @@ export function ModelSelector({
                     >
                       {m.label}
                     </span>
-                    <HighCostBadge model={m.id} />
+                    {/* 图片模型走高消耗角标；3D 模型走积分/次角标 */}
+                    {show3D && category === "3d" ? (() => {
+                      const p = getAiThreeDModelCreditPolicy(m.id);
+                      return p ? (
+                        <span
+                          style={{
+                            fontSize: 9,
+                            lineHeight: "14px",
+                            padding: "0 6px",
+                            color: "#60A5FA",
+                            background: "rgba(96,165,250,0.12)",
+                            border: "1px solid rgba(96,165,250,0.30)",
+                            borderRadius: 99,
+                            letterSpacing: 0,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {p.creditsPerGeneration} 积分/次
+                        </span>
+                      ) : null;
+                    })() : (
+                      <HighCostBadge model={m.id} />
+                    )}
                   </span>
                   {"description" in m && m.description ? (
                     <span

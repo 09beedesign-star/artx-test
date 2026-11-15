@@ -90,6 +90,51 @@ export const TEXT_AI_MODELS: AiModelOption[] = [
   { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "#bbbbbb", icon: "anthropic" },
 ];
 
+// ── 3D 生成模型 ───────────────────────────────────────────────
+/**
+ * AI 文字 → 3D 生成模型清单。
+ *
+ * id 与 shared/model3d.ts 的 THREED_GEN_MODEL_IDS 以及
+ * shared/ai-credit-policy.ts 的 AI_THREED_MODEL_CREDIT_POLICIES 三处保持一致；
+ * 只改这里不更新那两处 = 积分定价失效且没有任何报错（已犯过同类错误）。
+ *
+ * icon 值对应 ModelBrandIconKind（client/src/components/canvas/model-brand-icons.tsx），
+ * 必须与该文件的 getModelBrandIconKind 正则一致。
+ */
+export const THREED_AI_MODELS: AiModelOption[] = [
+  {
+    id: "hunyuan3d-2.5",
+    label: "混元 3D 2.5",
+    color: "#2a2a2a",
+    icon: "hunyuan3d",
+    description: "腾讯自研，中文理解强，GLB / FBX / OBJ 导出",
+  },
+  {
+    id: "tripo3d-v2.5",
+    label: "Tripo3D v2.5",
+    color: "#2a2a2a",
+    icon: "tripo3d",
+    description: "毫秒级出模，电商 / 游戏道具首选，GLB / GLTF",
+  },
+  {
+    id: "meshy-4",
+    label: "Meshy 4",
+    color: "#2a2a2a",
+    icon: "meshy",
+    description: "纹理细节丰富，OBJ / FBX / GLTF / GLB 全格式",
+  },
+  {
+    id: "stability3d-fast",
+    label: "Stability 3D fast",
+    color: "#2a2a2a",
+    icon: "stability3d",
+    description: "快速原型，GLB 导出，适合快速验证造型",
+  },
+];
+
+export const THREED_AI_MODEL_OPTIONS: AiModelOption[] = [...THREED_AI_MODELS];
+
+
 /**
  * 选择器里的展示顺序必须 = IMAGE_MODEL_PRIORITY_IDS 的优先级顺序。
  *

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <!-- 混元 3D：立方体正视图，左上角切角代表"混"字结构感 -->
+  <path d="M2 5L8 2L14 5V11L8 14L2 11V5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>
+  <path d="M8 2L8 8M8 8L14 5M8 8L2 5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>
+  <path d="M8 8L8 14" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <!-- Tripo3D：三棱锥，代表快速生成的尖锐几何体 -->
+  <path d="M8 2L14 13H2L8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>
+  <path d="M8 2L8 9M8 9L14 13M8 9L2 13" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round" stroke-dasharray="2 1.5" fill="none"/>
+</svg>

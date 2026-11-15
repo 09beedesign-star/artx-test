@@ -82,3 +82,26 @@ export const MODEL3D_ID_PATTERN = new RegExp(
 /** 格式不支持时的统一提示，前后端共用。 */
 export const MODEL3D_FORMAT_NOTICE_ZH =
   `仅支持 ${MODEL3D_FORMATS_LABEL} 格式的 3D 模型`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI 3D 生成模型注册表（文字 → 3D 生成能力）
+//
+// ⚠️ 与上方的「文件上传/存储」常量语义不同，这里登记的是平台接入的 AI 生成上游，
+//    id 对应 AI_THREED_MODEL_CREDIT_POLICIES（shared/ai-credit-policy.ts）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 已接入的 3D 生成模型 ID，顺序 = 选择器默认显示顺序。 */
+export const THREED_GEN_MODEL_IDS = [
+  "hunyuan3d-2.5",
+  "tripo3d-v2.5",
+  "meshy-4",
+  "stability3d-fast",
+] as const;
+
+export type ThreeDGenModelId = (typeof THREED_GEN_MODEL_IDS)[number];
+
+export const DEFAULT_THREED_GEN_MODEL_ID: ThreeDGenModelId = "hunyuan3d-2.5";
+
+export function isThreeDGenModelId(id: string): id is ThreeDGenModelId {
+  return (THREED_GEN_MODEL_IDS as readonly string[]).includes(id);
+}

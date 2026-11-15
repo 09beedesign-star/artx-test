@@ -7,6 +7,10 @@ import klingIconUrl from "@/assets/model-icons/kling.svg?url";
 import midjourneyIconUrl from "@/assets/model-icons/midjourney.svg?url";
 import qwenIconUrl from "@/assets/model-icons/qwen.svg?url";
 import siIconUrl from "@/assets/model-icons/si.svg?url";
+import hunyuan3dIconUrl from "@/assets/model-icons/hunyuan3d.svg?url";
+import tripo3dIconUrl from "@/assets/model-icons/tripo3d.svg?url";
+import meshyIconUrl from "@/assets/model-icons/meshy.svg?url";
+import stability3dIconUrl from "@/assets/model-icons/stability3d.svg?url";
 
 export type ModelBrandIconKind =
   | "anthropic"
@@ -17,6 +21,10 @@ export type ModelBrandIconKind =
   | "openai"
   | "qwen"
   | "si"
+  | "hunyuan3d"
+  | "tripo3d"
+  | "meshy"
+  | "stability3d"
   | "image"
   | "none";
 
@@ -29,6 +37,10 @@ export const MODEL_BRAND_ICON_URLS: Record<Exclude<ModelBrandIconKind, "image" |
   openai: chatgptIconUrl,
   qwen: qwenIconUrl,
   si: siIconUrl,
+  hunyuan3d: hunyuan3dIconUrl,
+  tripo3d: tripo3dIconUrl,
+  meshy: meshyIconUrl,
+  stability3d: stability3dIconUrl,
 };
 
 export function getModelBrandIconKind(modelId: string, icon?: string): ModelBrandIconKind {
@@ -61,6 +73,11 @@ export function getModelBrandIconKind(modelId: string, icon?: string): ModelBran
   // 它的 id 形如 vod-og25-sunburst-medium，既不含 "image2" 也不含 "gpt"，
   // 不显式加这个分支，裸 id 会落到 "none" —— 默认模型在 UI 上没有图标。
   if (/openai|chatgpt|image2|og-image2|og25|og26|gpt/.test(value)) return "openai";
+  // 3D 生成平台（icon 字段显式传 "hunyuan3d" / "tripo3d" / "meshy" / "stability3d"）
+  if (/hunyuan3d|混元3d/.test(value)) return "hunyuan3d";
+  if (/tripo3d/.test(value)) return "tripo3d";
+  if (/meshy/.test(value)) return "meshy";
+  if (/stability3d/.test(value)) return "stability3d";
   return icon ? "image" : "none";
 }
 

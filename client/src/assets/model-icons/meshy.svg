@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <!-- Meshy：球面网格，代表细分曲面/纹理网格 -->
+  <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" fill="none"/>
+  <path d="M8 2V14M2 8H14" stroke="currentColor" stroke-width="0.8" fill="none"/>
+  <path d="M3.5 3.5C5 5.5 5 5.5 8 5.5C11 5.5 11 5.5 12.5 3.5M3.5 12.5C5 10.5 5 10.5 8 10.5C11 10.5 11 10.5 12.5 12.5" stroke="currentColor" stroke-width="0.8" fill="none"/>
+</svg>
