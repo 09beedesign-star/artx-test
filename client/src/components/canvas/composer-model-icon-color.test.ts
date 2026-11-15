@@ -56,13 +56,38 @@ const triggerButton = readModelTriggerButton();
 const panelStyle = readModelPanelStyle();
 
 describe("右下角 composer 模型按钮与展开面板配色", () => {
-  it("白面板：浅色主题下模型下拉不得是黑底", () => {
+  it("白面板：整套配色走共用 modelPopoverTokens 的 light 口径", () => {
     // 反向：历史上这里两个分支都写死 #161616（浅色主题也黑底 + 深字，看不清）。
     expect(panelStyle, "浅色分支仍是黑面板").not.toContain(': "#161616"');
-    // 正向：浅色必须白、深色保持深。
-    expect(panelStyle).toMatch(/isDark\s*\?\s*"#161616"\s*:\s*"#ffffff"/);
-    // 面板文字跟随 text（浅色是深色字），白底才可读。
-    expect(panelStyle).toContain("color: text");
+    /*
+     * 正向改成锁「成套」：只把背景改白、tab 与选中行仍用反相黑底，
+     * 用户看到的依然是「黑色主题」。背景/边框/文字/阴影必须同一份 token。
+     */
+    expect(panelStyle).toContain("assistantModelPopoverTokens.background");
+    expect(panelStyle).toContain("assistantModelPopoverTokens.border");
+    expect(panelStyle).toContain("assistantModelPopoverTokens.text");
+    expect(panelStyle).toContain("assistantModelPopoverTokens.shadow");
+    // token 定义必须按主题取，不能写死任一分支。
+    const start = source.indexOf("const assistantModelPopoverTokens");
+    expect(start, "找不到面板配色 token 定义").toBeGreaterThan(-1);
+    const def = source.slice(start, start + 240);
+    expect(def).toContain("modelPopoverTokens(");
+    expect(def).toMatch(/isDark\s*\?\s*"dark"\s*:\s*"light"/);
+    // 选中行 / hover 也要同源，这是「半套白主题」最容易漏的出口。
+    const panelStart = source.indexOf("ref={assistantModelPopoverRef}");
+    const panel = source.slice(panelStart, panelStart + 12000);
+    expect(panel).toContain("assistantModelPopoverTokens.selectedBackground");
+    expect(panel).toContain("assistantModelPopoverTokens.hoverBackground");
+    /*
+     * 反向断言必须锁在「模型行」这一小段里：面板上方的 auto 开关开启态
+     * 本来就是深色（常规开关样式），扫整个面板会假红、逼着去改正确的代码。
+     */
+    const rowStart = source.indexOf("assistantModelOptions.map(model => (");
+    expect(rowStart, "找不到模型行渲染锚点").toBeGreaterThan(-1);
+    const rowBlock = source.slice(rowStart, rowStart + 1400);
+    expect(rowBlock, "选中行又回到反相黑底了").not.toContain(
+      '"var(--artx-action-active-bg)"'
+    );
   });
 
   it("触发按钮的两颗图标都跟随按钮文字色，与隔壁 icon 同源", () => {

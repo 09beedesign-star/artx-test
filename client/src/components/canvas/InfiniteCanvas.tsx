@@ -591,10 +591,12 @@ import {
   IMAGE_AI_MODELS,
   PROJECTS,
   TEXT_AI_MODELS,
+  THREED_AI_MODEL_OPTIONS,
   type AiModelOption,
   type GeneratedAsset,
   type Project,
 } from "@/lib/workspace-data";
+import { modelPopoverTokens } from "./model-popover-tokens";
 import {
   DEFAULT_IMAGE_OUTPUT_COUNT,
   getImageModelDefaultOutputCount,
@@ -21384,6 +21386,8 @@ const CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY =
   "artx:canvas-assistant-text-model";
 const CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY =
   "artx:canvas-assistant-model-tab";
+const CANVAS_ASSISTANT_3D_MODEL_STORAGE_KEY =
+  "artx:canvas-assistant-3d-model";
 const CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY =
   "artx:canvas-assistant-auto-mode";
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
@@ -22146,6 +22150,23 @@ function CanvasAssistantPanel({
       );
       return stored === "text" ? "text" : "image";
     });
+  /**
+   * 3D 分类是**展示层**分类，不参与「对话 / 生图」的业务路由。
+   *
+   * ⚠️ 不要把它并进 assistantModelTab：那个值会一路传到 AI 意图判断、
+   *    一键同款计费护栏和 modelTab 持久化，扩成三值等于同时改到扣费路径。
+   *    这里只决定下拉面板展示哪一批模型。3D 模型单价 300~500 积分/次，
+   *    擅自拿它当 3D 生成面板的默认模型 = 悄悄改用户每次的花费，需用户拍板。
+   */
+  const [assistant3DModelId, setAssistant3DModelId] = useState(() => {
+    if (typeof window === "undefined") return THREED_AI_MODEL_OPTIONS[0]?.id || "";
+    const stored = readOwnedPreference(CANVAS_ASSISTANT_3D_MODEL_STORAGE_KEY);
+    return THREED_AI_MODEL_OPTIONS.some(model => model.id === stored)
+      ? stored!
+      : (THREED_AI_MODEL_OPTIONS[0]?.id || "");
+  });
+  const [assistantModelPanelCategory, setAssistantModelPanelCategory] =
+    useState<"image" | "text" | "3d">(assistantModelTab);
   const [assistantImageModelId, setAssistantImageModelId] = useState(() => {
     const fallbackImageModelId = DEFAULT_IMAGE_AI_MODEL_ID;
     if (typeof window === "undefined") return fallbackImageModelId;
@@ -22260,6 +22281,10 @@ function CanvasAssistantPanel({
       setAssistantModelTab("image");
     }
   }, [assistantModelTab, availableAssistantImageModels.length, availableAssistantTextModels.length]);
+  // 业务页签被外部改动（例如权益变化触发自动回退）时，展示分类跟着同步。
+  useEffect(() => {
+    setAssistantModelPanelCategory(assistantModelTab);
+  }, [assistantModelTab]);
   useEffect(() => {
     if (availableAssistantImageModels.length === 0) setAssistantAutoMode(false);
   }, [availableAssistantImageModels.length]);
@@ -22434,6 +22459,16 @@ function CanvasAssistantPanel({
     : "#777472";
   const compactSelectorActiveText = "white";
   /**
+   * 右下角模型下拉面板的整套配色 —— 与共享 ModelSelector 同一份 token。
+   * ⚠️ 只把背景改白、tab / 选中行仍用反相黑底，用户看到的还是「黑色主题」；
+   *    背景、边框、文字、hover、选中行必须一起走这一份口径。
+   */
+  const assistantModelPopoverTokens = modelPopoverTokens(
+    isDark ? "dark" : "light",
+    { text, border },
+    isDark
+  );
+  /**
    * 右下角对话框 composer「模型」按钮上的图标色。
    *
    * 2026-11-15 用户口径（最终版）：这颗图标只要和同一排的「上传 / 技能 /
@@ -22469,9 +22504,11 @@ function CanvasAssistantPanel({
     const gap = 6;
     const width = Math.min(288, Math.max(220, window.innerWidth - margin * 2));
     const modelOptionCount =
-      assistantModelTab === "image"
-        ? availableAssistantImageModels.length
-        : availableAssistantTextModels.length;
+      assistantModelPanelCategory === "3d"
+        ? THREED_AI_MODEL_OPTIONS.length
+        : assistantModelTab === "image"
+          ? availableAssistantImageModels.length
+          : availableAssistantTextModels.length;
     const measuredHeight = assistantModelPopoverRef.current?.offsetHeight || 0;
     const estimatedHeight = Math.min(
       248,
@@ -22501,7 +22538,7 @@ function CanvasAssistantPanel({
       width,
       maxHeight,
     });
-  }, [assistantImageModelOptions.length, assistantModelTab]);
+  }, [assistantImageModelOptions.length, assistantModelPanelCategory, assistantModelTab]);
   const [splitterActive, setSplitterActive] = useState(false);
   const [splitterHover, setSplitterHover] = useState(false);
   const handleSplitterPointerDown = useCallback(
@@ -24109,10 +24146,22 @@ function CanvasAssistantPanel({
     availableAssistantTextModels.find(model => model.id === assistantTextModelId) ||
     availableAssistantTextModels[0] ||
     TEXT_AI_MODELS[0];
+  const assistant3DModel =
+    THREED_AI_MODEL_OPTIONS.find(model => model.id === assistant3DModelId) ||
+    THREED_AI_MODEL_OPTIONS[0];
+  /* 展示哪批模型由 3D 分类优先决定；业务页签只管「对话 / 生图」两批。 */
   const assistantModelOptions =
-    assistantModelTab === "image" ? availableAssistantImageModels : availableAssistantTextModels;
+    assistantModelPanelCategory === "3d"
+      ? THREED_AI_MODEL_OPTIONS
+      : assistantModelTab === "image"
+        ? availableAssistantImageModels
+        : availableAssistantTextModels;
   const assistantModel =
-    assistantModelTab === "image" ? assistantImageModel : assistantTextModel;
+    assistantModelPanelCategory === "3d"
+      ? assistant3DModel
+      : assistantModelTab === "image"
+        ? assistantImageModel
+        : assistantTextModel;
   const activeSkillContext = activeSkill
     ? buildSkillPromptContext(activeSkill)
     : "";
@@ -24673,11 +24722,16 @@ function CanvasAssistantPanel({
         CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY,
         assistantTextModel.id
       );
+      writeOwnedPreference(
+        CANVAS_ASSISTANT_3D_MODEL_STORAGE_KEY,
+        assistant3DModelId
+      );
     } catch {
       /* ignore storage quota errors */
     }
   }, [
     assistantAutoMode,
+    assistant3DModelId,
     assistantImageModel.id,
     assistantModelTab,
     assistantTextModel.id,
@@ -27701,13 +27755,10 @@ function CanvasAssistantPanel({
                           className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
                           style={{
                             ...(agentMenuStyle || {}),
-                            /* 2026-11-15 用户要求：浅色主题下 restored 白面板。
-                               原写法两个分支都是 #161616（历史遗留的黑底深字），
-                               与共享 ModelSelector 的 modelPopoverTokens("light")
-                               白色面板不一致 —— 同一份视觉的多个出口只改了一处。 */
-                            background: isDark ? "#161616" : "#ffffff",
-                            border: `1px solid ${border}`,
-                            color: text,
+                            background: assistantModelPopoverTokens.background,
+                            border: `1px solid ${assistantModelPopoverTokens.border}`,
+                            color: assistantModelPopoverTokens.text,
+                            boxShadow: assistantModelPopoverTokens.shadow || undefined,
                             backdropFilter: "blur(16px)",
                             zIndex: 9999,
                           }}
@@ -27747,31 +27798,39 @@ function CanvasAssistantPanel({
                               }}
                             />
                           </div>
-                          <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+                          <div className="grid grid-cols-3 gap-1 px-1 pb-1">
                             {[
                               { id: "image" as const, label: "生图" },
                               { id: "text" as const, label: "对话" },
+                              { id: "3d" as const, label: "3D" },
                             ].filter(tab => tab.id === "image"
                               ? availableAssistantImageModels.length > 0
-                              : availableAssistantTextModels.length > 0).map(tab => (
+                              : tab.id === "text"
+                                ? availableAssistantTextModels.length > 0
+                                : THREED_AI_MODEL_OPTIONS.length > 0).map(tab => {
+                              const active = assistantModelPanelCategory === tab.id;
+                              return (
                               <button
                                 key={tab.id}
                                 type="button"
                                 className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
                                 style={{
-                                  color:
-                                    assistantModelTab === tab.id ? "var(--artx-action-active-fg)" : sub,
-                                  background:
-                                    assistantModelTab === tab.id
-                                      ? "var(--artx-action-active-bg)"
-                                      : "transparent",
-                                  border: `1px solid ${assistantModelTab === tab.id ? "var(--artx-action-active-border)" : "var(--artx-action-border)"}`,
+                                  color: active ? assistantModelPopoverTokens.text : sub,
+                                  background: active
+                                    ? assistantModelPopoverTokens.selectedBackground
+                                    : "transparent",
+                                  border: `1px solid ${active ? assistantModelPopoverTokens.border : "var(--artx-action-border)"}`,
                                 }}
-                                onClick={() => setAssistantModelTab(tab.id)}
+                                onClick={() => {
+                                  setAssistantModelPanelCategory(tab.id);
+                                  // 3D 只是展示分类，不改变「对话 / 生图」的业务页签。
+                                  if (tab.id !== "3d") setAssistantModelTab(tab.id);
+                                }}
                               >
                                 {tab.label}
                               </button>
-                            ))}
+                              );
+                            })}
                           </div>
                           {assistantModelOptions.map(model => (
                             <button
@@ -27780,21 +27839,22 @@ function CanvasAssistantPanel({
                               disabled={model.disabled}
                               className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
                               style={{
-                                color: assistantModel.id === model.id ? "var(--artx-action-active-fg)" : text,
+                                color: assistantModelPopoverTokens.text,
                                 opacity: model.disabled ? 0.46 : 1,
                                 cursor: model.disabled ? "not-allowed" : "pointer",
                                 background:
                                   assistantModel.id === model.id
-                                    ? "var(--artx-action-active-bg)"
+                                    ? assistantModelPopoverTokens.selectedBackground
                                     : "transparent",
                               }}
                               onMouseEnter={e =>
-                                (e.currentTarget.style.background = hoverBg)
+                                (e.currentTarget.style.background =
+                                  assistantModelPopoverTokens.hoverBackground)
                               }
                               onMouseLeave={e =>
                                 (e.currentTarget.style.background =
                                   assistantModel.id === model.id
-                                    ? "var(--artx-action-active-bg)"
+                                    ? assistantModelPopoverTokens.selectedBackground
                                     : "transparent")
                               }
                               onClick={() => {
@@ -27804,7 +27864,9 @@ function CanvasAssistantPanel({
                                   });
                                   return;
                                 }
-                                if (assistantModelTab === "image") {
+                                if (assistantModelPanelCategory === "3d") {
+                                  setAssistant3DModelId(model.id);
+                                } else if (assistantModelPanelCategory === "image") {
                                   setAssistantImageModelId(model.id);
                                 } else {
                                   setAssistantTextModelId(model.id);
@@ -27814,19 +27876,11 @@ function CanvasAssistantPanel({
                               }}
                             >
                               <div className="flex min-w-0 items-start gap-2.5">
-                                {/* 白面板必须配深图标：AssistantModelIcon 默认 #FFFFFF，
-                                    直接沿用会变成「白底白图标」。选中行是反相实心底
-                                    （浅色主题黑底、深色主题白底），图标要跟着反过来。 */}
+                                {/* 面板内图标统一走同一份 token：浅色白底深图标、深色黑底白图标。 */}
                                 <AssistantModelIcon
                                   modelId={model.id}
                                   icon={model.icon}
-                                  color={
-                                    (isDark
-                                      ? assistantModel.id !== model.id
-                                      : assistantModel.id === model.id)
-                                      ? "#ffffff"
-                                      : "#161616"
-                                  }
+                                  color={assistantModelPopoverTokens.icon}
                                 />
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 items-center gap-1.5">
@@ -27840,7 +27894,7 @@ function CanvasAssistantPanel({
                                     >
                                       {model.label}
                                     </p>
-                                    {assistantModelTab === "image" &&
+                                    {assistantModelPanelCategory === "image" &&
                                     hasCustomDefaultOutputCount(model.id) ? (
                                       <span
                                         className="shrink-0 rounded-full"
@@ -27858,7 +27912,7 @@ function CanvasAssistantPanel({
                                         默认{getImageModelDefaultOutputCount(model.id)}张
                                       </span>
                                     ) : null}
-                                    {assistantModelTab === "image" ? (
+                                    {assistantModelPanelCategory === "image" ? (
                                       <HighCostBadge model={model.id} />
                                     ) : null}
                                   </div>
@@ -27877,7 +27931,7 @@ function CanvasAssistantPanel({
                                       {model.unavailableReason || model.description}
                                     </p>
                                   ) : null}
-                                  {assistantModelTab === "image" &&
+                                  {assistantModelPanelCategory === "image" &&
                                   hasCustomDefaultOutputCount(model.id) &&
                                   !model.unavailableReason ? (
                                     <p
@@ -27897,7 +27951,7 @@ function CanvasAssistantPanel({
                                 </div>
                               </div>
                               {assistantModel.id === model.id && (
-                                <Check size={13} style={{ color: "#C5ED47" }} />
+                                <Check size={13} style={{ color: assistantModelPopoverTokens.text }} />
                               )}
                             </button>
                           ))}
