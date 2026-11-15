@@ -632,7 +632,10 @@ import { computeFrameAutoArrange } from "@shared/frame-auto-arrange";
 import { resolveOutputSizeFromPromptAndSelector } from "@shared/prompt-size-intent";
 import { resolveImageCountFromPromptAndSelector } from "@shared/prompt-count-intent";
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
-import { getAiImageModelCreditPolicy } from "@shared/ai-credit-policy";
+import {
+  getAiImageModelCreditPolicy,
+  getAiThreeDModelCreditPolicy,
+} from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
   SOCIAL_MEDIA_SIZE_PRESETS,
@@ -688,6 +691,8 @@ import {
   waitForImageGenerationTask,
   searchReferenceImages,
   startBackgroundImageGeneration,
+  startThreeDGenerationTask,
+  waitForThreeDGenerationTask,
   type ImageGenerationTaskInput,
   type GeneratedImagesResponse,
   type ImageTextRegion,
@@ -21394,6 +21399,16 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
   "artx:canvas-assistant-auto-default-version";
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
+/**
+ * 3D 生成完成 → 打开画布的 3D 预览弹窗。
+ *
+ * 右下角 composer（CanvasAssistantPanel）与「图片右键 → 生成 3D 模型」面板
+ * 分属两个组件子树，预览 state 在 InnerCanvas 里，只能通过全局事件回传。
+ * ⚠️ 两个入口必须派发同一个事件名：各写一份 = 同一份结果的两个出口，
+ *    将来预览链路改了必有一处不跟着改（本项目已多次踩过）。
+ */
+const CANVAS_3D_GENERATED_EVENT = "canvas-3d-generated";
+
 /*
  * ⚠️⚠️【2026-09-27 账号隔离】模型偏好直接决定扣费档位（vod-gem 300/张），
  *    必须按账号分桶：否则 A 账号选了贵模型，B 账号在同一浏览器登录后
@@ -22330,7 +22345,7 @@ function CanvasAssistantPanel({
    * ⚠️ 共用一个气泡的出口有三条（handleSubmit / runAssistantCapability / 首页交接），
    * 每条都必须设置，漏一条 = 那条路径永远显示上一轮的残值。
    */
-  const [submittingKind, setSubmittingKind] = useState<"image" | "text">("image");
+  const [submittingKind, setSubmittingKind] = useState<"image" | "text" | "3d">("image");
   /**
    * 「停止」的中止句柄。
    *
@@ -25360,6 +25375,87 @@ function CanvasAssistantPanel({
     const submittedAnnotations = composerAnnotations;
     const submittedVisualReferences =
       getAssistantComposerVisualReferences(composerSegments);
+    /**
+     * 3D 分类：直接走 3D 生成链路，不再落进「生图 / 对话」意图路由。
+     *
+     * 2026-11-15 用户反馈「选了 3D 模型生成的还是图片」：根因是提交函数
+     * 只读 assistantModelTab（业务页签），完全没读展示层分类，于是照样
+     * 派发图片任务。这里把 3D 分支收口在同一个 handleSubmit 入口里。
+     *
+     * ⚠️ 复用 @/lib/ai 的 3D 任务收口（与「图片右键 → 生成 3D 模型」同一条
+     *    /api/threed/generate + 轮询链路），不另写一套 fetch。
+     * ⚠️ 3D 模型单价 300~500 积分/次且各不相同，模型由用户在下拉里显式
+     *    选定并带积分角标，这里不改动任何默认模型或计费口径。
+     */
+    if (assistantModelPanelCategory === "3d") {
+      const threeDPrompt = submittedComposerPrompt.trim();
+      const threeDModelId = assistant3DModelId;
+      const threeDTaskId = `threed-composer-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `user-${Date.now()}`,
+          role: "user" as const,
+          content: submittedText,
+          timestamp: new Date(),
+        },
+      ]);
+      setComposerSegments([createAssistantTextSegment("")]);
+      syncedReferenceIdsRef.current.clear();
+      syncedAnnotationIdsRef.current.clear();
+      onMergeReferences([]);
+      submittedAnnotations.forEach(annotation =>
+        onRemoveAnnotationReference(annotation.id)
+      );
+      assistantAbortRef.current?.abort();
+      const threeDAbort = new AbortController();
+      assistantAbortRef.current = threeDAbort;
+      setSubmittingKind("3d");
+      setIsSubmitting(true);
+      try {
+        await startThreeDGenerationTask({
+          taskId: threeDTaskId,
+          prompt: threeDPrompt || "高质量 3D 模型",
+          model: threeDModelId,
+        });
+        const completed = await waitForThreeDGenerationTask(
+          threeDTaskId,
+          threeDAbort.signal
+        );
+        if (!completed.modelUrl) {
+          throw new Error("3D 生成完成但未返回模型文件地址");
+        }
+        window.dispatchEvent(
+          new CustomEvent(CANVAS_3D_GENERATED_EVENT, {
+            detail: {
+              modelUrl: completed.modelUrl,
+              model: threeDModelId,
+              prompt: threeDPrompt,
+            },
+          })
+        );
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `assistant-3d-${Date.now()}`,
+            role: "assistant" as const,
+            content: `已生成 3D 模型（${assistant3DModel?.label || threeDModelId}）：${threeDPrompt.slice(0, 60)}`,
+            timestamp: new Date(),
+          },
+        ]);
+      } catch (error) {
+        if (!isAiAbortError(error)) {
+          toast("3D 生成失败", {
+            description: error instanceof Error ? error.message : "请稍后重试",
+          });
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user" as const,
@@ -26753,7 +26849,11 @@ function CanvasAssistantPanel({
                     }}
                   >
                     <span className="type-caption" data-assistant-pending-kind={submittingKind}>
-                      {submittingKind === "image" ? "正在生成图片中..." : "AI 正在回复中..."}
+                      {submittingKind === "3d"
+                        ? "正在生成 3D 模型..."
+                        : submittingKind === "image"
+                          ? "正在生成图片中..."
+                          : "AI 正在回复中..."}
                     </span>
                   </div>
                 </div>
@@ -27915,6 +28015,26 @@ function CanvasAssistantPanel({
                                     {assistantModelPanelCategory === "image" ? (
                                       <HighCostBadge model={model.id} />
                                     ) : null}
+                                    {/* 3D 模型单价各不同（300~500 积分/次），选中前必须让用户看见花多少。 */}
+                                    {assistantModelPanelCategory === "3d" &&
+                                    getAiThreeDModelCreditPolicy(model.id) ? (
+                                      <span
+                                        className="shrink-0 rounded-full"
+                                        style={{
+                                          fontSize: 9,
+                                          lineHeight: "14px",
+                                          padding: "0 6px",
+                                          color: sub,
+                                          background:
+                                            assistantModelPopoverTokens.hoverBackground,
+                                          border: `1px solid ${assistantModelPopoverTokens.border}`,
+                                          letterSpacing: 0,
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {getAiThreeDModelCreditPolicy(model.id)!.creditsPerGeneration} 积分/次
+                                      </span>
+                                    ) : null}
                                   </div>
                                   {"description" in model &&
                                   model.description ? (
@@ -28510,6 +28630,19 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [threeDGeneratorTarget, setThreeDGeneratorTarget] = useState<{ nodeId: string; imageUrl: string } | null>(null);
   /** 3D 预览弹窗状态；null = 关闭 */
   const [threeDViewerState, setThreeDViewerState] = useState<{ modelUrl: string; model: string; prompt: string } | null>(null);
+  /** 3D 生成完成的唯一收口：两个生成入口都派发同一个事件，这里统一开预览。 */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onGenerated = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ modelUrl: string; model: string; prompt: string }>
+      ).detail;
+      if (!detail?.modelUrl) return;
+      setThreeDViewerState(detail);
+    };
+    window.addEventListener(CANVAS_3D_GENERATED_EVENT, onGenerated);
+    return () => window.removeEventListener(CANVAS_3D_GENERATED_EVENT, onGenerated);
+  }, []);
   /**
    * 画布底纹 / 网格吸附偏好（2026-11-14）。用 ref 镜像供 onNodeDragStop 读取，
    * 避免把整条拖动回调的依赖数组改成随偏好变化。
@@ -40913,7 +41046,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           onClose={() => setThreeDGeneratorTarget(null)}
           onGenerated={(modelUrl, model, prompt) => {
             setThreeDGeneratorTarget(null);
-            setThreeDViewerState({ modelUrl, model, prompt });
+            window.dispatchEvent(
+              new CustomEvent(CANVAS_3D_GENERATED_EVENT, {
+                detail: { modelUrl, model, prompt },
+              })
+            );
           }}
         />
       )}

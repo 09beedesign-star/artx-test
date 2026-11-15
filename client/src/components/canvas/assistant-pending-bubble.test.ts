@@ -15,11 +15,17 @@ function sliceFrom(anchor: string, length = 20000) {
 }
 
 describe("assistant pending bubble copy", () => {
-  it("气泡按 submittingKind 切换文案，默认是出图", () => {
-    expect(source).toContain('useState<"image" | "text">("image")');
-    expect(source).toContain(
-      '{submittingKind === "image" ? "正在生成图片中..." : "AI 正在回复中..."}'
-    );
+  it("气泡按 submittingKind 切换文案，默认出图，3D 有独立文案", () => {
+    /*
+     * 2026-11-15：submittingKind 扩出 "3d" 分支（3D 生成也要有进度气泡）。
+     * 约束没变（气泡必须随 kind 切换、默认仍是出图），只是实现方式从
+     * 二值三元变成三值嵌套 —— 锁语义，不要锁旧字面量。
+     */
+    expect(source).toMatch(/useState<"image" \| "text" \| "3d">\("image"\)/);
+    expect(source).toContain('submittingKind === "3d"');
+    expect(source).toContain('"正在生成 3D 模型..."');
+    expect(source).toContain('"正在生成图片中..."');
+    expect(source).toContain('"AI 正在回复中..."');
   });
 
   it("不再有写死的「AI 正在回复中」气泡", () => {
