@@ -13799,7 +13799,7 @@ function DraftImageNodeComponent({
             }}
             onClick={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}
-            rows={3}
+            rows={4}
             className="w-full resize-none bg-transparent outline-none"
             style={{ color: text, fontSize: 14, lineHeight: 1.65 }}
             placeholder="描述要生成的图像，例如：未来感跑鞋产品海报，紫蓝霓虹光，干净电商主视觉..."
@@ -13841,10 +13841,16 @@ function DraftImageNodeComponent({
             张数 / 画幅）。各选择器的下拉 createPortal 到 body 定位，
             不受节点容器 overflow:hidden 裁剪。
           */}
+          {/*
+            2026-11-15 用户要求：去掉「Enter 生成 · Shift+Enter 换行」灰字，
+            控制条下移与「生成」按钮同一行底部对齐，省下的一行高度让给输入框（rows 3→4）。
+          */}
           <div
-            className="mt-2 flex flex-wrap items-center gap-2"
+            data-draft-control-row=""
+            className="mt-2 flex items-center justify-between gap-2"
             onMouseDown={e => e.stopPropagation()}
           >
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -13891,13 +13897,6 @@ function DraftImageNodeComponent({
               isDark={isDark}
             />
           </div>
-          <div
-            className="mt-2 flex items-center justify-between"
-            style={{ color: sub }}
-          >
-            <span className="min-w-0 truncate type-caption">
-              Enter 生成 · Shift+Enter 换行
-            </span>
             <button
               type="button"
               className="shrink-0 whitespace-nowrap rounded-[var(--radius-md-design)] px-3 py-1.5 type-caption transition-opacity hover:opacity-90 disabled:opacity-50"
