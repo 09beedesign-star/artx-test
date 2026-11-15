@@ -1780,7 +1780,7 @@ function NodeToolbar({
       className="flex items-center justify-between px-2 py-1.5 nodrag nopan"
       style={{ borderTop: `1px solid ${border}` }}
     >
-      <ModelSelector model={model} onChange={onModelChange} isDark={isDark} models={imageModelOptions} />
+      <ModelSelector model={model} onChange={onModelChange} isDark={isDark} models={imageModelOptions} popoverTheme={isDark ? "dark" : "light"} />
       <button
         onClick={e => {
           e.stopPropagation();
@@ -5890,7 +5890,7 @@ function AssetPromptPanel({
         className="flex items-center gap-2 px-3 py-2.5"
         style={{ borderTop: `1px solid ${divider}` }}
       >
-        <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+        <ModelSelector model={model} onChange={setModel} isDark={isDark} popoverTheme={isDark ? "dark" : "light"} />
         <button
           className="flex items-center gap-1 px-2 py-1 rounded-[var(--radius-md-design)] type-caption transition-opacity hover:opacity-80"
           style={{ background: chipBg, color: chipText }}
@@ -17123,7 +17123,7 @@ function BottomPromptBar({
           className="flex min-w-0 items-center gap-2 px-3 pb-3"
           style={{ paddingTop: 8 }}
         >
-          <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+          <ModelSelector model={model} onChange={setModel} isDark={isDark} popoverTheme={isDark ? "dark" : "light"} />
           <ImageCountSelector
             value={count}
             onChange={setCount}
@@ -18824,6 +18824,7 @@ function AssetEditPromptBar({
             onChange={setModel}
             isDark={isDark}
             iconOnly
+            popoverTheme={isDark ? "dark" : "light"}
             surface={{
               background: iconRowButton.background,
               border: "transparent",

@@ -10,7 +10,7 @@ import {
   sortImageModelIdsByPriority,
   isVodModelId,
 } from "../shared/image-models";
-import { DEFAULT_TEXT_MODEL, isClaudeTextModelId } from "../shared/text-models";
+import { DEFAULT_TEXT_MODEL, isClaudeTextModelId, isKnownTextModelId } from "../shared/text-models";
 import { resolveImageResolutionTier } from "../shared/ai-credit-policy";
 import { resolveImageDeliverable } from "../shared/image-deliverable";
 import { DEFAULT_AUTO_RATIO, resolveImageRatio } from "../shared/image-ratios";
@@ -4664,9 +4664,9 @@ async function pollAsyncImageTask(
 
 function resolveSmartAnnotationEditModel(requestedModel: string | undefined, configuredModel: string) {
   const requested = (requestedModel || "").trim();
-  // 前端可能把画布模型选择器里的 chat 类模型（如 gemini-3.5-flash-preview）传给智能注释，
+  // 前端可能把画布模型选择器里的 chat 类模型（如 gemini-3.5-flash-preview、gpt-5.5）传给智能注释，
   // 但 chat 模型不能做「参考图编辑」，直接视为未指定，回落到默认参考图模型。
-  if (!requested || requested.toLowerCase() === "auto" || requested === "gpt-image-2" || isChatCompatibleImageModel(requested)) {
+  if (!requested || requested.toLowerCase() === "auto" || requested === "gpt-image-2" || isChatCompatibleImageModel(requested) || isKnownTextModelId(requested)) {
     return DEFAULT_IMAGE_MODEL_ID;
   }
   return requested || configuredModel || DEFAULT_IMAGE_MODEL_ID;
@@ -5780,7 +5780,13 @@ export async function editImageWithPrompt(input: EditImageInput): Promise<Genera
   const targetWidth = targetSize.width;
   const targetHeight = targetSize.height;
   let sourceImage = bufferToImageFile(sourceImageData.buffer, sourceImageData.mimeType);
-  const requestedModel = (input.model || model).trim();
+  const rawRequestedModel = (input.model || model).trim();
+  // 如果调用方透传了文本模型（如 gpt-5.5、claude-opus-5），直接回落到默认图片模型。
+  // 背景任务路径（/api/images/tasks）不经过 resolveModelRoute，可能把画布上选中的
+  // 文本模型原样传进来，导致「not supported」错误。
+  const requestedModel = isKnownTextModelId(rawRequestedModel)
+    ? DEFAULT_IMAGE_MODEL_ID
+    : rawRequestedModel;
   const usesCameraViewAutoModel = isCameraViewOperation && requestedModel === "camera-view-auto";
   const usesAutoModel = requestedModel.toLowerCase() === "auto" || usesCameraViewAutoModel;
   const selectedModels = usesAutoModel
