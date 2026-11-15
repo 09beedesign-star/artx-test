@@ -249,6 +249,24 @@ export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
     estimatedCostPerUnit: 0.05,
     providerDefault: "OpenAI",
   },
+  /**
+   * text_to_3d 兜底条目 —— 匹配不到特定模型时的回落值。
+   *
+   * ⚠️ quoteAiUsage 对 text_to_3d 能力会优先查 AI_THREED_MODEL_CREDIT_POLICIES
+   *    按模型精确计费（300–500 积分/次）；只有完全找不到模型 id 时才落到这里。
+   *
+   * baseCredits = 400：与 hunyuan3d-2.5（全站默认3D档，¥0.50/次）对应，
+   * 毛利率 84.9%，与主力能力区间（85-91%）对齐。
+   * estimatedCostPerUnit 取四款模型的均值成本 (0.50+0.65+0.45+0.38)/4 ≈ 0.50 CNY。
+   */
+  {
+    capability: "text_to_3d",
+    label: "3D 模型生成",
+    billingUnit: "per_request",
+    baseCredits: 400,
+    estimatedCostPerUnit: 0.50,
+    providerDefault: "混元3D",
+  },
 ];
 
 /**
@@ -565,6 +583,13 @@ export function quoteAiUsage(input: {
   const rawModelPolicy = input.capability === "text_to_image"
     ? getAiImageModelCreditPolicy(input.model)
     : null;
+  /**
+   * 3D 生成按模型精确计费（类似 text_to_image 查 AI_IMAGE_MODEL_CREDIT_POLICIES）。
+   * 找不到具体模型 id 时返回 null，后续落回兜底 baseCredits: 400。
+   */
+  const threeDModelPolicy = input.capability === "text_to_3d"
+    ? getAiThreeDModelCreditPolicy(input.model)
+    : null;
   const deliverable = rawModelPolicy ? input.deliverable : undefined;
   const outputCount = deliverable ? 1 : Math.max(1, Math.round(input.outputCount || 1));
   const modelPolicy = rawModelPolicy && deliverable
@@ -575,27 +600,38 @@ export function quoteAiUsage(input: {
     : rawModelPolicy;
   /**
    * 分辨率只对出图生效。抠图/擦除/OCR 这些能力的上游报价与分辨率无关，
-   * 给它们乘系数等于凭空加价。
+   * 给它们乘系数等于凭空加价。3D 生成同理，不受分辨率影响。
    */
   const resolutionPolicy = input.capability === "text_to_image" && !deliverable
     ? getAiImageResolutionPolicy(input.resolutionTier)
     : AI_IMAGE_RESOLUTION_POLICIES[0];
-  const rawCredits = modelPolicy
-    ? modelPolicy.creditsPerImage * outputCount
-    : policy.billingUnit === "per_image"
-      ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
-      : policy.baseCredits;
+  /**
+   * 计费优先级：
+   * 1. 3D 模型精确策略（text_to_3d + 能匹配到具体模型）
+   * 2. 图片模型精确策略（text_to_image + 能匹配到具体模型）
+   * 3. 兜底 billingUnit / baseCredits
+   */
+  const rawCredits = threeDModelPolicy
+    ? threeDModelPolicy.creditsPerGeneration
+    : modelPolicy
+      ? modelPolicy.creditsPerImage * outputCount
+      : policy.billingUnit === "per_image"
+        ? policy.baseCredits * outputCount + (policy.perOutputCredits || 0) * Math.max(0, outputCount - 1)
+        : policy.baseCredits;
   const discountMultiplier = modelPolicy?.applyPlanDiscount === false ? 1 : discount.multiplier;
   /**
    * 取整到十位，与 creditsPerImage 的定价口径保持一致（low 40 / medium 70 / high 300）。
    * 不取整会出现 150.something 这种数字，展示到前端很难看，
    * 也让用户无法心算「我还能出几张」。
+   * 3D 本身已是 50 的倍数（300/350/400/500），取整不改变数字，只统一口径。
    */
   const scaledCredits = rawCredits * discountMultiplier * resolutionPolicy.creditsMultiplier;
   const memorySurcharge = getMemoryContextSurcharge(input.capability, input.userMemoryContext);
   const chargedCredits = Math.max(1, Math.round(scaledCredits / 10) * 10) + memorySurcharge;
   const estimatedCost = Number((
-    (modelPolicy?.estimatedCostPerImage || policy.estimatedCostPerUnit)
+    (threeDModelPolicy?.estimatedCostPerGeneration
+      || modelPolicy?.estimatedCostPerImage
+      || policy.estimatedCostPerUnit)
     * (policy.billingUnit === "per_image" ? outputCount : 1)
     * resolutionPolicy.costMultiplier
   ).toFixed(2));
