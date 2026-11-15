@@ -42,6 +42,7 @@ const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AdminPrototypePage = lazy(() => import("./pages/AdminPrototypePage"));
 const BillingPage = lazy(() => import("./pages/BillingPage"));
 const CreditsGuidePage = lazy(() => import("./pages/CreditsGuidePage"));
+const MindMapPage = lazy(() => import("./pages/MindMapPage"));
 
 const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 const configuredAdminHost = (import.meta.env.VITE_ADMIN_HOST || "").toLowerCase();
@@ -153,6 +154,13 @@ function ShellRoutes() {
             {/* 创作模板（灵感推荐） */}
             <Route path="/inspiration">
               <InspirationPage />
+            </Route>
+
+            {/* 思维导图 */}
+            <Route path="/mindmap">
+              <RequireLogin>
+                <MindMapPage />
+              </RequireLogin>
             </Route>
 
             {/* 技能商店 */}

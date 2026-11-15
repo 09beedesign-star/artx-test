@@ -180,7 +180,7 @@ export function SkillSelector({
           setOpen(value => !value);
           requestAnimationFrame(updatePopoverPosition);
         }}
-        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors"
+        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-md-design)] px-2 transition-colors focus:outline-none"
         style={{
           width: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : undefined,
           maxWidth: compact ? COMPACT_DISCLOSURE_BUTTON_WIDTH : 74,

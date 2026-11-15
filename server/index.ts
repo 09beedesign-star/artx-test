@@ -534,7 +534,7 @@ function getRouteImageProvider(body: unknown) {
  * - 图片生成/编辑 → 按模型归属到腾讯云 VOD 或中转站 BKEEL
  */
 function resolveProviderByCapability(capabilityKey: AiBillingCapability, model: string): string {
-  if (capabilityKey === "text_generation") {
+  if (capabilityKey === "text_generation" || capabilityKey === "text_to_mindmap") {
     return TEXT_PROVIDER_BKEEL;
   }
   // OCR 走中转站的视觉模型，不是 VOD 出图链路，
@@ -651,6 +651,7 @@ function capabilityFromOrchestrator(capability: string): AiBillingCapability {
   if (capability === "image_edit" || capability === "edit") return "image_edit";
   if (capability === "image_erase" || capability === "erase") return "image_erase";
   if (capability === "image_ocr") return "image_ocr";
+  if (capability === "text_to_mindmap" || capability === "mindmap") return "text_to_mindmap";
   return "text_generation";
 }
 
