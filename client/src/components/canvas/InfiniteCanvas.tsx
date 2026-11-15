@@ -13859,7 +13859,13 @@ function DraftImageNodeComponent({
             >
               <ImagePlus size={13} />
             </button>
-            <ModelSelector model={model} onChange={setModel} isDark={isDark} />
+            {/* 2026-11-15 用户要求：空状态「生成图片」草稿框里的模型下拉在浅色主题下为白色模式。 */}
+            <ModelSelector
+              model={model}
+              onChange={setModel}
+              isDark={isDark}
+              popoverTheme={isDark ? "dark" : "light"}
+            />
             <SkillPointSelector
               activeSkill={activeSkill}
               onChange={handleSkillChange}
