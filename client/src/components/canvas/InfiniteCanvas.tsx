@@ -19316,7 +19316,6 @@ function ImageGeneratorPopover({
 }) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("auto");
-  const [modelOpen, setModelOpen] = useState(false);
   const [ratio, setRatio] = useState("1:1");
   const [count, setCount] = useState(2);
   const [referencesEnabled, setReferencesEnabled] = useState(false);
@@ -19328,7 +19327,6 @@ function ImageGeneratorPopover({
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
     null
   );
-  const modelRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -19461,26 +19459,6 @@ function ImageGeneratorPopover({
     },
     [clampPopoverPosition, position]
   );
-
-  useEffect(() => {
-    if (!modelOpen) return;
-    const handler = (event: MouseEvent) => {
-      if (
-        modelRef.current &&
-        event.target instanceof globalThis.Node &&
-        !modelRef.current.contains(event.target)
-      )
-        setModelOpen(false);
-    };
-    const timer = window.setTimeout(
-      () => document.addEventListener("mousedown", handler),
-      50
-    );
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("mousedown", handler);
-    };
-  }, [modelOpen]);
 
   const controlButtonStyle = (active: boolean): React.CSSProperties => ({
     height: 30,
@@ -19786,140 +19764,15 @@ function ImageGeneratorPopover({
             <p className="mb-1.5 type-caption" style={{ color: sub }}>
               模型
             </p>
-            <div ref={modelRef} className="relative">
-              <button
-                type="button"
-                className="flex h-9 w-full items-center justify-between rounded-[var(--radius-lg-design)] px-3 type-caption transition-colors"
-                style={{
-                  background: fieldBg,
-                  border: `1px solid ${border}`,
-                  color: text,
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = hoverBg)}
-                onMouseLeave={e => (e.currentTarget.style.background = fieldBg)}
-                onClick={() => setModelOpen(open => !open)}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <AssistantModelIcon modelId={selectedModel.id} icon={selectedModel.icon} color={text} />
-                  <span className="truncate">{selectedModel.label}</span>
-                </span>
-                <ChevronDown
-                  size={12}
-                  style={{
-                    opacity: 0.6,
-                    transform: modelOpen ? "rotate(180deg)" : "none",
-                    transition: "transform 0.16s ease",
-                  }}
-                />
-              </button>
-
-              {modelOpen && (
-                <div
-                  className="absolute bottom-full left-0 mb-2 overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-                  style={{
-                    background: isDark
-                      ? "#161616"
-                      : "rgba(255,255,255,0.97)",
-                    border: `1px solid ${border}`,
-                    minWidth: 220,
-                    width: "max-content",
-                    maxHeight: 132,
-                    zIndex: 80,
-                    backdropFilter: "blur(16px)",
-                  }}
-                >
-                  <div
-                    className="model-selector-scroll"
-                    style={{
-                      maxHeight: 132,
-                      overflowY: "auto",
-                      overscrollBehavior: "contain",
-                      scrollbarWidth: "thin",
-                      scrollbarColor: `${isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)"} transparent`,
-                    }}
-                    onWheel={e => e.stopPropagation()}
-                  >
-                    {imageModelOptions.map(item => {
-                      const active = selectedModel.id === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          disabled={item.disabled}
-                          className="flex h-9 w-full items-center justify-between px-3 text-left type-caption transition-colors"
-                          style={{
-                            color: text,
-                            opacity: item.disabled ? 0.46 : 1,
-                            cursor: item.disabled ? "not-allowed" : "pointer",
-                            background: active
-                              ? "rgba(22,22,22,0.12)"
-                              : "transparent",
-                          }}
-                          onMouseEnter={e =>
-                            (e.currentTarget.style.background = active
-                              ? "rgba(22,22,22,0.12)"
-                              : hoverBg)
-                          }
-                          onMouseLeave={e =>
-                            (e.currentTarget.style.background = active
-                              ? "rgba(22,22,22,0.12)"
-                              : "transparent")
-                          }
-                          onClick={() => {
-                            if (item.disabled) {
-                              toast("当前模型暂不可用", {
-                                description: item.unavailableReason || "请切换其他模型继续创作。",
-                              });
-                              return;
-                            }
-                            setModel(item.id);
-                            setModelOpen(false);
-                          }}
-                        >
-                          <span className="flex min-w-0 items-center gap-2.5">
-                            <AssistantModelIcon modelId={item.id} icon={item.icon} color={text} />
-                            <span className="flex min-w-0 flex-col leading-tight">
-                              <span className="flex min-w-0 items-center gap-1.5">
-                                <span
-                                  className="truncate type-caption"
-                                  style={{
-                                    color: text,
-                                    textTransform: "none",
-                                    letterSpacing: "0.02em",
-                                  }}
-                                >
-                                  {item.label}
-                                </span>
-                                <HighCostBadge model={item.id} />
-                              </span>
-                              {"description" in item && item.description ? (
-                                <span
-                                  className="truncate"
-                                  style={{
-                                    color: sub,
-                                    fontSize: 10,
-                                    letterSpacing: 0,
-                                    marginTop: 2,
-                                  }}
-                                >
-                                  {item.unavailableReason || item.description}
-                                </span>
-                              ) : null}
-                            </span>
-                          </span>
-                          {active && (
-                            <Check
-                              size={13}
-                              style={{ color: accent, flexShrink: 0 }}
-                            />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            <ModelSelector
+              model={model}
+              onChange={setModel}
+              isDark={isDark}
+              models={imageModelOptions}
+              popoverTheme={isDark ? "dark" : "light"}
+              placement="up"
+              enable3D={true}
+            />
           </div>
           <div className="min-w-0">
             <p className="mb-1.5 type-caption" style={{ color: sub }}>
