@@ -22441,6 +22441,27 @@ function CanvasAssistantPanel({
     ? "#bbbbbb"
     : "#777472";
   const compactSelectorActiveText = "white";
+  /**
+   * 右下角对话框 composer「模型」按钮上的图标色。
+   *
+   * 2026-11-15 用户反馈：浅色主题下这颗图标完全看不见。原因是这里直接调用
+   * AssistantModelIcon 却没传 color，而它的默认值是 #FFFFFF —— 白图标画在
+   * 白色按钮底上，视觉上只剩右边那颗展开箭头。
+   *
+   * ⚠️ 不能改 AssistantModelIcon 的默认值：组件是被多处共用的，同文件的
+   * 模型下拉列表（深色 #161616 底）就依赖白色，改默认值等于一次改掉全站
+   * 所有调用点。这里只在调用点显式传一份，并按主题 / 交互态跟随按钮文字色：
+   *   - 默认态：浅色 #161616（黑，和旁边 ⊙ / 图片 / 画幅几颗线性图标同色），
+   *     深色用浅白；
+   *   - hover / 展开态：按钮底色转深（#262627），图标必须同步转白，
+   *     否则又会变成「深底深图标」看不见。
+   */
+  const assistantComposerModelIconColor =
+    agentMenuOpen || agentButtonHover
+      ? compactSelectorActiveText
+      : isDark
+        ? "#f5f5f5"
+        : "#161616";
   /*
    * ⚠️ `activeGlow`（聚焦态的绿色光晕 + 黑色重投影）已于 2026-11-10 按用户要求移除。
    * 不要再加回来：输入框聚焦是**常态**，不是需要用户响应的临时提示。
@@ -27661,7 +27682,11 @@ function CanvasAssistantPanel({
                       aria-label="选择模型"
                     >
                       {!assistantAutoMode && (
-                        <AssistantModelIcon modelId={assistantModel.id} icon={assistantModel.icon} />
+                        <AssistantModelIcon
+                          modelId={assistantModel.id}
+                          icon={assistantModel.icon}
+                          color={assistantComposerModelIconColor}
+                        />
                       )}
                       {!compactAssistantControls && (
                         <span className="min-w-0 max-w-[108px] truncate">
@@ -27669,7 +27694,7 @@ function CanvasAssistantPanel({
                         </span>
                       )}
                       {compactAssistantControls && assistantAutoMode && (
-                        <WandSparkles size={13} />
+                        <WandSparkles size={13} color={assistantComposerModelIconColor} />
                       )}
                       <ComposerDisclosureCaret
                         open={agentMenuOpen}
