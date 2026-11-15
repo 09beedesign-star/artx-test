@@ -395,11 +395,9 @@ export function CenteredPromptPanel({
         {activeSkill && (
           <div className="mb-3 flex flex-wrap gap-2">
             <div
-              className="group relative flex items-center gap-2 rounded-full border px-3 py-1.5"
+              className="group relative flex items-center gap-2 rounded-full px-3 py-1.5"
               style={{
-                borderColor: isDark
-                  ? "rgba(255,255,255,0.15)"
-                  : "#e6e3df",
+                border: isDark ? "1px solid rgba(255,255,255,0.15)" : "none",
                 backgroundColor: isDark
                   ? "rgba(255,255,255,0.08)"
                   : "#f5f6f8",

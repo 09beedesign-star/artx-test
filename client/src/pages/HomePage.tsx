@@ -263,7 +263,7 @@ export default function HomePage() {
   // ── 全局主题颜色（图叙 AI 规格）──
   const textPrimary = isDark ? "#f1f1f3" : "#262627";
   const textSecondary = isDark ? "#a0a0a6" : "#777472";
-  const textMuted = isDark ? "#777472" : "#9e9b99";
+  const textMuted = isDark ? "#777472" : "#737070";
   const textTertiary = isDark ? "rgba(255,255,255,0.40)" : "#b0aeac";
   const textAccent = isDark ? "#f1f1f3" : "#262627";
   const bgMain = isDark ? "#111111" : "#ffffff";
