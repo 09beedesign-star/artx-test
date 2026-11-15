@@ -19928,6 +19928,7 @@ function ImageGeneratorPopover({
               activeSkill={activeSkill}
               onChange={handleSkillChange}
               isDark={isDark}
+              compact
             />
           </div>
           <div className="min-w-0">
@@ -20835,7 +20836,9 @@ function CanvasTopToolPalette({
     const handler = () => {
       setShapeOpen(false);
       setDrawOpen(false);
-      setImageGeneratorOpen(false);
+      // 🔒 2026-11-17：生图浮层是独立悬浮面板（fixed + portal），
+      //    与图层面板相同，只有点关闭按钮才关，不跟随画布空击关闭。
+      // setImageGeneratorOpen(false); ← 已移除
     };
     window.addEventListener("pane-click", handler);
     return () => window.removeEventListener("pane-click", handler);
