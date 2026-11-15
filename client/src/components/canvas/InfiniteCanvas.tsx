@@ -14649,6 +14649,55 @@ function getAssetNodeImageSource(node: Node): string {
   return getCanvasRenderableImageSrc(asset?.src || "");
 }
 
+/**
+ * 悬浮提示词输入框（AssetEditPromptBar）提交时的「提示词优化」是**可选增强**，
+ * 不是图片编辑成立的必要条件。
+ *
+ * ⚠️⚠️⚠️ 2026-11-15 线上事故：中转站文本网关瞬时返回
+ * `upstream error: do request failed (request id: ...)`，`generateText` 把这个
+ * message 原样抛出 → `/api/ai/orchestrate` 500。旧写法里 `callLLM` 是 try 块的
+ * 第一步且**没有任何兜底**，于是整个快捷编辑直接进 catch，用户看到
+ * 「快捷编辑失败」；而真正出图的 VOD 链路（完全健康、与文本网关无关）
+ * **根本没被执行** —— 这正是用户说的「输入提示词后无法实现图片重绘的效果」。
+ * 线上 nginx 日志同分钟 3 次 orchestrate 500、images/tasks 200，可交叉印证。
+ *
+ * 📌 判据：把「可选的增强层」设成功能成立的必要条件 = 随机断路器（A4 同款）。
+ * 文本网关一抖，局部重绘整条链路跟着躺下，尽管二者毫无依赖。
+ *
+ * ✅ 优化失败一律降级为调用方给的原始提示词，继续走图片生成。
+ *    硬约束（视角锁 / 局部框选前缀）由调用方加在**优化之后**，降级路径
+ *    同样会经过，不会被冲掉。
+ * ⚠️ 两处出口（图片快捷编辑 / 3D 视角渲染）必须共用本函数，别在一处打补丁。
+ */
+async function optimizeImageEditPromptWithFallback({
+  module,
+  images,
+  prompt,
+  fallback,
+}: {
+  module: string;
+  images: Array<{ src: string; title?: string }>;
+  prompt: string;
+  fallback: string;
+}): Promise<string> {
+  try {
+    const result = await callLLM({
+      module,
+      model: DEFAULT_TEXT_MODEL,
+      images,
+      prompt,
+    });
+    return result.text.trim() || fallback;
+  } catch (error) {
+    // 只留归因日志，不打断出图：上游文本网关故障不应让用户拿不到重绘结果。
+    console.warn(
+      `[image-edit-prompt] ${module} 优化失败，降级为原始提示词继续出图:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    return fallback;
+  }
+}
+
 async function getVisibleAssetImageSourceFromNode(node: Node) {
   if (node.type !== "asset") return "";
   const data = node.data as Record<string, unknown>;
@@ -38346,9 +38395,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId
       );
       try {
-        const optimizedPrompt = await callLLM({
+        // ⚠️ 提示词优化是可选增强，失败不能拖垮出图（见
+        // optimizeImageEditPromptWithFallback 的事故说明）。
+        const optimizedText = await optimizeImageEditPromptWithFallback({
           module: "image-quick-edit-prompt",
-          model: DEFAULT_TEXT_MODEL,
           images: [
             { src: latestImageSrc, title: target.title },
             ...payload.references,
@@ -38362,11 +38412,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ? [skillContext, "必须优先遵守上方 Skill 的能力说明与执行规则。"]
               : []),
           ].join("\n"),
+          fallback:
+            payload.prompt ||
+            `基于原图优化：${target.title}`,
         });
-        const optimizedText =
-          optimizedPrompt.text.trim() ||
-          payload.prompt ||
-          `基于原图优化：${target.title}`;
         /**
          * 局部重绘时在优化后的提示词**前面**加一段硬约束。
          *
@@ -38665,9 +38714,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         projectId
       );
       try {
-        const optimizedPrompt = await callLLM({
+        // ⚠️ 与图片快捷编辑共用同一层可选增强兜底，别在这里另写一份
+        // callLLM（否则「多个出口只改一个」，文本网关一抖 3D 渲染又躺下）。
+        const optimizedText = await optimizeImageEditPromptWithFallback({
           module: "model3d-view-render-prompt",
-          model: DEFAULT_TEXT_MODEL,
           images: [
             { src: sourceSrc, title: "3D 模型当前视角" },
             ...payload.references,
@@ -38683,8 +38733,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               ? [skillContext, "必须优先遵守上方 Skill 的能力说明与执行规则。"]
               : []),
           ].join("\n"),
+          fallback: placeholderPrompt,
         });
-        const optimizedText = optimizedPrompt.text.trim() || placeholderPrompt;
         // 视角锁加在 LLM 改写**之后**，否则会被改写洗掉（同 handleAssetEditSubmit）。
         const finalPrompt = [
           VIEWPOINT_LOCK_PROMPT_ZH,
