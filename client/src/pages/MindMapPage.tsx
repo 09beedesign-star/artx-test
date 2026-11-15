@@ -18,6 +18,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -264,7 +265,7 @@ const ContextMenu = ({
     return () => window.removeEventListener("pointerdown", handler);
   }, [onClose]);
 
-  return (
+  const menu = (
     <div
       style={{
         position: "fixed",
@@ -287,6 +288,9 @@ const ContextMenu = ({
       <ContextMenuItem icon={<Trash2 size={13} />} label="删除节点" color={isRoot ? "#a1a1aa" : "#ef4444"} onClick={() => { onDelete(); onClose(); }} disabled={isRoot} />
     </div>
   );
+
+  if (typeof document === "undefined") return menu;
+  return createPortal(menu, document.body);
 };
 
 const ContextMenuItem = ({
@@ -929,30 +933,15 @@ export default function MindMapPage() {
                     e.preventDefault();
                     e.stopPropagation();
                     setSelectedId(node.id);
-                    // 计算节点右侧 12px 的屏幕坐标
-                    // 节点在 SVG 画布里的左上角 = (node.x, node.y)
-                    // SVG 画布的 g transform = translate(pan.x, pan.y) scale(zoom)
-                    // 屏幕坐标 = svgRect.left + pan.x + (node.x + NODE_W) * zoom
-                    const svgEl = svgRef.current;
-                    const MENU_W = 160; // 菜单约宽
-                    const MENU_H = 120; // 菜单约高
-                    const GAP = 12;
-                    if (svgEl) {
-                      const svgRect = svgEl.getBoundingClientRect();
-                      const nodeScreenX = svgRect.left + pan.x + (node.x + NODE_W) * zoom;
-                      const nodeScreenY = svgRect.top + pan.y + node.y * zoom;
-                      // 超出右侧 → 显示在节点左侧
-                      const finalX = nodeScreenX + GAP + MENU_W > window.innerWidth
-                        ? svgRect.left + pan.x + node.x * zoom - MENU_W - GAP
-                        : nodeScreenX + GAP;
-                      // 超出底部 → 向上偏移
-                      const finalY = nodeScreenY + MENU_H > window.innerHeight
-                        ? window.innerHeight - MENU_H - 8
-                        : nodeScreenY;
-                      setCtxMenu({ x: finalX, y: finalY, nodeId: node.id });
-                    } else {
-                      setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
-                    }
+                    const MENU_W = 160;
+                    const MENU_H = 120;
+                    const GAP = 8;
+                    // 以鼠标位置为基准，右侧 GAP 偏移；超出视口边界则自动收回
+                    const rawX = e.clientX + GAP;
+                    const rawY = e.clientY + GAP;
+                    const finalX = rawX + MENU_W > window.innerWidth ? e.clientX - MENU_W - GAP : rawX;
+                    const finalY = rawY + MENU_H > window.innerHeight ? e.clientY - MENU_H - GAP : rawY;
+                    setCtxMenu({ x: finalX, y: finalY, nodeId: node.id });
                   }}
                 >
                   {/* 节点矩形 */}
