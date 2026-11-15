@@ -27,8 +27,8 @@ describe("版式工作台接线", () => {
     expect(canvas).toContain("PanelsTopLeft");
   });
 
-  it("🔒 2026-11-14 暂时屏蔽：入口被开关过滤掉，前端不显示（代码保留）", () => {
-    expect(CANVAS_TEMPLATES_ENABLED).toBe(false);
+  it("🔒 2026-11-15 恢复：入口已打开，同时保留开关过滤代码", () => {
+    expect(CANVAS_TEMPLATES_ENABLED).toBe(true);
     expect(canvas).toContain('tool => tool.id !== "templates" || CANVAS_TEMPLATES_ENABLED');
   });
 
