@@ -13543,8 +13543,15 @@ function DraftImageNodeComponent({
   const border = isDark ? "#2e2e33" : "rgba(0,0,0,0.10)";
   const text = isDark ? "rgba(255,255,255,0.86)" : "rgba(22,22,34,0.86)";
   const sub = isDark ? "rgba(255,255,255,0.62)" : "rgba(22,22,34,0.48)";
-  const fieldBg = isDark ? "#242424" : "rgba(0,0,0,0.035)";
+  // 2026-11-15 用户要求：输入框纯白底（浅色主题），深色主题保持原深色。
+  const fieldBg = isDark ? "#242424" : "#ffffff";
   const surfaceBg = isDark ? "rgba(30,30,32,0.72)" : "rgba(255,255,255,0.86)";
+  // 底部控制行图标按钮：与右侧主 composer iconRowButton 同规格，透明底 hover 加深。
+  const draftIconBtn = {
+    background: "transparent",
+    hoverBackground: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)",
+    text: sub,
+  };
 
   /*
    * 画幅取值口径与主 composer 一致：用户显式选择 > 当前 Skill 的首选画幅 >
@@ -13733,10 +13740,10 @@ function DraftImageNodeComponent({
       */}
       <button
         type="button"
-        className="nodrag nopan absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-[var(--radius-pill)] transition-opacity hover:opacity-70"
+        className="nodrag nopan absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center transition-opacity hover:opacity-50"
         style={{
-          background: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.06)",
-          color: sub,
+          background: "transparent",
+          color: isDark ? "rgba(255,255,255,0.86)" : "#161616",
         }}
         onMouseDown={e => e.stopPropagation()}
         onClick={e => {
@@ -13861,15 +13868,19 @@ function DraftImageNodeComponent({
             />
             <button
               type="button"
-              className="h-7 w-7 rounded-[var(--radius-md-design)] flex items-center justify-center transition-opacity hover:opacity-70"
+              className="h-8 w-8 shrink-0 flex items-center justify-center rounded-[var(--radius-md-design)] transition-colors active:scale-95"
               style={{
-                background: isDark
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(0,0,0,0.06)",
-                color: sub,
+                background: draftIconBtn.background,
+                color: draftIconBtn.text,
               }}
               title="上传参考图片"
               aria-label="上传参考图片"
+              onMouseEnter={e =>
+                (e.currentTarget.style.background = draftIconBtn.hoverBackground)
+              }
+              onMouseLeave={e =>
+                (e.currentTarget.style.background = draftIconBtn.background)
+              }
               onClick={() => fileInputRef.current?.click()}
             >
               <ImagePlus size={13} />
@@ -13880,6 +13891,13 @@ function DraftImageNodeComponent({
               onChange={setModel}
               isDark={isDark}
               popoverTheme={isDark ? "dark" : "light"}
+              surface={{
+                background: draftIconBtn.background,
+                border: "transparent",
+                text: draftIconBtn.text,
+                hoverBackground: draftIconBtn.hoverBackground,
+                hoverText: draftIconBtn.text,
+              }}
             />
             <SkillPointSelector
               activeSkill={activeSkill}
@@ -13890,11 +13908,13 @@ function DraftImageNodeComponent({
               value={imageCount}
               onChange={setImageCount}
               isDark={isDark}
+              ghost={draftIconBtn}
             />
             <ImageRatioSelector
               value={imageRatio}
               onChange={setImageRatio}
               isDark={isDark}
+              ghost={draftIconBtn}
             />
           </div>
             <button
