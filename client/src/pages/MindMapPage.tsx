@@ -289,13 +289,11 @@ export default function MindMapPage() {
       const parsed = JSON.parse(jsonMatch[0]) as MindMapNode;
 
       // 补全缺失的 children 字段
-      function ensureChildren(node: MindMapNode): MindMapNode {
-        return {
-          ...node,
-          id: node.id || uid(),
-          children: (node.children || []).map(ensureChildren),
-        };
-      }
+      const ensureChildren = (node: MindMapNode): MindMapNode => ({
+        ...node,
+        id: node.id || uid(),
+        children: (node.children || []).map(ensureChildren),
+      });
 
       setRoot(ensureChildren(parsed));
       setShowAiPanel(false);
