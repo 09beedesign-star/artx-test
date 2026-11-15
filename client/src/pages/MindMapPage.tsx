@@ -4,6 +4,12 @@
  * 布局：左侧工具面板（手动编辑 + AI 生成）+ 右侧 SVG 节点画布。
  * 不依赖 InfiniteCanvas，自包含拖拽与节点逻辑。
  * 积分：AI 生成消耗 40 积分（text_to_mindmap capability）。
+ *
+ * 新增功能：
+ * - 导出：SVG / PNG / JPG / PDF
+ * - 节点颜色：自定义背景色 & 文字色
+ * - 右键菜单：创建子节点 / 删除 / 复制
+ * - 连线样式：实线 / 虚线（节点维度，影响其连向子节点的线）
  */
 import {
   useCallback,
@@ -18,15 +24,18 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  Copy,
+  Download,
   Edit3,
+  FileImage,
   Loader2,
+  Maximize2,
+  Palette,
   Plus,
   Sparkles,
   Trash2,
-  X,
   ZoomIn,
   ZoomOut,
-  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { callLLM } from "@/lib/ai";
@@ -40,6 +49,12 @@ export type MindMapNode = {
   collapsed?: boolean;
   x?: number;
   y?: number;
+  /** 自定义背景色（hex/rgba），undefined = 使用默认主题色 */
+  bgColor?: string;
+  /** 自定义文字色（hex/rgba），undefined = 使用默认主题色 */
+  textColor?: string;
+  /** 连向子节点的连线样式，undefined = solid */
+  edgeStyle?: "solid" | "dashed";
 };
 
 type LayoutNode = MindMapNode & {
@@ -54,6 +69,13 @@ const NODE_W = 140;
 const NODE_H = 36;
 const H_GAP = 80;
 const V_GAP = 12;
+
+// 节点背景色调色板
+const COLOR_PALETTE = [
+  "#6366f1", "#8b5cf6", "#ec4899", "#ef4444",
+  "#f97316", "#eab308", "#22c55e", "#14b8a6",
+  "#3b82f6", "#0ea5e9", "#6b7280", "#a1a1aa",
+];
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -126,6 +148,15 @@ function removeNode(node: MindMapNode, id: string): MindMapNode {
   };
 }
 
+function deepCloneNode(node: MindMapNode, newIdPrefix?: string): MindMapNode {
+  const prefix = newIdPrefix ?? uid();
+  return {
+    ...node,
+    id: prefix + "_" + uid(),
+    children: node.children.map((c) => deepCloneNode(c, prefix)),
+  };
+}
+
 // ─── SVG 箭头路径 ────────────────────────────────────────────────────────────
 
 function edgePath(
@@ -159,6 +190,134 @@ const DEFAULT_ROOT: MindMapNode = {
   ],
 };
 
+// ─── 导出工具函数 ────────────────────────────────────────────────────────────
+
+/** 将 SVG element 序列化为带 inline 样式的字符串 */
+function serializeSvg(svgEl: SVGSVGElement, w: number, h: number): string {
+  const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("width", String(w));
+  clone.setAttribute("height", String(h));
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return new XMLSerializer().serializeToString(clone);
+}
+
+/** SVG → canvas */
+async function svgToCanvas(
+  svgStr: string,
+  w: number,
+  h: number,
+): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── 右键菜单组件 ────────────────────────────────────────────────────────────
+
+type ContextMenuProps = {
+  x: number;
+  y: number;
+  nodeId: string;
+  isRoot: boolean;
+  dark: boolean;
+  onAddChild: () => void;
+  onDelete: () => void;
+  onCopy: () => void;
+  onClose: () => void;
+};
+
+const ContextMenu = ({
+  x, y, isRoot, dark,
+  onAddChild, onDelete, onCopy, onClose,
+}: ContextMenuProps) => {
+  const bg = dark ? "#27272a" : "#ffffff";
+  const border = dark ? "#3f3f46" : "#e4e4e7";
+  const text = dark ? "#e4e4e7" : "#18181b";
+
+  useEffect(() => {
+    const handler = () => onClose();
+    window.addEventListener("pointerdown", handler);
+    return () => window.removeEventListener("pointerdown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: x,
+        top: y,
+        zIndex: 9999,
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: 8,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+        minWidth: 148,
+        padding: "4px 0",
+        fontSize: 13,
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <ContextMenuItem icon={<Plus size={13} />} label="创建子节点" color={text} onClick={() => { onAddChild(); onClose(); }} />
+      <ContextMenuItem icon={<Copy size={13} />} label="复制节点" color={text} onClick={() => { onCopy(); onClose(); }} disabled={isRoot} />
+      <div style={{ borderTop: `1px solid ${border}`, margin: "3px 0" }} />
+      <ContextMenuItem icon={<Trash2 size={13} />} label="删除节点" color={isRoot ? "#a1a1aa" : "#ef4444"} onClick={() => { onDelete(); onClose(); }} disabled={isRoot} />
+    </div>
+  );
+};
+
+const ContextMenuItem = ({
+  icon, label, color, onClick, disabled,
+}: { icon: React.ReactNode; label: string; color: string; onClick: () => void; disabled?: boolean }) => (
+  <button
+    onClick={disabled ? undefined : onClick}
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      width: "100%",
+      padding: "6px 12px",
+      color: disabled ? "#a1a1aa" : color,
+      background: "transparent",
+      border: "none",
+      cursor: disabled ? "not-allowed" : "pointer",
+      textAlign: "left",
+    }}
+    onMouseEnter={(e) => {
+      if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = "rgba(99,102,241,0.08)";
+    }}
+    onMouseLeave={(e) => {
+      (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+    }}
+  >
+    {icon}
+    {label}
+  </button>
+);
+
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 export default function MindMapPage() {
@@ -171,10 +330,19 @@ export default function MindMapPage() {
   const [editingLabel, setEditingLabel] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // 右键菜单
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+
+  // 颜色面板
+  const [showColorPanel, setShowColorPanel] = useState(false);
+
   // AI 生成状态
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [showAiPanel, setShowAiPanel] = useState(false);
+
+  // 导出状态
+  const [exporting, setExporting] = useState(false);
 
   // 画布变换
   const [zoom, setZoom] = useState(1);
@@ -184,8 +352,8 @@ export default function MindMapPage() {
 
   // 布局计算
   const { nodes: layoutNodes } = layoutTree(root, 0, 0);
-  const svgW = Math.max(...layoutNodes.map((n) => n.x + NODE_W)) + 80;
-  const svgH = Math.max(...layoutNodes.map((n) => n.y + NODE_H)) + 80;
+  const contentW = Math.max(...layoutNodes.map((n) => n.x + NODE_W)) + 80;
+  const contentH = Math.max(...layoutNodes.map((n) => n.y + NODE_H)) + 80;
 
   // ── 节点操作 ──────────────────────────────────────────────────────────────
 
@@ -195,7 +363,6 @@ export default function MindMapPage() {
       setRoot((r) =>
         mapNode(r, parentId, (n) => ({ ...n, children: [...n.children, newNode] })),
       );
-      // 立即进入编辑模式
       setTimeout(() => {
         setEditingId(newNode.id);
         setEditingLabel("新节点");
@@ -220,6 +387,27 @@ export default function MindMapPage() {
     [selectedId],
   );
 
+  const copyNode = useCallback(
+    (id: string) => {
+      if (id === "root") return;
+      const node = findNode(root, id);
+      if (!node) return;
+      // 找父节点并在其 children 末尾插入
+      const insertCopy = (parent: MindMapNode): MindMapNode => ({
+        ...parent,
+        children: parent.children.flatMap((c) => {
+          if (c.id === id) {
+            return [c, deepCloneNode(node)];
+          }
+          return [insertCopy(c)];
+        }),
+      });
+      setRoot((r) => insertCopy(r));
+      toast.success("节点已复制");
+    },
+    [root],
+  );
+
   const toggleCollapse = useCallback((id: string) => {
     setRoot((r) =>
       mapNode(r, id, (n) => ({ ...n, collapsed: !n.collapsed })),
@@ -241,6 +429,27 @@ export default function MindMapPage() {
     }
     setEditingId(null);
   }, [editingId, editingLabel]);
+
+  // 颜色变更
+  const setNodeBgColor = useCallback((color: string | undefined) => {
+    if (!selectedId) return;
+    setRoot((r) => mapNode(r, selectedId, (n) => ({ ...n, bgColor: color })));
+  }, [selectedId]);
+
+  const setNodeTextColor = useCallback((color: string) => {
+    if (!selectedId) return;
+    setRoot((r) => mapNode(r, selectedId, (n) => ({ ...n, textColor: color })));
+  }, [selectedId]);
+
+  const toggleEdgeStyle = useCallback(() => {
+    if (!selectedId) return;
+    setRoot((r) =>
+      mapNode(r, selectedId, (n) => ({
+        ...n,
+        edgeStyle: n.edgeStyle === "dashed" ? "solid" : "dashed",
+      })),
+    );
+  }, [selectedId]);
 
   // ── AI 生成 ───────────────────────────────────────────────────────────────
 
@@ -282,13 +491,11 @@ export default function MindMapPage() {
         skillId: "text_to_mindmap",
       });
 
-      // 从返回文本中提取 JSON
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("AI 返回格式异常");
 
       const parsed = JSON.parse(jsonMatch[0]) as MindMapNode;
 
-      // 补全缺失的 children 字段
       const ensureChildren = (node: MindMapNode): MindMapNode => ({
         ...node,
         id: node.id || uid(),
@@ -309,6 +516,59 @@ export default function MindMapPage() {
       setAiLoading(false);
     }
   }, [aiPrompt, user]);
+
+  // ── 导出 ─────────────────────────────────────────────────────────────────
+
+  const handleExport = useCallback(async (format: "svg" | "png" | "jpg" | "pdf") => {
+    if (!svgRef.current) return;
+    setExporting(true);
+    try {
+      const svgStr = serializeSvg(svgRef.current, contentW, contentH);
+
+      if (format === "svg") {
+        const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+        downloadBlob(blob, "mindmap.svg");
+        toast.success("SVG 已导出");
+        return;
+      }
+
+      const canvas = await svgToCanvas(svgStr, contentW * 2, contentH * 2); // 2x 高清
+
+      if (format === "png") {
+        canvas.toBlob((blob) => {
+          if (blob) { downloadBlob(blob, "mindmap.png"); toast.success("PNG 已导出"); }
+        }, "image/png");
+      } else if (format === "jpg") {
+        canvas.toBlob((blob) => {
+          if (blob) { downloadBlob(blob, "mindmap.jpg"); toast.success("JPG 已导出"); }
+        }, "image/jpeg", 0.92);
+      } else if (format === "pdf") {
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        const pdfW = contentW;
+        const pdfH = contentH;
+        const html = `<!DOCTYPE html><html><head><style>
+          *{margin:0;padding:0;box-sizing:border-box;}
+          body{background:#fff;}
+          img{width:${pdfW}px;height:${pdfH}px;display:block;}
+          @page{size:${pdfW}px ${pdfH}px;margin:0;}
+          @media print{body{margin:0;}img{width:100%;height:auto;}}
+        </style></head><body><img src="${dataUrl}"/></body></html>`;
+        const win = window.open("", "_blank");
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          setTimeout(() => { win.print(); }, 500);
+          toast.success("PDF 打印对话框已打开，选择「另存为 PDF」");
+        } else {
+          toast.error("请允许弹出窗口");
+        }
+      }
+    } catch (err) {
+      toast.error("导出失败：" + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setExporting(false);
+    }
+  }, [contentW, contentH]);
 
   // ── 画布平移 ──────────────────────────────────────────────────────────────
 
@@ -353,16 +613,34 @@ export default function MindMapPage() {
   const nodeFill = dark ? "#3f3f46" : "#ffffff";
   const nodeStroke = dark ? "#52525b" : "#d4d4d8";
   const nodeSelectedStroke = "#6366f1";
-  const textColor = dark ? "#e4e4e7" : "#18181b";
+  const textClr = dark ? "#e4e4e7" : "#18181b";
   const subText = dark ? "#a1a1aa" : "#71717a";
   const edgeColor = dark ? "#52525b" : "#d4d4d8";
   const rootFill = dark ? "#4f46e5" : "#6366f1";
+
+  const selectedNode = selectedId ? findNode(root, selectedId) : null;
 
   return (
     <div
       className="flex h-full w-full overflow-hidden"
       style={{ background: bg }}
+      onClick={() => { setCtxMenu(null); }}
     >
+      {/* ── 右键菜单 ── */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          nodeId={ctxMenu.nodeId}
+          isRoot={ctxMenu.nodeId === "root"}
+          dark={dark}
+          onAddChild={() => addChild(ctxMenu.nodeId)}
+          onDelete={() => deleteNode(ctxMenu.nodeId)}
+          onCopy={() => copyNode(ctxMenu.nodeId)}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+
       {/* ── 左侧工具面板 ── */}
       <aside
         className="flex flex-col gap-3 p-4 shrink-0 overflow-y-auto"
@@ -375,196 +653,218 @@ export default function MindMapPage() {
         {/* 标题 */}
         <div className="flex items-center gap-2 mb-1">
           <Brain size={18} style={{ color: "#6366f1" }} />
-          <span className="text-sm font-semibold" style={{ color: textColor }}>
+          <span className="text-sm font-semibold" style={{ color: textClr }}>
             思维导图
           </span>
         </div>
 
         {/* 手动操作区 */}
-        <div
-          className="rounded-lg p-3 flex flex-col gap-2"
-          style={{ background: dark ? "#18181b" : "#f4f4f5" }}
-        >
-          <span
-            className="text-xs font-medium mb-0.5"
-            style={{ color: subText }}
-          >
-            手动编辑
-          </span>
+        <SideSection title="手动编辑" dark={dark} subText={subText}>
+          <SideBtn icon={<Plus size={14} />} label="添加一级节点" dark={dark} textColor={textClr} onClick={addRootChild} />
 
-          <button
-            onClick={addRootChild}
-            className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
-            style={{
-              background: dark ? "#3f3f46" : "#e4e4e7",
-              color: textColor,
-            }}
-          >
-            <Plus size={14} />
-            添加一级节点
-          </button>
-
-          {selectedId && selectedId !== "root" && (
+          {selectedId && (
             <>
-              <button
-                onClick={() => addChild(selectedId)}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
-                style={{
-                  background: dark ? "#3f3f46" : "#e4e4e7",
-                  color: textColor,
-                }}
-              >
-                <Plus size={14} />
-                添加子节点
-              </button>
-              <button
+              <SideBtn icon={<Plus size={14} />} label="添加子节点" dark={dark} textColor={textClr} onClick={() => addChild(selectedId)} />
+              <SideBtn
+                icon={<Edit3 size={14} />}
+                label="编辑节点"
+                dark={dark}
+                textColor={textClr}
                 onClick={() => {
                   const n = findNode(root, selectedId);
                   if (n) startEdit(n.id, n.label);
                 }}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
-                style={{
-                  background: dark ? "#3f3f46" : "#e4e4e7",
-                  color: textColor,
-                }}
-              >
-                <Edit3 size={14} />
-                编辑节点
-              </button>
-              <button
-                onClick={() => deleteNode(selectedId)}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
-                style={{
-                  background: dark ? "#3b1f1f" : "#fee2e2",
-                  color: dark ? "#f87171" : "#dc2626",
-                }}
-              >
-                <Trash2 size={14} />
-                删除节点
-              </button>
+              />
+              {selectedId !== "root" && (
+                <>
+                  <SideBtn icon={<Copy size={14} />} label="复制节点" dark={dark} textColor={textClr} onClick={() => copyNode(selectedId)} />
+                  <SideBtn
+                    icon={<Trash2 size={14} />}
+                    label="删除节点"
+                    dark={dark}
+                    textColor={dark ? "#f87171" : "#dc2626"}
+                    bgOverride={dark ? "#3b1f1f" : "#fee2e2"}
+                    onClick={() => deleteNode(selectedId)}
+                  />
+                </>
+              )}
             </>
           )}
-        </div>
+        </SideSection>
+
+        {/* 节点样式区（有选中节点时显示） */}
+        {selectedId && (
+          <SideSection title="节点样式" dark={dark} subText={subText}>
+            {/* 背景色 */}
+            <div>
+              <span className="text-xs" style={{ color: subText }}>背景色</span>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {COLOR_PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setNodeBgColor(c)}
+                    style={{
+                      width: 20, height: 20, borderRadius: 4, background: c,
+                      border: selectedNode?.bgColor === c ? "2px solid #fff" : "2px solid transparent",
+                      outline: selectedNode?.bgColor === c ? "2px solid #6366f1" : "none",
+                      cursor: "pointer",
+                    }}
+                    title={c}
+                  />
+                ))}
+                <button
+                  onClick={() => setNodeBgColor(undefined)}
+                  style={{
+                    width: 20, height: 20, borderRadius: 4,
+                    background: "linear-gradient(135deg, #fff 50%, #f00 50%)",
+                    border: "1px solid #d4d4d8", cursor: "pointer",
+                  }}
+                  title="重置默认色"
+                />
+              </div>
+            </div>
+
+            {/* 文字色 */}
+            <div className="mt-2">
+              <span className="text-xs" style={{ color: subText }}>文字色</span>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {["#ffffff", "#18181b", "#6366f1", "#ef4444", "#22c55e", "#f97316", "#3b82f6", "#a1a1aa"].map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setNodeTextColor(c)}
+                    style={{
+                      width: 20, height: 20, borderRadius: 4, background: c,
+                      border: selectedNode?.textColor === c ? "2px solid #6366f1" : `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                      cursor: "pointer",
+                    }}
+                    title={c}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* 连线样式 */}
+            <div className="mt-2">
+              <span className="text-xs" style={{ color: subText }}>子节点连线</span>
+              <div className="flex gap-2 mt-1.5">
+                <button
+                  onClick={() => setRoot((r) => mapNode(r, selectedId, (n) => ({ ...n, edgeStyle: "solid" })))}
+                  style={{
+                    flex: 1, padding: "4px 0", borderRadius: 6, fontSize: 12,
+                    border: `1px solid ${selectedNode?.edgeStyle !== "dashed" ? "#6366f1" : (dark ? "#52525b" : "#d4d4d8")}`,
+                    background: selectedNode?.edgeStyle !== "dashed" ? (dark ? "#312e81" : "#e0e7ff") : "transparent",
+                    color: selectedNode?.edgeStyle !== "dashed" ? "#6366f1" : subText,
+                    cursor: "pointer",
+                  }}
+                >实线</button>
+                <button
+                  onClick={() => setRoot((r) => mapNode(r, selectedId, (n) => ({ ...n, edgeStyle: "dashed" })))}
+                  style={{
+                    flex: 1, padding: "4px 0", borderRadius: 6, fontSize: 12,
+                    border: `1px solid ${selectedNode?.edgeStyle === "dashed" ? "#6366f1" : (dark ? "#52525b" : "#d4d4d8")}`,
+                    background: selectedNode?.edgeStyle === "dashed" ? (dark ? "#312e81" : "#e0e7ff") : "transparent",
+                    color: selectedNode?.edgeStyle === "dashed" ? "#6366f1" : subText,
+                    cursor: "pointer",
+                  }}
+                >虚线</button>
+              </div>
+            </div>
+          </SideSection>
+        )}
 
         {/* AI 生成区 */}
-        <div
-          className="rounded-lg p-3 flex flex-col gap-2"
-          style={{ background: dark ? "#18181b" : "#f4f4f5" }}
-        >
-          <span
-            className="text-xs font-medium mb-0.5"
-            style={{ color: subText }}
-          >
-            AI 生成 · 40 积分
-          </span>
-
-          <button
+        <SideSection title="AI 生成 · 40 积分" dark={dark} subText={subText}>
+          <SideBtn
+            icon={<Sparkles size={14} />}
+            label="AI 一键生成"
+            dark={dark}
+            textColor={showAiPanel ? (dark ? "#a5b4fc" : "#4f46e5") : textClr}
+            bgOverride={showAiPanel ? (dark ? "#312e81" : "#e0e7ff") : undefined}
             onClick={() => setShowAiPanel((v) => !v)}
-            className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
-            style={{
-              background: showAiPanel
-                ? dark ? "#312e81" : "#e0e7ff"
-                : dark ? "#3f3f46" : "#e4e4e7",
-              color: showAiPanel
-                ? dark ? "#a5b4fc" : "#4f46e5"
-                : textColor,
-            }}
-          >
-            <Sparkles size={14} />
-            AI 一键生成
-          </button>
+          />
 
           {showAiPanel && (
             <div className="flex flex-col gap-2">
               <textarea
                 className="w-full text-sm rounded-md px-2 py-1.5 resize-none focus:outline-none"
                 rows={4}
-                placeholder="输入主题，例如：产品设计流程、机器学习基础..."
+                placeholder="输入主题，例如：产品设计流程..."
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 style={{
                   background: dark ? "#3f3f46" : "#ffffff",
                   border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
-                  color: textColor,
+                  color: textClr,
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    generateMindMap();
-                  }
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generateMindMap();
                 }}
               />
               <button
                 onClick={generateMindMap}
                 disabled={aiLoading || !aiPrompt.trim()}
                 className="flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-md transition-colors disabled:opacity-50"
-                style={{
-                  background: "#6366f1",
-                  color: "#ffffff",
-                }}
+                style={{ background: "#6366f1", color: "#ffffff" }}
               >
-                {aiLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Sparkles size={14} />
-                )}
+                {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                 {aiLoading ? "生成中..." : "生成思维导图"}
               </button>
-              <span className="text-xs" style={{ color: subText }}>
-                ⌘+Enter 快速生成
-              </span>
+              <span className="text-xs" style={{ color: subText }}>⌘+Enter 快速生成</span>
             </div>
           )}
-        </div>
+        </SideSection>
+
+        {/* 导出区 */}
+        <SideSection title="导出" dark={dark} subText={subText}>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(["svg", "png", "jpg", "pdf"] as const).map((fmt) => (
+              <button
+                key={fmt}
+                onClick={() => handleExport(fmt)}
+                disabled={exporting}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: 5, padding: "6px 4px", borderRadius: 6, fontSize: 12,
+                  border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                  background: dark ? "#3f3f46" : "#f4f4f5",
+                  color: textClr, cursor: exporting ? "wait" : "pointer",
+                  opacity: exporting ? 0.6 : 1,
+                }}
+              >
+                {fmt === "pdf" ? <FileImage size={12} /> : <Download size={12} />}
+                {fmt.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </SideSection>
 
         {/* 视图控制 */}
-        <div
-          className="rounded-lg p-3 flex flex-col gap-2"
-          style={{ background: dark ? "#18181b" : "#f4f4f5" }}
-        >
-          <span
-            className="text-xs font-medium mb-0.5"
-            style={{ color: subText }}
-          >
-            视图控制
-          </span>
+        <SideSection title="视图控制" dark={dark} subText={subText}>
           <div className="flex gap-2">
-            <button
-              onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-              className="flex-1 flex items-center justify-center gap-1 text-sm px-2 py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textColor }}
-              title="放大"
-            >
+            <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
+              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
+              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
               <ZoomIn size={14} />
             </button>
-            <button
-              onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))}
-              className="flex-1 flex items-center justify-center gap-1 text-sm px-2 py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textColor }}
-              title="缩小"
-            >
+            <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))}
+              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
+              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
               <ZoomOut size={14} />
             </button>
-            <button
-              onClick={resetView}
-              className="flex-1 flex items-center justify-center gap-1 text-sm px-2 py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textColor }}
-              title="重置视图"
-            >
+            <button onClick={resetView}
+              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
+              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
               <Maximize2 size={14} />
             </button>
           </div>
-          <span className="text-xs" style={{ color: subText }}>
-            缩放：{Math.round(zoom * 100)}%
-          </span>
-        </div>
+          <span className="text-xs" style={{ color: subText }}>缩放：{Math.round(zoom * 100)}%</span>
+        </SideSection>
 
         {/* 操作提示 */}
-        <div
-          className="rounded-lg p-3 text-xs leading-5"
-          style={{ color: subText }}
-        >
+        <div className="rounded-lg p-3 text-xs leading-5" style={{ color: subText }}>
           <p>• 点击节点选中</p>
           <p>• 双击节点编辑</p>
+          <p>• 右键打开操作菜单</p>
           <p>• 点击 › 折叠/展开</p>
           <p>• 拖拽画布平移</p>
           <p>• 滚轮缩放</p>
@@ -583,10 +883,12 @@ export default function MindMapPage() {
           onWheel={handleWheel}
           style={{ touchAction: "none" }}
         >
+          <rect width="100%" height="100%" fill={bg} />
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
             {/* 边（连线） */}
             {layoutNodes.map((node) => {
               if (node.collapsed || node.children.length === 0) return null;
+              const isDashed = node.edgeStyle === "dashed";
               return node.children.map((child) => {
                 const childLayout = layoutNodes.find((n) => n.id === child.id);
                 if (!childLayout) return null;
@@ -598,6 +900,7 @@ export default function MindMapPage() {
                     stroke={edgeColor}
                     strokeWidth={1.5}
                     strokeLinecap="round"
+                    strokeDasharray={isDashed ? "6 4" : undefined}
                   />
                 );
               });
@@ -609,9 +912,10 @@ export default function MindMapPage() {
               const isSelected = selectedId === node.id;
               const isEditing = editingId === node.id;
               const hasChildren = node.children.length > 0;
-              const fill = isRoot ? rootFill : nodeFill;
+
+              const fill = node.bgColor ?? (isRoot ? rootFill : nodeFill);
               const stroke = isSelected ? nodeSelectedStroke : nodeStroke;
-              const labelColor = isRoot ? "#ffffff" : textColor;
+              const labelColor = node.textColor ?? (isRoot ? "#ffffff" : textClr);
 
               return (
                 <g
@@ -619,8 +923,14 @@ export default function MindMapPage() {
                   data-node={node.id}
                   transform={`translate(${node.x},${node.y})`}
                   style={{ cursor: "pointer" }}
-                  onClick={() => setSelectedId(node.id)}
+                  onClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setCtxMenu(null); }}
                   onDoubleClick={() => startEdit(node.id, node.label)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedId(node.id);
+                    setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+                  }}
                 >
                   {/* 节点矩形 */}
                   <rect
@@ -679,21 +989,9 @@ export default function MindMapPage() {
                     >
                       <circle r={7} fill={dark ? "#52525b" : "#d4d4d8"} />
                       {node.collapsed ? (
-                        <ChevronRight
-                          size={10}
-                          x={-5}
-                          y={-5}
-                          color={textColor}
-                          strokeWidth={2}
-                        />
+                        <ChevronRight size={10} x={-5} y={-5} color={textClr} strokeWidth={2} />
                       ) : (
-                        <ChevronDown
-                          size={10}
-                          x={-5}
-                          y={-5}
-                          color={textColor}
-                          strokeWidth={2}
-                        />
+                        <ChevronDown size={10} x={-5} y={-5} color={textClr} strokeWidth={2} />
                       )}
                     </g>
                   )}
@@ -705,18 +1003,11 @@ export default function MindMapPage() {
           {/* 阴影滤镜 */}
           <defs>
             <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow
-                dx={0}
-                dy={2}
-                stdDeviation={4}
-                floodColor="#6366f1"
-                floodOpacity={0.3}
-              />
+              <feDropShadow dx={0} dy={2} stdDeviation={4} floodColor="#6366f1" floodOpacity={0.3} />
             </filter>
           </defs>
         </svg>
 
-        {/* 画布空状态提示（新建时） */}
         {layoutNodes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center" style={{ color: subText }}>
@@ -727,5 +1018,46 @@ export default function MindMapPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── 小型辅助组件 ────────────────────────────────────────────────────────────
+
+function SideSection({
+  title, dark, subText, children,
+}: { title: string; dark: boolean; subText: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-lg p-3 flex flex-col gap-2"
+      style={{ background: dark ? "#18181b" : "#f4f4f5" }}
+    >
+      <span className="text-xs font-medium mb-0.5" style={{ color: subText }}>{title}</span>
+      {children}
+    </div>
+  );
+}
+
+function SideBtn({
+  icon, label, dark, textColor, bgOverride, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  dark: boolean;
+  textColor: string;
+  bgOverride?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
+      style={{
+        background: bgOverride ?? (dark ? "#3f3f46" : "#e4e4e7"),
+        color: textColor,
+      }}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

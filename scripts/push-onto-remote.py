@@ -20,10 +20,16 @@ def get_token():
 
 def run_push(token):
     url = f"https://x-token:{token}@github.com/09beedesign-star/artx-test.git"
+    env = os.environ.copy()
+    # bypass any CONNECT-tunnel proxy that blocks GitHub
+    for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"):
+        env.pop(k, None)
     result = subprocess.run(
         ["git", "push", url, BRANCH],
         capture_output=True, text=True,
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        timeout=300,  # 5 min hard timeout per attempt
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        env=env,
     )
     return result.returncode, result.stdout + result.stderr
 
