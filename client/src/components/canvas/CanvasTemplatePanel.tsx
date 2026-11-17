@@ -21,6 +21,11 @@ import {
   templateBackground,
 } from "@/lib/canvas-templates";
 import { TEMPLATE_CATALOG } from "@/lib/canvas-template-catalog";
+import {
+  CANVAS_TEMPLATES_COMING_SOON_DESC,
+  CANVAS_TEMPLATES_COMING_SOON_TITLE,
+  canOpenTemplatePanel,
+} from "@/lib/canvas-templates-release";
 import type { TemplateLayoutData } from "@/lib/canvas-template-types";
 
 export const TEMPLATE_PANEL_TOGGLE_EVENT = "canvas-template-panel-toggle";
@@ -87,7 +92,14 @@ export function CanvasTemplatePanel({ isDark }: { isDark: boolean }) {
   const tabActiveBg = isDark ? "rgba(255,255,255,0.1)" : "rgba(22,22,22,0.07)";
 
   useEffect(() => {
-    const toggle = () => setOpen(v => !v);
+    // 🔒 2026-11-17：线上未正式发布 → 不开面板，只提示「即将上线」（唯一打开口子就在这里）
+    const toggle = () => {
+      if (!canOpenTemplatePanel()) {
+        toast(CANVAS_TEMPLATES_COMING_SOON_TITLE, { description: CANVAS_TEMPLATES_COMING_SOON_DESC });
+        return;
+      }
+      setOpen(v => !v);
+    };
     const close  = () => setOpen(false);
     window.addEventListener(TEMPLATE_PANEL_TOGGLE_EVENT, toggle);
     window.addEventListener(TEMPLATE_PANEL_CLOSE_EVENT, close);
