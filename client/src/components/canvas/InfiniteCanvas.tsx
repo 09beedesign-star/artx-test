@@ -5887,7 +5887,6 @@ function AssetPromptPanel({
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               if (prompt.trim()) {
-                toast("AI 正在处理图片", { description: prompt.slice(0, 50) });
                 setPrompt("");
               }
             }
@@ -5950,7 +5949,6 @@ function AssetPromptPanel({
           onClick={e => {
             e.stopPropagation();
             if (prompt.trim()) {
-              toast("AI 正在处理图片", { description: prompt.slice(0, 50) });
               setPrompt("");
             } else toast("请先输入描述");
           }}
@@ -16790,7 +16788,6 @@ function BottomPromptBar({
             { ...payload, status: "pending" },
             projectId
           );
-          toast("Skill 已开始生成", { description: activeSkill.name });
           try {
             const result =
               shouldEditTargetReference && targetReference
@@ -16843,9 +16840,6 @@ function BottomPromptBar({
               detail: { query: searchQuery, images: result.images },
             })
           );
-          toast("AI 已找到参考图", {
-            description: `已为「${searchQuery}」找到 ${result.images.length} 张可用素材`,
-          });
           return;
         }
         if (decision.mode === "image") {
@@ -16889,7 +16883,6 @@ function BottomPromptBar({
             { ...payload, status: "pending" },
             projectId
           );
-          toast("AI 判断为生成图片", { description: imagePrompt.slice(0, 90) });
           try {
             const result = await generateAiImages(payload);
             dispatchImageGenerationTask(
@@ -16917,13 +16910,6 @@ function BottomPromptBar({
           })),
           prompt:
             submittedPrompt || visiblePrompt || "请基于当前上下文回复用户。",
-        });
-        toast("AI 已回复", {
-          description: (
-            decision.reply ||
-            visiblePrompt ||
-            submittedPrompt
-          ).slice(0, 120),
         });
         window.dispatchEvent(
           new CustomEvent("canvas-assistant-external-message", {
@@ -18341,19 +18327,11 @@ function AssetEditPromptBar({
       return;
     }
     if (canSendPrompt) {
-      const refText =
-        uploadedRefs.length > 0 ? ` · ${uploadedRefs.length} 张参考图` : "";
+      // 🔒 2026-11-17 用户要求：常规对话/生成不弹 toast（进度看画布占位与对话流），只有关键结果或报错才弹
       const submittedImageCount = resolveImageCountFromPromptAndSelector({
         prompt,
         selectorCount: imageCount,
       }).count;
-      const countText =
-        submittedImageCount > 1 ? ` · ${submittedImageCount} 张` : "";
-      const regionText = regionRef ? " · 局部区域" : "";
-      toast(regionRef ? "AI 正在局部重绘" : "AI 正在智能优化", {
-        description:
-          `${prompt.slice(0, 60)}${regionText}${refText}${countText}`.trim(),
-      });
       onSubmit({
         prompt: prompt.trim(),
         model,
@@ -30400,7 +30378,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       };
       // 用户确认预览后，用最终 mask 发起局部重绘（含无可见修改时的扩大重试）
       const runAnnotationEditFlow = async (maskSrc: string) => {
-        toast("注释 AI 修改中", { description: "将在原图旁生成新的修改结果" });
         await runDerivedImageGeneration({
           sourceNode,
           prompt,
@@ -33347,7 +33324,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         } else {
           ensureBackgroundImageGeneration({ ...payload, status: "pending" });
         }
-        toast("正在再次生成", { description: detail.prompt.slice(0, 58) });
         return;
       }
 
@@ -33573,7 +33549,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               };
             })
           );
-          toast("AI 局部重绘中", { description: detail.prompt.slice(0, 58) });
           return;
         }
         if (detail.editMode !== true) {
@@ -33734,7 +33709,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           rememberViewportBeforeGeneration(generationId);
           focusGeneratedImageCenter(pendingFocusCenter);
         }
-        toast("正在生成图像", { description: detail.prompt.slice(0, 58) });
         window.dispatchEvent(
           new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
         );

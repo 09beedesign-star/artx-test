@@ -103,7 +103,8 @@ describe("需求 1：修改落在原图上（payload 与唯一回包出口）", 
       pending,
       "没有提前 return —— 会在原图旁边多插一个空占位框"
     ).not.toContain("placeholderForGeneration");
-    expect(pending, "缺少提前 return").toContain("toast(\"AI 局部重绘中\"");
+    // 2026-11-17：过程类 toast 已按用户要求移除，提前 return 直接锚定在 setNodes 收尾之后
+    expect(pending, "缺少提前 return").toMatch(/\}\)\s*\);\s*return;\s*\}\s*$/);
   });
 
   it("failed：原图必须原样保留，绝不贴「生成图片失败」面板", () => {
