@@ -59,7 +59,7 @@ import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
 import { ProjectCoverError, storeProjectCover } from "./project-cover-storage";
 import { handleModel3DDelete, handleModel3DGet, handleModel3DUpload } from "./model3d-routes";
-import { cleanupExpiredModels3D } from "./model3d-storage";
+import { cleanupExpiredModels3D, storeModel3DFromUrl } from "./model3d-storage";
 import {
   failInterruptedThreeDTasks,
   getThreeDTask,
@@ -2548,6 +2548,22 @@ async function startServer() {
           } finally {
             await releaseAiRouteUsage(user, reservation);
           }
+        },
+        // persist：转存到用户 3D 模型存储，画布 3D 容器按 modelId 加载
+        async (modelUrl: string, task: ThreeDGenerationTask) => {
+          const baseName = (modelUrl.split("?")[0].split("/").pop() || "").trim();
+          const ext = /\.(glb|gltf)$/i.exec(baseName)?.[1]?.toLowerCase() || "glb";
+          const label = task.prompt.replace(/[\\/:*?"<>|\s]+/g, " ").trim().slice(0, 24) || "AI 3D 模型";
+          const stored = await storeModel3DFromUrl({
+            username: user.username,
+            url: modelUrl,
+            originalName: `${label}.${ext}`,
+          });
+          return {
+            modelId: stored.modelId,
+            modelName: stored.name,
+            expiresAt: Date.parse(stored.expiresAt),
+          };
         }
       );
     } catch (error) {

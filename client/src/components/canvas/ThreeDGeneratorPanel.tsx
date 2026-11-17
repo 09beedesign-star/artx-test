@@ -1,33 +1,32 @@
 /**
  * 3D 生成面板（2026-xx-xx）。
  *
- * 从图片节点右键「生成 3D 模型」触发，以参考图 + 文字提示词驱动后端
- * /api/threed/generate 路由，轮询完成后回调交出 modelUrl。
+ * 从图片节点右键「生成 3D 模型」触发：只收集提示词 + 模型，点「开始生成」即关闭；
+ * 生成过程与结果由画布内的 3D 容器节点承载（InfiniteCanvas.runCanvasThreeDGeneration）。
  *
  * UI 模式：portal 到 body 的浮层面板，与 AssetPropertiesDialog 风格一致。
  * portal 到 body，避免被画布层叠上下文裁掉。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Box, Loader2, AlertCircle } from "lucide-react";
+import { X, Box } from "lucide-react";
 import {
-  THREED_GEN_MODEL_IDS,
+  THREED_SELECTABLE_MODEL_IDS,
   DEFAULT_THREED_GEN_MODEL_ID,
   type ThreeDGenModelId,
 } from "@shared/model3d";
-import {
-  startThreeDGenerationTask,
-  waitForThreeDGenerationTask,
-  isAiAbortError,
-} from "@/lib/ai";
+import { HUNYUAN3D_CREDITS_PER_GENERATION } from "@shared/ai-credit-policy";
 
 export interface ThreeDGeneratorPanelProps {
   /** 参考图片的 URL（来自图片节点 localSrc） */
   referenceImageUrl: string;
   isDark: boolean;
   onClose: () => void;
-  /** 生成完成后回调，传出 GLB URL */
-  onGenerated: (modelUrl: string, model: string, prompt: string) => void;
+  /**
+   * 点「开始生成」→ 面板立即关闭，由画布在内部放一个 3D 容器节点承载生成过程与结果
+   * （2026-11-16：不再在面板里转圈、也不再弹独立的 3D 预览弹窗）。
+   */
+  onSubmit: (input: { prompt: string; model: ThreeDGenModelId }) => void;
 }
 
 const MODEL_LABELS: Record<ThreeDGenModelId, string> = {
@@ -37,77 +36,25 @@ const MODEL_LABELS: Record<ThreeDGenModelId, string> = {
   "stability3d-fast": "Stability3D Fast",
 };
 
-function generateTaskId() {
-  return `threed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export function ThreeDGeneratorPanel({
   referenceImageUrl,
   isDark,
   onClose,
-  onGenerated,
+  onSubmit,
 }: ThreeDGeneratorPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<ThreeDGenModelId>(DEFAULT_THREED_GEN_MODEL_ID);
-  const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && status !== "generating") onClose();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, status]);
+  }, [onClose]);
 
-  // 组件卸载时中止轮询
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
-
-  const handleGenerate = useCallback(async () => {
-    if (status === "generating") return;
-    setStatus("generating");
-    setErrorMsg("");
-
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    try {
-      const taskId = generateTaskId();
-      // 1. 提交任务（后端立即返回 pending task）
-      await startThreeDGenerationTask({
-        taskId,
-        prompt: prompt.trim() || "高质量 3D 模型",
-        model,
-        referenceImageUrl,
-      });
-
-      // 2. 轮询直到 completed / failed
-      const completed = await waitForThreeDGenerationTask(taskId, ac.signal);
-
-      if (!completed.modelUrl) {
-        throw new Error("3D 生成完成但未返回模型文件地址");
-      }
-      setStatus("done");
-      onGenerated(completed.modelUrl, model, prompt.trim() || "高质量 3D 模型");
-      onClose();
-    } catch (err) {
-      if (isAiAbortError(err)) {
-        setStatus("idle");
-        return;
-      }
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "3D 生成失败，请稍后重试");
-    }
-  }, [status, prompt, model, referenceImageUrl, onGenerated, onClose]);
-
-  function handleAbort() {
-    abortRef.current?.abort();
-    setStatus("idle");
+  function handleGenerate() {
+    onSubmit({ prompt: prompt.trim() || "高质量 3D 模型", model });
   }
 
   const bg = isDark ? "#1a1a1a" : "#ffffff";
@@ -121,7 +68,7 @@ export function ThreeDGeneratorPanel({
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
       style={{ background: "rgba(10,10,14,0.60)", backdropFilter: "blur(6px)" }}
-      onMouseDown={status === "generating" ? undefined : onClose}
+      onMouseDown={onClose}
     >
       <section
         data-artx-threed-generator=""
@@ -138,17 +85,15 @@ export function ThreeDGeneratorPanel({
             <Box size={16} style={{ color: "#7c5cff" }} />
             <h2 className="text-sm font-semibold">生成 3D 模型</h2>
           </div>
-          {status !== "generating" && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="关闭"
-              className="rounded-full p-1.5"
-              style={{ color: sub }}
-            >
-              <X size={16} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            className="rounded-full p-1.5"
+            style={{ color: sub }}
+          >
+            <X size={16} />
+          </button>
         </header>
 
         <div className="flex flex-col gap-4 px-5 py-5">
@@ -175,7 +120,6 @@ export function ThreeDGeneratorPanel({
               placeholder="描述 3D 模型的细节，留空则自动生成"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              disabled={status === "generating"}
               style={{
                 background: inputBg,
                 border: `1px solid ${inputBorder}`,
@@ -190,12 +134,11 @@ export function ThreeDGeneratorPanel({
               生成模型
             </label>
             <div className="grid grid-cols-2 gap-2">
-              {THREED_GEN_MODEL_IDS.map((id) => (
+              {THREED_SELECTABLE_MODEL_IDS.map((id) => (
                 <button
                   key={id}
                   type="button"
-                  disabled={status === "generating"}
-                  onClick={() => setModel(id)}
+                      onClick={() => setModel(id)}
                   className="rounded-lg px-3 py-2.5 text-left text-xs font-medium transition-all"
                   style={{
                     background: model === id
@@ -203,7 +146,6 @@ export function ThreeDGeneratorPanel({
                       : inputBg,
                     border: `1px solid ${model === id ? "#7c5cff" : inputBorder}`,
                     color: model === id ? "#7c5cff" : text,
-                    opacity: status === "generating" ? 0.5 : 1,
                   }}
                 >
                   {MODEL_LABELS[id]}
@@ -212,16 +154,6 @@ export function ThreeDGeneratorPanel({
             </div>
           </div>
 
-          {/* 错误提示 */}
-          {status === "error" && errorMsg && (
-            <div
-              className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs leading-5"
-              style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.28)", color: "#f87171" }}
-            >
-              <AlertCircle size={14} className="mt-0.5 shrink-0" />
-              {errorMsg}
-            </div>
-          )}
         </div>
 
         {/* Footer */}
@@ -229,29 +161,17 @@ export function ThreeDGeneratorPanel({
           className="flex items-center justify-between gap-3 px-5 pb-5"
         >
           <p className="text-[11px] leading-5" style={{ color: sub }}>
-            约 300–500 积分 · 生成需 10–60 秒
+            {HUNYUAN3D_CREDITS_PER_GENERATION} 积分/次 · 生成约需 2–3 分钟
           </p>
-          {status === "generating" ? (
-            <button
-              type="button"
-              onClick={handleAbort}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
-              style={{ background: "rgba(239,68,68,0.14)", color: "#f87171", border: "1px solid rgba(239,68,68,0.28)" }}
-            >
-              <Loader2 size={13} className="animate-spin" />
-              停止生成
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleGenerate}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
-              style={{ background: "#7c5cff", color: "#ffffff" }}
-            >
-              <Box size={13} />
-              {status === "error" ? "重试" : "开始生成"}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-80"
+            style={{ background: "#7c5cff", color: "#ffffff" }}
+          >
+            <Box size={13} />
+            开始生成
+          </button>
         </footer>
       </section>
     </div>,

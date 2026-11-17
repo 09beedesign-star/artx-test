@@ -38,6 +38,8 @@ import {
   getActiveUploadingCount,
   getContainerModels,
   getModel3DSceneColors,
+  isModel3DGenerating,
+  MODEL3D_GENERATING_TEXT_ZH,
   isSameModel3DTransform,
   MODEL3D_DELETE_CONFIRM_NOTICE_ZH,
   formatModel3DCountdown,
@@ -158,6 +160,7 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
   const models = useMemo(() => getContainerModels(data), [data]);
   const modelsKey = models.map(m => m.modelId).join("|");
   const uploadingCount = getActiveUploadingCount(data);
+  const generating = isModel3DGenerating(data);
 
   const [loadingCount, setLoadingCount] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
@@ -829,7 +832,7 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
     );
   }, [id]);
 
-  const isEmpty = models.length === 0 && uploadingCount === 0;
+  const isEmpty = models.length === 0 && uploadingCount === 0 && !generating;
   const busyText =
     uploadingCount > 0
       ? `正在上传 ${uploadingCount} 个模型…`
@@ -966,6 +969,35 @@ export function Model3DNode({ id, data, selected }: Model3DNodeProps) {
                 <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
                   或点右上角的文件夹按钮选择文件
                 </div>
+              </div>
+            </Overlay>
+          )}
+          {generating && (
+            <Overlay>
+              <div
+                data-testid="model3d-generating"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "16px 22px",
+                  borderRadius: 12,
+                  background: "rgba(0,0,0,0.45)",
+                  color: "rgba(240,240,245,0.92)",
+                }}
+              >
+                <span
+                  className="animate-spin"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    border: "2.5px solid rgba(255,255,255,0.22)",
+                    borderTopColor: "rgba(255,255,255,0.92)",
+                  }}
+                />
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{MODEL3D_GENERATING_TEXT_ZH}</div>
               </div>
             </Overlay>
           )}

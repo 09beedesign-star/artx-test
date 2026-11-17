@@ -1226,6 +1226,13 @@ export type ThreeDGenerationTask = ApiErrorResponse & {
   model: string;
   referenceImageUrl?: string;
   modelUrl?: string;
+  /** 用户所选 3D 模型失效、由混元 3D 兜底生成时的原模型 id 与失效原因。 */
+  fallbackFrom?: string;
+  fallbackReason?: string;
+  /** 服务端已转存的模型 id（画布 3D 容器按它加载 /api/models3d/:modelId）。 */
+  modelId?: string;
+  modelName?: string;
+  expiresAt?: number;
   error?: string;
   createdAt: number;
   updatedAt: number;

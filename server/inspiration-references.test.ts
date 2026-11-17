@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildInspirationReferenceProxyUrl, getInspirationReferences } from "./inspiration-references";
 import { RAW_INSPIRATION_REFERENCES } from "./inspiration-reference-data";
@@ -20,7 +22,9 @@ describe("inspiration references", () => {
       const raw = RAW_INSPIRATION_REFERENCES.find(item => item.id === reference.id);
       expect(raw?.prompt.trim().length).toBeGreaterThanOrEqual(24);
       expect(raw?.prompt.trim()).not.toBe(reference.title.trim());
-      expect(reference.imageUrl).toMatch(/^https:\/\/(?:raw\.githubusercontent\.com|pbs\.twimg\.com|cms-assets\.youmind\.com)\//);
+      // raw.githubusercontent.com 国内被墙 → 已全部自托管为 /inspiration-images/ext/*.webp
+      expect(reference.imageUrl).toMatch(/^(?:\/inspiration-images\/ext\/[0-9a-f]{12}\.webp$|https:\/\/(?:pbs\.twimg\.com|cms-assets\.youmind\.com)\/)/);
+      expect(reference.imageUrl).not.toContain("raw.githubusercontent.com");
       expect(reference.imageUrl).not.toMatch(/^https:\/\/github\.com\//);
       expect(reference.proxyImageUrl).toBe(buildInspirationReferenceProxyUrl(reference.imageUrl));
       expect("sourceUrl" in reference).toBe(false);
@@ -55,6 +59,17 @@ describe("inspiration references", () => {
     expect(firstPage.hasMore).toBe(true);
     expect(secondPage.offset).toBe(2);
     expect(secondPage.references[0]?.id).not.toBe(firstPage.references[0]?.id);
+  });
+
+  it("自托管图片：文件真实存在，且直接走静态路径不经过代理", () => {
+    const selfHosted = RAW_INSPIRATION_REFERENCES.filter(item => item.imageUrl.startsWith("/inspiration-images/ext/"));
+    expect(selfHosted.length).toBeGreaterThanOrEqual(149);
+    for (const item of selfHosted) {
+      const file = resolve(__dirname, "../client/public", item.imageUrl.slice(1));
+      expect(existsSync(file), item.imageUrl).toBe(true);
+      expect(buildInspirationReferenceProxyUrl(item.imageUrl)).toBe(item.imageUrl);
+    }
+    expect(RAW_INSPIRATION_REFERENCES.some(item => item.imageUrl.includes("raw.githubusercontent.com"))).toBe(false);
   });
 
   it("builds proxied image URLs for future verified sources", () => {

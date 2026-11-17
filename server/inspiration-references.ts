@@ -44,10 +44,24 @@ const ALLOWED_SOURCE_HOSTS = new Set([
 const ALLOWED_IMAGE_HOSTS = new Set([
   "image.civitai.com",
   "image.lexica.art",
-  "raw.githubusercontent.com",
   "pbs.twimg.com",
   "cms-assets.youmind.com",
 ]);
+
+/**
+ * 自托管灵感图（2026-11-17）：原 149 张 raw.githubusercontent.com 图片国内被墙、
+ * jsdelivr 又拒绝 >50MB 的仓库 → 下载转 WebP 放进 client/public/inspiration-images/ext/，
+ * nginx 直接静态出图（30 天缓存），不再经过 /api/images/proxy、不依赖 GitHub。
+ */
+const SELF_HOSTED_IMAGE_PREFIX = "/inspiration-images/ext/";
+
+function isSelfHostedImagePath(value: string) {
+  return value.startsWith(SELF_HOSTED_IMAGE_PREFIX) && /^[\w/.-]+\.webp$/.test(value);
+}
+
+function isAllowedImageUrl(value: string) {
+  return isSelfHostedImagePath(value) || isAllowedHttpsUrl(value, ALLOWED_IMAGE_HOSTS);
+}
 
 const VERIFIED_SOURCE_SITES = new Set([
   "civitai",
@@ -71,6 +85,7 @@ function isAllowedHttpsUrl(value: string, allowedHosts: Set<string>) {
 }
 
 export function buildInspirationReferenceProxyUrl(imageUrl: string) {
+  if (isSelfHostedImagePath(imageUrl)) return imageUrl;
   return `/api/images/proxy?url=${encodeURIComponent(imageUrl)}`;
 }
 
@@ -81,7 +96,7 @@ function isVerifiedPromptMatchedReference(reference: RawInspirationReference) {
   if (!VERIFIED_SOURCE_SITES.has(sourceSite)) return false;
   if (!prompt || prompt === title || prompt.length < 24) return false;
   if (!isAllowedHttpsUrl(reference.sourceUrl, ALLOWED_SOURCE_HOSTS)) return false;
-  if (!isAllowedHttpsUrl(reference.imageUrl, ALLOWED_IMAGE_HOSTS)) return false;
+  if (!isAllowedImageUrl(reference.imageUrl)) return false;
   return true;
 }
 
@@ -101,7 +116,7 @@ export function getInspirationReferences(input: {
 
   const filteredReferences = RAW_INSPIRATION_REFERENCES
     .filter(reference => isAllowedHttpsUrl(reference.sourceUrl, ALLOWED_SOURCE_HOSTS))
-    .filter(reference => isAllowedHttpsUrl(reference.imageUrl, ALLOWED_IMAGE_HOSTS))
+    .filter(reference => isAllowedImageUrl(reference.imageUrl))
     .filter(reference => reference.prompt.trim() && reference.prompt.trim() !== reference.title.trim())
     .filter(reference => !input.verifiedPromptOnly || isVerifiedPromptMatchedReference(reference))
     .filter(reference => !normalizedGroup || reference.group === normalizedGroup)

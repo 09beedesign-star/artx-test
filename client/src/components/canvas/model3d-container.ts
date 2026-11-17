@@ -36,6 +36,11 @@ export type Model3DNodeData = {
   uploadingSince?: number;
   /** 最近一次因超过保留期被自动清除的信息；容器里常驻提示，直到再放入新模型。 */
   expiredCleared?: { count: number; at: number };
+  /** AI 生成 3D 模型的任务 id；有值 = 容器正在等待生成结果。 */
+  generatingTaskId?: string;
+  /** 本轮生成的开始时间。刷新后任务轮询已中断，超过时限就不再显示生成中。 */
+  generatingSince?: number;
+  generatingPrompt?: string;
   // ── 旧版（单模型节点）字段，只读兼容 ──
   modelId?: string;
   modelName?: string;
@@ -99,6 +104,19 @@ export function getActiveUploadingCount(
   const since = Number(data?.uploadingSince || 0);
   if (count <= 0 || !since || now - since > UPLOADING_STALE_MS) return 0;
   return count;
+}
+
+export const MODEL3D_GENERATING_TEXT_ZH = "正在生成3d模型。请稍后";
+const GENERATING_STALE_MS = 10 * 60 * 1000;
+
+/** 容器是否正处于「AI 生成 3D 模型」等待中（超时视为已中断）。 */
+export function isModel3DGenerating(
+  data: Record<string, unknown> | undefined,
+  now = Date.now()
+): boolean {
+  const taskId = data?.generatingTaskId;
+  const since = Number(data?.generatingSince || 0);
+  return typeof taskId === "string" && Boolean(taskId) && since > 0 && now - since <= GENERATING_STALE_MS;
 }
 
 export type ContainerRect = {

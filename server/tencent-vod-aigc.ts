@@ -769,3 +769,164 @@ export async function generateImageWithVod(input: VodImageGenerationInput): Prom
 export function isVodAigcConfigured(): boolean {
   return !!(process.env.TENCENT_VOD_SID && process.env.TENCENT_VOD_SKEY && process.env.TENCENT_VOD_SUB_APP_ID);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3D 模型生成 —— 混元 Hunyuan3D（CreateAigcHunyuan3DTask）
+// 文档：https://cloud.tencent.com/document/product/266/138303
+// 字段以官方 SDK vod_models.ts 为准（2026-11-17 核对）：
+// - Prompt / ImageInfos(≤1) / MultiViewImageInfos(2-8，须含 ViewType=front) 三者互斥
+// - ImageInfos 只认 Type=Url|File，**不支持 Base64**
+// - EnablePBR / KeepUV 是字符串 "Enabled"|"Disabled"，不是布尔
+// - ResultFormat 只能填 "FBX"（额外格式），OBJ+GLB 永远会返回 → 不传
+// - FaceCount 3000-1500000
+// - 结果在 DescribeTaskDetail.AigcHunyuan3DTask.Output.FileInfos[]，按 FileType 挑 GLB
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Hunyuan3DImageInfo = { Type: "Url" | "File"; Url?: string; FileId?: string };
+
+export type CreateHunyuan3DTaskRequest = {
+  SubAppId: number;
+  Prompt?: string;
+  ImageInfos?: Hunyuan3DImageInfo[];
+  GenerateType?: "Normal" | "Geometry" | "LowPoly" | "Sketch";
+  EnablePBR?: "Enabled" | "Disabled";
+  FaceCount?: number;
+  OutputConfig?: { StorageMode?: "Temporary" | "Permanent" };
+};
+
+type Hunyuan3DFileInfo = {
+  FileType?: string;
+  FileUrl?: string;
+  PreviewFileUrl?: string;
+  StorageMode?: string;
+  ExpireTime?: string;
+};
+
+type Hunyuan3DTaskDetailResponse = {
+  Response: {
+    TaskId: string;
+    Status: string;
+    TaskType?: string;
+    AigcHunyuan3DTask?: {
+      Status?: string;
+      ErrCode?: number;
+      ErrCodeExt?: string;
+      Message?: string;
+      Progress?: number;
+      Output?: { FileInfos?: Hunyuan3DFileInfo[] };
+    };
+    RequestId: string;
+    Error?: { Code: string; Message: string };
+  };
+};
+
+export type Hunyuan3DInput = {
+  prompt?: string;
+  /** 公网可访问的 http(s) 图片 URL。给了就走图生 3D（与 Prompt 互斥）。 */
+  imageUrl?: string;
+  generateType?: "Normal" | "Geometry" | "LowPoly" | "Sketch";
+  enablePbr?: boolean;
+  faceCount?: number;
+};
+
+/** 纯函数：构造请求体（便于单测锁住字段形状） */
+export function buildHunyuan3DPayload(subAppId: number, input: Hunyuan3DInput): CreateHunyuan3DTaskRequest {
+  const imageUrl = input.imageUrl && /^https?:\/\//i.test(input.imageUrl) ? input.imageUrl : undefined;
+  const prompt = (input.prompt || "").trim();
+  if (!imageUrl && !prompt) throw new Error("混元 3D 需要提供描述或参考图");
+  const payload: CreateHunyuan3DTaskRequest = {
+    SubAppId: subAppId,
+    OutputConfig: { StorageMode: "Temporary" },
+  };
+  if (imageUrl) payload.ImageInfos = [{ Type: "Url", Url: imageUrl }];
+  else payload.Prompt = prompt.slice(0, 1000);
+  if (input.generateType && input.generateType !== "Normal") payload.GenerateType = input.generateType;
+  if (input.enablePbr) payload.EnablePBR = "Enabled";
+  if (typeof input.faceCount === "number" && Number.isFinite(input.faceCount)) {
+    payload.FaceCount = Math.min(1_500_000, Math.max(3000, Math.round(input.faceCount)));
+  }
+  return payload;
+}
+
+/** 纯函数：从 FileInfos 里挑 GLB（顺序不保证，禁止取 [0]） */
+export function pickHunyuan3DGlb(files: Hunyuan3DFileInfo[] | undefined): string | undefined {
+  const list = files || [];
+  const glb = list.find((f) => String(f.FileType || "").toUpperCase() === "GLB" && f.FileUrl)
+    || list.find((f) => /\.glb(\?|$)/i.test(String(f.FileUrl || "")));
+  return glb?.FileUrl;
+}
+
+export async function createVodHunyuan3DTask(input: Hunyuan3DInput): Promise<{ taskId: string }> {
+  const config = getConfig();
+  const payload = buildHunyuan3DPayload(config.subAppId, input);
+  console.log("[vod-aigc-3d] create", JSON.stringify({
+    mode: payload.ImageInfos ? "image" : "prompt",
+    generateType: payload.GenerateType || "Normal",
+    faceCount: payload.FaceCount,
+  }));
+  const result = await callVodApi<{ Response: { TaskId?: string; RequestId: string; Error?: { Code: string; Message: string } } }>(
+    "CreateAigcHunyuan3DTask",
+    payload as unknown as Record<string, unknown>,
+  );
+  if (result.Response?.Error) {
+    throw new Error(`混元 3D 创建失败：${result.Response.Error.Code} ${result.Response.Error.Message}`);
+  }
+  if (!result.Response?.TaskId) throw new Error(`混元 3D 创建失败：${JSON.stringify(result).slice(0, 300)}`);
+  return { taskId: result.Response.TaskId };
+}
+
+/** 生产实测 Geometry 147s；Normal 带纹理更久，给 7 分钟。 */
+export const HUNYUAN3D_POLL_TIMEOUT_MS = 7 * 60 * 1000;
+
+export type VodHunyuan3DPollResult =
+  | { status: "success"; modelUrl: string }
+  | { status: "failed"; error: string };
+
+export async function pollVodHunyuan3DTask(
+  taskId: string,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<VodHunyuan3DPollResult> {
+  // ⚠️ 必须短于前端轮询上限（client/src/lib/ai.ts THREED_TASK_POLL_MAX_ATTEMPTS ≈ 8 分钟），
+  //    否则前端先放弃、后端还在等，用户看到失败但任务稍后又「成功」。
+  const timeoutMs = options.timeoutMs ?? HUNYUAN3D_POLL_TIMEOUT_MS;
+  const intervalMs = options.intervalMs ?? 5000;
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
+  let lastProgress = -1;
+  while (Date.now() < deadline) {
+    try {
+      const detail = (await callVodApi<Hunyuan3DTaskDetailResponse>("DescribeTaskDetail", {
+        TaskId: taskId,
+        SubAppId: getConfig().subAppId,
+      })).Response;
+      consecutiveErrors = 0;
+      if (detail.Error) return { status: "failed", error: `${detail.Error.Code} ${detail.Error.Message}` };
+      const t = detail.AigcHunyuan3DTask;
+      if (t?.ErrCode) return { status: "failed", error: t.Message || `ErrCode ${t.ErrCode}` };
+      if (detail.Status === "FAIL" || t?.Status === "FAIL") return { status: "failed", error: t?.Message || "混元 3D 任务失败" };
+      if (detail.Status === "FINISH" || t?.Status === "FINISH") {
+        const url = pickHunyuan3DGlb(t?.Output?.FileInfos);
+        if (url) return { status: "success", modelUrl: url };
+        return { status: "failed", error: `混元 3D 未返回 GLB：${JSON.stringify(t?.Output || {}).slice(0, 300)}` };
+      }
+      if (typeof t?.Progress === "number" && t.Progress !== lastProgress) {
+        lastProgress = t.Progress;
+        console.log(`[vod-aigc-3d] ${taskId} progress ${t.Progress}%`);
+      }
+    } catch (error) {
+      consecutiveErrors += 1;
+      console.warn(`[vod-aigc-3d] poll error (${consecutiveErrors}):`, error instanceof Error ? error.message : error);
+      if (consecutiveErrors >= 5) return { status: "failed", error: `查询混元 3D 任务连续失败：${String(error)}` };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return { status: "failed", error: `混元 3D 生成超时（${Math.round(timeoutMs / 60000)} 分钟）` };
+}
+
+export async function generateHunyuan3DWithVod(input: Hunyuan3DInput): Promise<{ modelUrl: string; taskId: string }> {
+  const { taskId } = await createVodHunyuan3DTask(input);
+  const result = await pollVodHunyuan3DTask(taskId);
+  if (result.status === "failed") throw new Error(result.error);
+  console.log(`[vod-aigc-3d] ${taskId} done`);
+  return { modelUrl: result.modelUrl, taskId };
+}

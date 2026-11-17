@@ -140,6 +140,41 @@ export async function storeModel3DFromStream(options: {
   };
 }
 
+/**
+ * 把 AI 生成的远程模型（GLB/GLTF URL）下载并转存为当前用户的 3D 模型文件。
+ * 浏览器只通过 /api/models3d/:modelId 读取 —— 不直连外部 CDN（国内经常拉不到）。
+ */
+export async function storeModel3DFromUrl(options: {
+  username: string;
+  url: string;
+  originalName: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<StoredModel3D> {
+  const { Readable: NodeReadable } = await import("stream");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 60_000);
+  try {
+    const response = await (options.fetchImpl || fetch)(options.url, { signal: controller.signal });
+    if (!response.ok || !response.body) {
+      throw new Model3DUploadError(502, `下载生成的 3D 模型失败（HTTP ${response.status}）`);
+    }
+    const declared = Number(response.headers.get("content-length") || "");
+    return await storeModel3DFromStream({
+      username: options.username,
+      originalName: options.originalName,
+      stream: NodeReadable.fromWeb(response.body as any),
+      declaredLength: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+    });
+  } catch (error) {
+    if (error instanceof Model3DUploadError) throw error;
+    const aborted = (error as { name?: string })?.name === "AbortError";
+    throw new Model3DUploadError(502, aborted ? "下载生成的 3D 模型超时" : "下载生成的 3D 模型失败");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type ResolvedModel3D = {
   filePath: string;
   size: number;

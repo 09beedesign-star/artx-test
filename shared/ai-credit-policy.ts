@@ -253,18 +253,16 @@ export const AI_CREDIT_POLICIES: AiBillingPolicy[] = [
    * text_to_3d 兜底条目 —— 匹配不到特定模型时的回落值。
    *
    * ⚠️ quoteAiUsage 对 text_to_3d 能力会优先查 AI_THREED_MODEL_CREDIT_POLICIES
-   *    按模型精确计费（300–500 积分/次）；只有完全找不到模型 id 时才落到这里。
+   *    按模型精确计费；只有完全找不到模型 id 时才落到这里。
    *
-   * baseCredits = 400：与 hunyuan3d-2.5（全站默认3D档，¥0.50/次）对应，
-   * 毛利率 84.9%，与主力能力区间（85-91%）对齐。
-   * estimatedCostPerUnit 取四款模型的均值成本 (0.50+0.65+0.45+0.38)/4 ≈ 0.50 CNY。
+   * 与混元生 3D 同价（2400 积分 / 成本 ¥3.0），定价推导见文件末尾 3D 策略注释。
    */
   {
     capability: "text_to_3d",
     label: "3D 模型生成",
     billingUnit: "per_request",
-    baseCredits: 400,
-    estimatedCostPerUnit: 0.50,
+    baseCredits: 2400,
+    estimatedCostPerUnit: 3.0,
     providerDefault: "混元3D",
   },
 ];
@@ -585,7 +583,7 @@ export function quoteAiUsage(input: {
     : null;
   /**
    * 3D 生成按模型精确计费（类似 text_to_image 查 AI_IMAGE_MODEL_CREDIT_POLICIES）。
-   * 找不到具体模型 id 时返回 null，后续落回兜底 baseCredits: 400。
+   * 找不到具体模型 id 时返回 null，后续落回 text_to_3d 兜底 baseCredits。
    */
   const threeDModelPolicy = input.capability === "text_to_3d"
     ? getAiThreeDModelCreditPolicy(input.model)
@@ -647,11 +645,21 @@ export function quoteAiUsage(input: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3D 生成积分策略
-// 按次计费（per_request），与图片「per_image」口径不同。
-// 成本参考：混元3D ≈ ¥0.50/次，Tripo ≈ ¥0.65/次，Meshy ≈ ¥0.45/次，Stability3D ≈ ¥0.38/次。
-// 定价以 55% 毛利为底线，向上取整到 50 积分倍数（1 积分 ≈ ¥0.0013 HKD）。
+// 3D 生成积分策略（2026-11-17 接入腾讯云 VOD 混元生 3D 真实上游后重新定价）
+// 按次计费（per_request）。
+//
+// 成本：混元生 3D「Normal」（带纹理）= 20–25 混元积分/次，后付费 ¥0.12/积分
+//       → ¥2.4–3.0/次，按上限 ¥3.0 计；失败不计费。
+// 定价：沿用 3D 原有毛利口径——最坏充值档（Pro 年卡 331 积分/元）毛利 58.6%，
+//       轻量档（130 积分/元）毛利 84%（与主力能力 83–91% 对齐）。
+//       → 3.0 / (1 − 0.586) × 331 ≈ 2400 积分/次。
+// ⚠️ 旧的 tripo3d / meshy / stability3d 三个 id 未签约、后端一律走混元，
+//    必须与混元同价：便宜档 = 用户挑旧 id 就能低价吃到混元成本。
 // ─────────────────────────────────────────────────────────────────────────────
+
+export const HUNYUAN3D_COST_PER_GENERATION_CNY = 3.0;
+export const HUNYUAN3D_CREDITS_PER_GENERATION = 2400;
+const THREED_POLICY_MODEL_IDS = ["hunyuan3d-2.5", "tripo3d-v2.5", "meshy-4", "stability3d-fast"];
 
 export type AiThreeDModelCreditPolicy = {
   model: string;
@@ -659,28 +667,13 @@ export type AiThreeDModelCreditPolicy = {
   estimatedCostPerGeneration: number;
 };
 
-export const AI_THREED_MODEL_CREDIT_POLICIES: AiThreeDModelCreditPolicy[] = [
-  {
-    model: "hunyuan3d-2.5",
-    creditsPerGeneration: 400,
-    estimatedCostPerGeneration: 0.5,
-  },
-  {
-    model: "tripo3d-v2.5",
-    creditsPerGeneration: 500,
-    estimatedCostPerGeneration: 0.65,
-  },
-  {
-    model: "meshy-4",
-    creditsPerGeneration: 350,
-    estimatedCostPerGeneration: 0.45,
-  },
-  {
-    model: "stability3d-fast",
-    creditsPerGeneration: 300,
-    estimatedCostPerGeneration: 0.38,
-  },
-];
+export const AI_THREED_MODEL_CREDIT_POLICIES: AiThreeDModelCreditPolicy[] = THREED_POLICY_MODEL_IDS.map(
+  (model) => ({
+    model,
+    creditsPerGeneration: HUNYUAN3D_CREDITS_PER_GENERATION,
+    estimatedCostPerGeneration: HUNYUAN3D_COST_PER_GENERATION_CNY,
+  })
+);
 
 export function getAiThreeDModelCreditPolicy(model?: string): AiThreeDModelCreditPolicy | null {
   if (!model) return null;

@@ -17,7 +17,7 @@ import {
   type ReactNode,
   Fragment,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   ReactFlow,
   Controls,
@@ -51,6 +51,7 @@ import {
   MODEL3D_CONTAINER_WIDTH,
   appendContainerModels,
   findModel3DContainerAt,
+  getContainerModels,
   isInsideModel3DViewport,
   type Model3DItem,
   type Model3DNodeData,
@@ -225,7 +226,6 @@ import {
 } from "@/lib/canvas-templates";
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
 import { ThreeDGeneratorPanel } from "./ThreeDGeneratorPanel";
-import { ThreeDViewerDialog } from "./ThreeDViewerDialog";
 import { CanvasLayersPanel } from "./CanvasLayersPanel";
 import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
 import { CanvasPrintPanel } from "./CanvasPrintPanel";
@@ -21427,14 +21427,87 @@ const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY =
 const CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION = "2026-06-21-auto-default";
 
 /**
- * 3D 生成完成 → 打开画布的 3D 预览弹窗。
+ * 3D 生成 → 画布内的 3D 容器节点（model3d 子画布）承载结果（2026-11-16 改版）。
+ *
+ * 不再弹出覆盖在画布上层的「3D 模型预览」弹窗：
+ * - phase "start"：点发送的同一帧在画布里放一个 3D 容器，显示「正在生成3d模型。请稍后」；
+ * - phase "completed"：把服务端已转存的 modelId 放进该容器，沿用 3D 画布全部交互；
+ * - phase "failed"：撤掉生成中状态（空容器直接移除）并提示。
  *
  * 右下角 composer（CanvasAssistantPanel）与「图片右键 → 生成 3D 模型」面板
- * 分属两个组件子树，预览 state 在 InnerCanvas 里，只能通过全局事件回传。
- * ⚠️ 两个入口必须派发同一个事件名：各写一份 = 同一份结果的两个出口，
- *    将来预览链路改了必有一处不跟着改（本项目已多次踩过）。
+ * 分属两个组件子树，容器在 InnerCanvas 里，只能通过全局事件回传。
+ * ⚠️ 两个入口都只调用 runCanvasThreeDGeneration：各写一份 = 同一份结果的两个出口。
  */
 const CANVAS_3D_GENERATED_EVENT = "canvas-3d-generated";
+
+type Canvas3DGenerationEventDetail =
+  | { phase: "start"; taskId: string; prompt: string; model: string; anchorNodeId?: string }
+  | {
+      phase: "completed";
+      taskId: string;
+      prompt: string;
+      model: string;
+      modelId: string;
+      modelName: string;
+      expiresAt: number;
+      /** 用户所选 3D 模型失效后由混元 3D 兜底生成时，记录原模型 */
+      fallbackFrom?: string;
+    }
+  | { phase: "failed"; taskId: string; error: string; aborted?: boolean };
+
+function dispatchCanvas3DGeneration(detail: Canvas3DGenerationEventDetail) {
+  window.dispatchEvent(new CustomEvent(CANVAS_3D_GENERATED_EVENT, { detail }));
+}
+
+/** 3D 生成唯一执行链路：先放容器占位 → 提交任务 → 轮询 → 结果放进容器。 */
+async function runCanvasThreeDGeneration(input: {
+  prompt: string;
+  model: string;
+  referenceImageUrl?: string;
+  anchorNodeId?: string;
+  signal?: AbortSignal;
+}) {
+  const taskId = `threed-canvas-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const prompt = input.prompt.trim() || "高质量 3D 模型";
+  dispatchCanvas3DGeneration({
+    phase: "start",
+    taskId,
+    prompt,
+    model: input.model,
+    anchorNodeId: input.anchorNodeId,
+  });
+  try {
+    await startThreeDGenerationTask({
+      taskId,
+      prompt,
+      model: input.model,
+      referenceImageUrl: input.referenceImageUrl,
+    });
+    const completed = await waitForThreeDGenerationTask(taskId, input.signal);
+    if (!completed.modelId) {
+      throw new Error("3D 生成完成，但模型文件转存失败，请重试");
+    }
+    dispatchCanvas3DGeneration({
+      phase: "completed",
+      taskId,
+      prompt,
+      model: completed.model || input.model,
+      fallbackFrom: completed.fallbackFrom,
+      modelId: completed.modelId,
+      modelName: completed.modelName || `${prompt.slice(0, 24)}.glb`,
+      expiresAt: Number(completed.expiresAt || 0),
+    });
+    return completed;
+  } catch (error) {
+    dispatchCanvas3DGeneration({
+      phase: "failed",
+      taskId,
+      error: error instanceof Error ? error.message : "3D 生成失败",
+      aborted: isAiAbortError(error),
+    });
+    throw error;
+  }
+}
 
 /*
  * ⚠️⚠️【2026-09-27 账号隔离】模型偏好直接决定扣费档位（vod-gem 300/张），
@@ -25417,9 +25490,6 @@ function CanvasAssistantPanel({
     if (assistantModelPanelCategory === "3d") {
       const threeDPrompt = submittedComposerPrompt.trim();
       const threeDModelId = assistant3DModelId;
-      const threeDTaskId = `threed-composer-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`;
       setMessages(prev => [
         ...prev,
         {
@@ -25442,33 +25512,19 @@ function CanvasAssistantPanel({
       setSubmittingKind("3d");
       setIsSubmitting(true);
       try {
-        await startThreeDGenerationTask({
-          taskId: threeDTaskId,
-          prompt: threeDPrompt || "高质量 3D 模型",
+        const threeDDone = await runCanvasThreeDGeneration({
+          prompt: threeDPrompt,
           model: threeDModelId,
+          signal: threeDAbort.signal,
         });
-        const completed = await waitForThreeDGenerationTask(
-          threeDTaskId,
-          threeDAbort.signal
-        );
-        if (!completed.modelUrl) {
-          throw new Error("3D 生成完成但未返回模型文件地址");
-        }
-        window.dispatchEvent(
-          new CustomEvent(CANVAS_3D_GENERATED_EVENT, {
-            detail: {
-              modelUrl: completed.modelUrl,
-              model: threeDModelId,
-              prompt: threeDPrompt,
-            },
-          })
-        );
         setMessages(prev => [
           ...prev,
           {
             id: `assistant-3d-${Date.now()}`,
             role: "assistant" as const,
-            content: `已生成 3D 模型（${assistant3DModel?.label || threeDModelId}）：${threeDPrompt.slice(0, 60)}`,
+            content: threeDDone.fallbackFrom
+              ? `已生成 3D 模型（${assistant3DModel?.label || threeDModelId} 暂时不可用，已自动切换混元 3D）：${threeDPrompt.slice(0, 60)}`
+              : `已生成 3D 模型（${assistant3DModel?.label || threeDModelId}）：${threeDPrompt.slice(0, 60)}`,
             timestamp: new Date(),
           },
         ]);
@@ -28655,21 +28711,6 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   const [assetPropertiesTarget, setAssetPropertiesTarget] = useState<AssetPropertiesTarget | null>(null);
   /** 右键「生成 3D 模型」面板的目标节点；null = 关闭 */
   const [threeDGeneratorTarget, setThreeDGeneratorTarget] = useState<{ nodeId: string; imageUrl: string } | null>(null);
-  /** 3D 预览弹窗状态；null = 关闭 */
-  const [threeDViewerState, setThreeDViewerState] = useState<{ modelUrl: string; model: string; prompt: string } | null>(null);
-  /** 3D 生成完成的唯一收口：两个生成入口都派发同一个事件，这里统一开预览。 */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onGenerated = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{ modelUrl: string; model: string; prompt: string }>
-      ).detail;
-      if (!detail?.modelUrl) return;
-      setThreeDViewerState(detail);
-    };
-    window.addEventListener(CANVAS_3D_GENERATED_EVENT, onGenerated);
-    return () => window.removeEventListener(CANVAS_3D_GENERATED_EVENT, onGenerated);
-  }, []);
   /**
    * 画布底纹 / 网格吸附偏好（2026-11-14）。用 ref 镜像供 onNodeDragStop 读取，
    * 避免把整条拖动回调的依赖数组改成随偏好变化。
@@ -35739,6 +35780,111 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     screenToFlowPosition,
   ]);
 
+  /**
+   * AI 生成 3D 模型 → 画布内 3D 容器（子画布）承载，不弹独立预览弹窗。
+   * 容器按 data.generatingTaskId 认领结果（不靠内存映射），刷新/重渲染都不会错配。
+   */
+  useEffect(() => {
+    const findGeneratingContainer = (taskId: string) =>
+      nodesRef.current.find(
+        n => n.type === "model3d" && (n.data as Record<string, unknown> | undefined)?.generatingTaskId === taskId
+      );
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<Canvas3DGenerationEventDetail>).detail;
+      if (!detail?.taskId) return;
+      if (detail.phase === "start") {
+        let center: { x: number; y: number };
+        const anchor = detail.anchorNodeId
+          ? nodesRef.current.find(n => n.id === detail.anchorNodeId)
+          : undefined;
+        if (anchor) {
+          const aw = Number(anchor.measured?.width ?? anchor.width ?? anchor.style?.width ?? 0);
+          const ah = Number(anchor.measured?.height ?? anchor.height ?? anchor.style?.height ?? 0);
+          center = {
+            x: anchor.position.x + aw + 48 + MODEL3D_CONTAINER_WIDTH / 2,
+            y: anchor.position.y + ah / 2,
+          };
+        } else {
+          const rect = containerRef.current?.getBoundingClientRect();
+          const inset = isAssistantCollapsed ? 112 : assistantPanelWidth;
+          center = screenToFlowPosition({
+            x: rect ? rect.left + Math.max(240, rect.width - inset) / 2 : window.innerWidth / 2,
+            y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+          });
+        }
+        reactFlowStore.setState({ fitViewQueued: false });
+        const base = createModel3DContainerNode(center);
+        const node: Node<Model3DNodeData> = {
+          ...base,
+          data: {
+            models: [],
+            generatingTaskId: detail.taskId,
+            generatingSince: Date.now(),
+            generatingPrompt: detail.prompt,
+          },
+        };
+        pushHistory();
+        // 点发送的同一帧就出现在画布里（与图片生成节点的零延迟占位同口径）。
+        flushSync(() => {
+          setNodes(nds => [...nds.map(n => ({ ...n, selected: false })), node]);
+        });
+        setSelectedNodeIds([node.id]);
+        return;
+      }
+      const container = findGeneratingContainer(detail.taskId);
+      if (!container) return;
+      if (detail.phase === "completed") {
+        const item: Model3DItem = {
+          modelId: detail.modelId,
+          modelName: detail.modelName,
+          uploadedAt: Date.now(),
+          expiresAt: detail.expiresAt,
+        };
+        patchModel3DContainer(container.id, d => ({
+          ...d,
+          models: appendContainerModels(d, [item]),
+          expiredCleared: undefined,
+          generatingTaskId: undefined,
+          generatingSince: undefined,
+          generatingPrompt: undefined,
+        }));
+        if (detail.fallbackFrom) {
+          toast.success("3D 模型已生成（已切换混元 3D）", {
+            // ⚠️ 文案不能含「不可用/失效」等词：sonner 会按关键词把 success 渲染成红色失败样式
+            description: `所选模型繁忙，已自动改用混元 3D 生成。${MODEL3D_RETENTION_NOTICE_ZH}`,
+          });
+        } else {
+          toast.success("3D 模型已生成", { description: MODEL3D_RETENTION_NOTICE_ZH });
+        }
+        return;
+      }
+      // failed：空容器直接撤掉（不留一个空壳），已有模型的容器只清掉生成中状态。
+      const hasModels = getContainerModels(container.data as Record<string, unknown>).length > 0;
+      if (hasModels) {
+        patchModel3DContainer(container.id, d => ({
+          ...d,
+          generatingTaskId: undefined,
+          generatingSince: undefined,
+          generatingPrompt: undefined,
+        }));
+      } else {
+        setNodes(nds => nds.filter(n => n.id !== container.id));
+        setSelectedNodeIds(ids => ids.filter(id => id !== container.id));
+      }
+    };
+    window.addEventListener(CANVAS_3D_GENERATED_EVENT, handler);
+    return () => window.removeEventListener(CANVAS_3D_GENERATED_EVENT, handler);
+  }, [
+    assistantPanelWidth,
+    createModel3DContainerNode,
+    isAssistantCollapsed,
+    patchModel3DContainer,
+    pushHistory,
+    reactFlowStore,
+    screenToFlowPosition,
+    setNodes,
+  ]);
+
   // 容器标题栏「添加模型」→ 打开文件框，选中的文件只进这个容器。
   useEffect(() => {
     const handler = (event: Event) => {
@@ -41068,25 +41214,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           referenceImageUrl={threeDGeneratorTarget.imageUrl}
           isDark={isDark}
           onClose={() => setThreeDGeneratorTarget(null)}
-          onGenerated={(modelUrl, model, prompt) => {
+          onSubmit={({ prompt, model }) => {
+            const target = threeDGeneratorTarget;
             setThreeDGeneratorTarget(null);
-            window.dispatchEvent(
-              new CustomEvent(CANVAS_3D_GENERATED_EVENT, {
-                detail: { modelUrl, model, prompt },
-              })
-            );
+            void runCanvasThreeDGeneration({
+              prompt,
+              model,
+              referenceImageUrl: target.imageUrl,
+              anchorNodeId: target.nodeId,
+            }).catch(error => {
+              if (isAiAbortError(error)) return;
+              toast("3D 生成失败", {
+                description: error instanceof Error ? error.message : "请稍后重试",
+              });
+            });
           }}
-        />
-      )}
-
-      {/* 3D 模型预览弹窗 */}
-      {threeDViewerState && (
-        <ThreeDViewerDialog
-          modelUrl={threeDViewerState.modelUrl}
-          modelId={threeDViewerState.model}
-          prompt={threeDViewerState.prompt}
-          isDark={isDark}
-          onClose={() => setThreeDViewerState(null)}
         />
       )}
 

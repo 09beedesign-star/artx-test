@@ -7,6 +7,7 @@ import {
   sortImageModelIdsByPriority,
 } from "../../../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../../../shared/text-models";
+import { THREED_SELECTABLE_MODEL_IDS } from "../../../shared/model3d";
 
 // ── AI Models ────────────────────────────────────────────────
 export type AiModelOption = {
@@ -107,7 +108,7 @@ export const THREED_AI_MODELS: AiModelOption[] = [
     label: "混元 3D 2.5",
     color: "#2a2a2a",
     icon: "hunyuan3d",
-    description: "腾讯自研，中文理解强，GLB / FBX / OBJ 导出",
+    description: "腾讯自研，带纹理 GLB，约 2–3 分钟出模",
   },
   {
     id: "tripo3d-v2.5",
@@ -132,7 +133,10 @@ export const THREED_AI_MODELS: AiModelOption[] = [
   },
 ];
 
-export const THREED_AI_MODEL_OPTIONS: AiModelOption[] = [...THREED_AI_MODELS];
+/** 选择器只展示有真实上游的 3D 模型（见 shared/model3d.ts THREED_SELECTABLE_MODEL_IDS）。 */
+export const THREED_AI_MODEL_OPTIONS: AiModelOption[] = THREED_AI_MODELS.filter(model =>
+  (THREED_SELECTABLE_MODEL_IDS as readonly string[]).includes(model.id)
+);
 
 
 /**

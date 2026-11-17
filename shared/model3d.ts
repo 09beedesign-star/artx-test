@@ -102,6 +102,12 @@ export type ThreeDGenModelId = (typeof THREED_GEN_MODEL_IDS)[number];
 
 export const DEFAULT_THREED_GEN_MODEL_ID: ThreeDGenModelId = "hunyuan3d-2.5";
 
+/**
+ * 选择器里可选的 3D 模型 —— 只列有真实上游的（2026-11-17 只有混元生 3D）。
+ * 其余 id 保留在 THREED_GEN_MODEL_IDS 里只为兼容老偏好/老任务，后端一律走混元。
+ */
+export const THREED_SELECTABLE_MODEL_IDS: readonly ThreeDGenModelId[] = ["hunyuan3d-2.5"];
+
 export function isThreeDGenModelId(id: string): id is ThreeDGenModelId {
   return (THREED_GEN_MODEL_IDS as readonly string[]).includes(id);
 }
