@@ -75,7 +75,11 @@ describe("版式工作台接线", () => {
     expect(panel).toContain("data-artx-template-card={layout.i}");
     expect(panel).toContain("个容器 ·");
     expect(panel).toContain("data-artx-template-import");
-    expect(panel).toContain("导入到画布");
+    expect(panel).toContain("加载到画布");
+    // 🔒 2026-11-17：分类 tab = Figma 每排黑色封面；内容平铺
+    expect(panel).toContain("FIGMA_LAYOUT_CATEGORIES");
+    expect(panel).toContain("data-artx-template-tab={t.id}");
+    expect(panel).toContain("data-artx-template-tabs");
     // 黑白配色：不许再出现 teal 渐变 / 强调色
     for (const banned of ["#0f766e", "#7dd3c0", "linear-gradient(90deg"]) {
       expect(panel).not.toContain(banned);

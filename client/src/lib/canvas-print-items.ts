@@ -7,10 +7,10 @@
  */
 import type { Node } from "@xyflow/react";
 import {
-  getTemplateLayout,
+  isPieceInsideTemplate,
   renderTemplateSvg,
   svgToDataUrl,
-  templateBackground,
+  templateBackgroundById,
   type TemplatePiece,
 } from "./canvas-templates";
 
@@ -34,7 +34,9 @@ function collectPieces(nodes: Node[], frameId: string): TemplatePiece[] {
     )
     .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0))
     .map(n => (n.data as Record<string, unknown>).piece as TemplatePiece)
-    .filter(Boolean);
+    .filter(Boolean)
+    // 出画（中心点在模板外）的单元不打印 —— 与导出同一口径
+    .filter(isPieceInsideTemplate);
 }
 
 export function buildPrintableItems(nodes: Node[]): PrintableItem[] {
@@ -60,8 +62,7 @@ export function buildPrintableItems(nodes: Node[]): PrintableItem[] {
       const width = Math.max(1, Math.round(Number(style.width) || 800));
       const height = Math.max(1, Math.round(Number(style.height) || 1131));
       const layoutId = String(data.templateLayoutId || "");
-      const layout = layoutId ? getTemplateLayout(layoutId) : undefined;
-      const background = layout ? templateBackground(layout) : "#ffffff";
+      const background = templateBackgroundById(layoutId, "#ffffff");
       items.push({
         id: node.id,
         name: String(data.title || data.templateLayoutName || "版式画板"),

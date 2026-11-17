@@ -20,7 +20,14 @@ import {
   TEMPLATE_PIECE_COMMAND_EVENT,
   type TemplateSelectionDetail,
 } from "@/lib/canvas-template-piece-actions";
-import type { TemplatePiece, TemplatePieceCommand } from "@/lib/canvas-templates";
+import { DEFAULT_PIECE_SHADOW, type TemplatePiece, type TemplatePieceCommand } from "@/lib/canvas-templates";
+import {
+  TEMPLATE_EXPORT_EVENT,
+  TEMPLATE_EXPORT_FORMATS,
+  type TemplateExportRequest,
+  type TemplateExportScope,
+} from "@/lib/canvas-template-export";
+import { AlignCenter, AlignLeft, AlignRight } from "lucide-react";
 import {
   TEMPLATE_PIECE_PATCH_EVENT,
   TEMPLATE_PROPERTIES_OPEN_EVENT,
@@ -45,6 +52,7 @@ export function TemplatePiecePropertiesPanel() {
   const [gridOpen, setGridOpen] = useState(false);
   const [gridCols, setGridCols] = useState(3);
   const [gridRows, setGridRows] = useState(2);
+  const [exportScope, setExportScope] = useState<TemplateExportScope>("frame");
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -76,6 +84,13 @@ export function TemplatePiecePropertiesPanel() {
       detail: { nodeId: detail.nodeId, patch: p },
     }));
     setDetail({ ...detail, piece: { ...piece, ...p } });
+  };
+  const shadow = { ...DEFAULT_PIECE_SHADOW, ...(piece.shadow || {}), enabled: !!piece.shadow && piece.shadow.enabled !== false };
+  const patchShadow = (p: Partial<typeof shadow>) => patch({ shadow: { ...shadow, enabled: true, ...p } });
+  const requestExport = (format: TemplateExportRequest["format"]) => {
+    window.dispatchEvent(new CustomEvent(TEMPLATE_EXPORT_EVENT, {
+      detail: { nodeId: detail.nodeId, format, scope: exportScope } satisfies TemplateExportRequest,
+    }));
   };
   const command = (id: TemplatePieceCommand, args?: { cols?: number; rows?: number }) => {
     window.dispatchEvent(new CustomEvent(TEMPLATE_PIECE_COMMAND_EVENT, {
@@ -333,6 +348,27 @@ export function TemplatePiecePropertiesPanel() {
         </div>
       </Section>
 
+      <Section title="投影">
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Check label="投影开关" checked={shadow.enabled}
+            onChange={v => patch({ shadow: { ...shadow, enabled: v } })} />
+          <ColorInput label="投影色" value={toHex(shadow.color, "#000000")} onChange={v => patchShadow({ color: v })} />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <Num label="X" value={shadow.x * 1000} step={1} onChange={v => patchShadow({ x: v / 1000 })} />
+          <Num label="Y" value={shadow.y * 1000} step={1} onChange={v => patchShadow({ y: v / 1000 })} />
+          <Num label="模糊" value={shadow.blur * 1000} step={1} min={0} onChange={v => patchShadow({ blur: Math.max(0, v / 1000) })} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: field, borderRadius: 9, padding: "8px 10px", marginTop: 8 }}>
+          <span style={{ fontSize: 12, color: muted, flexShrink: 0 }}>不透明</span>
+          <input type="range" min={0} max={100} value={Math.round(shadow.opacity * 100)}
+            aria-label="投影不透明度" data-artx-piece-field="投影不透明度"
+            onChange={e => patchShadow({ opacity: Number(e.target.value) / 100 })}
+            style={{ flex: 1, accentColor: ink }} />
+          <span style={{ fontSize: 12, fontWeight: 650, width: 30, textAlign: "right" }}>{Math.round(shadow.opacity * 100)}%</span>
+        </div>
+      </Section>
+
       {isText && (
         <Section title="文字">
           <textarea value={piece.text || ""} aria-label="文案" rows={3}
@@ -345,6 +381,14 @@ export function TemplatePiecePropertiesPanel() {
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <Num label="行距" value={piece.lineHeight || 1.12} step={0.05} onChange={v => patch({ lineHeight: v })} />
             <Num label="字距‰" value={(piece.trackingRatio || 0) * 1000} step={1} onChange={v => patch({ trackingRatio: v / 1000 })} />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            {([["left", "左对齐", AlignLeft], ["center", "居中", AlignCenter], ["right", "右对齐", AlignRight]] as const).map(([id, label, Icon]) => (
+              <IconBtn key={id} label={`text-align-${id}`} title={`文字${label}`}
+                active={(piece.textAlign || "left") === id} onClick={() => patch({ textAlign: id })}>
+                <Icon size={15} />
+              </IconBtn>
+            ))}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
             <ColorInput label="字色" value={toHex(piece.color, "#121212")} onChange={v => patch({ color: v })} />
@@ -362,6 +406,26 @@ export function TemplatePiecePropertiesPanel() {
         <IconBtn label="clip-mask" title="切换剪切蒙版" active={!!piece.clipMask} onClick={() => command("clip-mask")}>
           <Scissors size={15} /> {piece.clipMask ? "取消蒙版" : "应用蒙版"}
         </IconBtn>
+      </Section>
+
+      <Section title="格式导出">
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {([["frame", "整张模板"], ["piece", "当前单元"]] as const).map(([id, label]) => (
+            <IconBtn key={id} label={`export-scope-${id}`} title={`导出${label}`}
+              active={exportScope === id} onClick={() => setExportScope(id)}>
+              {label}
+            </IconBtn>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {TEMPLATE_EXPORT_FORMATS.map(f => (
+            <button key={f.id} type="button" data-artx-piece-export={f.id} title={`导出 ${f.label}`}
+              onClick={() => requestExport(f.id)}
+              style={{ flex: 1, height: 34, border: "none", borderRadius: 8, background: ink, color: bg, fontSize: 11.5, fontWeight: 650, cursor: "pointer" }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
       </Section>
 
       <div style={{ padding: "12px 16px 18px", fontSize: 10.5, color: muted, lineHeight: 1.6 }}>

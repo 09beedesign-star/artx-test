@@ -42,6 +42,7 @@ export interface PieceCommandResult {
   additions: TemplatePiece[];
   removals: string[];
   message: string;
+  mode?: "create-text" | "import-image" | null;
 }
 
 export const ALIGN_COMMANDS: Array<{ id: TemplatePieceCommand; label: string; glyph: string }> = [
@@ -222,6 +223,14 @@ export function runPieceCommand(
       return result;
     case "send-back":
       patch({ order: Math.min(...siblings.map(s => s.piece.order), piece.order) - 1 }, "已移到最下层");
+      return result;
+    case "create-text":
+      result.mode = "create-text";
+      result.message = "已激活文字创建模式，请点击模板区域创建文字";
+      return result;
+    case "import-image":
+      result.mode = "import-image";
+      result.message = "已激活图片导入模式，请选择图片";
       return result;
     default:
       result.message = "未知命令";

@@ -8,6 +8,7 @@
  */
 import type { Node } from "@xyflow/react";
 import { TEMPLATE_CATALOG } from "./canvas-template-catalog";
+import { getFigmaLayout, type FigmaLayout } from "./canvas-figma-layouts";
 import type {
   TemplateDecoration,
   TemplateGeometry,
@@ -246,7 +247,8 @@ export type TemplatePieceKind =
   | "path"
   | "dots"
   | "text"
-  | "placeholder";
+  | "placeholder"
+  | "image";
 export type TemplatePieceRole = "底纹" | "图形" | "文字" | "图位" | "页眉页脚";
 export interface TemplatePiece {
   id: string;
@@ -273,6 +275,8 @@ export interface TemplatePiece {
   /** kind=dots：相对本单元的 [x, y, r] */
   dots?: Array<[number, number, number]>;
   text?: string;
+  /** kind=image：图片 dataURL / URL（2026-11 模板「导入图片」命令） */
+  src?: string;
   /** 字号 / 画板高度 */
   sizeRatio?: number;
   fontFamily?: string;
@@ -318,6 +322,25 @@ export interface TemplatePiece {
   flipY?: boolean;
   /** 3D 立体厚度（节点容器 translateZ 视觉强度） */
   depth?: number;
+  /**
+   * 🔒 2026-11-17 投影：偏移 / 模糊都按画板高度的比例存，缩放画板不走样。
+   * 渲染只在 pieceBody（SVG feDropShadow）；PPT 导出映射为 outerShdw。
+   */
+  shadow?: TemplatePieceShadow;
+}
+export interface TemplatePieceShadow {
+  enabled?: boolean;
+  x: number;
+  y: number;
+  blur: number;
+  color: string;
+  opacity: number;
+}
+export const DEFAULT_PIECE_SHADOW: TemplatePieceShadow = {
+  enabled: true, x: 0, y: 0.008, blur: 0.012, color: "#000000", opacity: 0.25,
+};
+export function isShadowOn(piece: TemplatePiece): boolean {
+  return !!piece.shadow && piece.shadow.enabled !== false && piece.shadow.opacity > 0;
 }
 
 /** 版式单元可执行的命令 id（悬浮命令条 / 属性面板共用同一套）。 */
@@ -325,7 +348,8 @@ export type TemplatePieceCommand = "align-left" | "align-hcenter" | "align-right
   | "align-top" | "align-vcenter" | "align-bottom" | "distribute"
   | "repeat-grid" | "boolean-union" | "boolean-subtract" | "boolean-intersect" | "boolean-exclude"
   | "3d-extrude" | "3d-path" | "3d-rotate" | "path-text"
-  | "clip-mask" | "flip-x" | "flip-y" | "reset-rotation" | "toggle-lock" | "bring-front" | "send-back";
+  | "clip-mask" | "flip-x" | "flip-y" | "reset-rotation" | "toggle-lock" | "bring-front" | "send-back"
+  | "create-text" | "import-image";
 
 /** 对齐命令 → 单元在画板中的目标 x/y（归一化坐标）。 */
 export function alignPiece(piece: TemplatePiece, command: TemplatePieceCommand): Partial<TemplatePiece> {
@@ -480,9 +504,57 @@ function labelToPiece(
 /** 页眉页脚全部是本平台自己的文案，与参考站点不重名。 */
 const BRAND_LINE = "ARTX / 版式工作台";
 
+/**
+ * 🔒 2026-11-17 用户拍板：植入版式工作台的所有模板，可编辑文案一律统一为这一句。
+ * ⚠️ 只在 buildTemplatePieces 这一个出口替换（缩略图 / 画布 / 打印 / 下载都走它），
+ *    以后从 Figma Layout 页导入的模板也必须经过这里，别在导入脚本里另写一份。
+ * 不替换：页眉品牌行、目录编号、页码、图位标签（它们是版式骨架，不是文案）。
+ */
+export const TEMPLATE_DEFAULT_COPY_ZH = "欢迎使用Artxstudio模板，双击文案可编辑。";
+/** 两行版本：长文案塞进窄框时用，断在逗号后，读起来最顺。 */
+const TEMPLATE_DEFAULT_COPY_LINES = ["欢迎使用Artxstudio模板，", "双击文案可编辑。"];
+
+/** 粗估一行文字的宽度（单位：em）。CJK/全角 ≈ 1em，拉丁字母数字 ≈ 0.56em。 */
+export function estimateTextEm(line: string): number {
+  let em = 0;
+  for (const ch of line) em += /[\u2E80-\uFFEF]/.test(ch) ? 1 : 0.56;
+  return em;
+}
+
+/**
+ * 把统一文案塞进原文字框：在「一行 / 两行」里选字号更大的排法，
+ * 字号只缩不放（不超过原设计字号），保证不撑破版式。
+ * @param box 归一化 [x,y,w,h]；w 相对画板宽，h 相对画板高
+ * @param aspect 画板宽 / 高
+ */
+export function fitTemplateCopy(
+  box: { w: number; h: number },
+  aspect: number,
+  originalSizeRatio: number,
+  lineHeight: number,
+): { text: string; sizeRatio: number } {
+  const boxW = Math.max(0.0001, box.w * aspect); // 换算成「画板高」单位
+  const boxH = Math.max(0.0001, box.h);
+  const lh = Math.max(1, lineHeight || 1.12);
+  const options = [
+    { lines: [TEMPLATE_DEFAULT_COPY_ZH] },
+    { lines: TEMPLATE_DEFAULT_COPY_LINES },
+  ].map(opt => {
+    const widest = Math.max(...opt.lines.map(estimateTextEm));
+    const byW = boxW / widest;
+    const byH = boxH / (opt.lines.length * lh);
+    return { text: opt.lines.join("\n"), size: Math.min(byW, byH) };
+  });
+  const best = options[0].size >= options[1].size ? options[0] : options[1];
+  const sizeRatio = Math.max(0.006, Math.min(originalSizeRatio || best.size, best.size));
+  return { text: best.text, sizeRatio };
+}
+
 export function buildTemplatePieces(
   layout: TemplateLayoutData,
-  geometry: TemplateGeometry
+  geometry: TemplateGeometry,
+  /** 画板宽 / 高：统一文案按它估算字宽；不传时用版式的预览长宽比 */
+  aspect?: number
 ): TemplatePiece[] {
   const palette = TEMPLATE_CATALOG.palettes[layout.p] || DEFAULT_PALETTE;
   const pieces: TemplatePiece[] = [];
@@ -642,7 +714,33 @@ export function buildTemplatePieces(
     });
   });
 
-  return pieces.sort((a, b) => a.order - b.order);
+  return applyTemplateDefaultCopy(pieces, aspect || layout.pa || 0.707).sort((a, b) => a.order - b.order);
+}
+
+/** 是否属于「可编辑文案」（统一替换的范围）。版式骨架（品牌行 / 编号 / 页码 / 页脚说明 / 图位标签）不算。 */
+export function isTemplateCopyPiece(piece: TemplatePiece): boolean {
+  if (piece.kind !== "text") return false;
+  return piece.role === "文字" || piece.name === "副题";
+}
+
+/** 🔒 唯一出口：把所有可编辑文案换成 TEMPLATE_DEFAULT_COPY_ZH，并按原文字框缩放字号。 */
+export function applyTemplateDefaultCopy(pieces: TemplatePiece[], aspect: number): TemplatePiece[] {
+  return pieces.map(piece => {
+    if (!isTemplateCopyPiece(piece)) return piece;
+    // 竖排（±90°）的装饰字换成一句话后读不了，统一摆正；labelToPiece 为旋转交换过宽高，这里换回视觉框。
+    const upright = Math.abs(piece.rotation || 0) === 90;
+    const box = upright ? { ...piece, w: piece.h, h: piece.w } : piece;
+    const fit = fitTemplateCopy(box, aspect, piece.sizeRatio || 0.014, piece.lineHeight || 1.12);
+    return {
+      ...piece,
+      w: box.w,
+      h: box.h,
+      text: fit.text,
+      sizeRatio: fit.sizeRatio,
+      rotation: upright ? 0 : piece.rotation,
+      pathText: false,
+    };
+  });
 }
 
 // ─── 唯一的 SVG 渲染出口 ─────────────────────────────────────────────────────
@@ -769,9 +867,23 @@ function shapeBody(piece: TemplatePiece, W: number, H: number, key: string, attr
         .map(([dx, dy, r]) => `<circle cx="${n(px + dx * pw)}" cy="${n(py + dy * ph)}" r="${n(r * r0)}" fill="${esc(fill)}"${opacity}${extra}/>`)
         .join("");
     }
+    case "image":
+      return piece.src
+        ? `<image href="${esc(piece.src)}" x="${n(px)}" y="${n(py)}" width="${n(pw)}" height="${n(ph)}" preserveAspectRatio="xMidYMid slice"${opacity}${extra}/>`
+        : "";
     default:
       return "";
   }
+}
+
+/**
+ * 模板边界判定（与画板「入画 / 出画」同一口径：单元中心点落在画板内 = 属于模板）。
+ * 出画的单元不导出、不打印。
+ */
+export function isPieceInsideTemplate(piece: Pick<TemplatePiece, "x" | "y" | "w" | "h">): boolean {
+  const cx = piece.x + piece.w / 2;
+  const cy = piece.y + piece.h / 2;
+  return cx >= 0 && cx <= 1 && cy >= 0 && cy <= 1;
 }
 
 /**
@@ -797,6 +909,14 @@ function pieceBody(piece: TemplatePiece, W: number, H: number, key: string): str
   if (piece.flipY) transforms.push(`translate(0 ${n(2 * cy)}) scale(1 -1)`);
   const rotationAttr = transforms.length ? ` transform="${transforms.join(" ")}"` : "";
   let defs = gradientDefs(piece, W, H, key);
+
+  // 投影：SVG 原生 feDropShadow，偏移 / 模糊按画板高度换算
+  let shadowAttr = "";
+  if (isShadowOn(piece)) {
+    const s = piece.shadow!;
+    defs += `<defs><filter id="${key}Sh" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB"><feDropShadow dx="${n(s.x * H)}" dy="${n(s.y * H)}" stdDeviation="${n(Math.max(0, s.blur * H) / 2)}" flood-color="${esc(s.color || "#000000")}" flood-opacity="${n(Math.max(0, Math.min(1, s.opacity)))}"/></filter></defs>`;
+    shadowAttr = ` filter="url(#${key}Sh)"`;
+  }
 
   // 剪切蒙版：用本单元矩形裁掉溢出内容（截图「剪切蒙版」命令）
   let clipAttr = "";
@@ -841,7 +961,9 @@ function pieceBody(piece: TemplatePiece, W: number, H: number, key: string): str
       body += textBody(piece, W, H, px + pw * 0.02, py + ph * 0.42, pw * 0.96, "center", key);
     }
   }
-  return `${defs}<g${rotationAttr}${blend}${clipAttr}>${body}</g>`;
+  // 投影包在最外层：旋转后的形状也按页面方向投影（与 Figma / PPT 一致）
+  const inner = `<g${rotationAttr}${blend}${clipAttr}>${body}</g>`;
+  return `${defs}${shadowAttr ? `<g${shadowAttr}>${inner}</g>` : inner}`;
 }
 
 function textBody(
@@ -901,7 +1023,13 @@ export function renderTemplateSvg(
 export function renderPieceSvg(
   piece: TemplatePiece,
   width: number,
-  height: number
+  height: number,
+  /**
+   * ⚠️ 画布上每个单元是一段独立内联 SVG，但它们同处一个 document：
+   *    defs 里的 id 一旦重名，url(#…) 会解析到页面里第一个同名元素（别人的渐变 / 投影）。
+   *    画布节点必须传自己的节点 id；下载 / 复制等独立文件可不传。
+   */
+  idKey?: string
 ): string {
   const W = Math.max(1, width);
   const H = Math.max(1, height);
@@ -909,7 +1037,8 @@ export function renderPieceSvg(
   const ph = Math.max(1, piece.h * H);
   // 只改 viewBox 做裁切，图元仍用整张画板的绝对坐标；
   // 这样渐变 userSpaceOnUse 的坐标、旋转中心都与整图渲染完全一致。
-  const body = pieceBody(piece, W, H, "artxTplGrad0");
+  const key = idKey ? `artxTpl${idKey.replace(/[^A-Za-z0-9_-]/g, "")}` : "artxTplGrad0";
+  const body = pieceBody(piece, W, H, key);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(pw)}" height="${n(ph)}" viewBox="${n(piece.x * W)} ${n(piece.y * H)} ${n(pw)} ${n(ph)}" overflow="visible">${body}</svg>`;
 }
 
@@ -970,10 +1099,235 @@ export function buildTemplateNodes(
   layout: TemplateLayoutData,
   options: TemplateBuildOptions
 ): Node[] {
-  const { frameId, position, size, zIndex } = options;
+  const { size } = options;
   const geometry = pickTemplateVariant(layout, size.width / size.height);
-  const pieces = buildTemplatePieces(layout, geometry);
-  const bg = templateBackground(layout);
+  const pieces = buildTemplatePieces(layout, geometry, size.width / size.height);
+  return templatePiecesToNodes(
+    { id: layout.i, name: layout.n, background: templateBackground(layout) },
+    pieces,
+    options
+  );
+}
+
+// ─── Figma 导入版式（2026-11-17） ─────────────────────────────────────────────
+/**
+ * Figma 版式的子单元：坐标已归一化，这里只补唯一 id + 统一文案。
+ * ⚠️ 统一文案仍走 applyTemplateDefaultCopy —— 与老目录同一个出口。
+ */
+export function buildFigmaTemplatePieces(layout: FigmaLayout): TemplatePiece[] {
+  const pieces = layout.pieces.map(p => ({ ...p }));
+  return applyTemplateDefaultCopy(pieces, layout.w / Math.max(1, layout.h))
+    .sort((a, b) => a.order - b.order);
+}
+
+/** Figma 版式的显示尺寸：长边 1200（与「屏幕与社交」纸张同口径），比例严格等于原 frame。 */
+export function figmaLayoutDisplaySize(layout: FigmaLayout): { width: number; height: number } {
+  const k = 1200 / Math.max(layout.w, layout.h);
+  return { width: Math.round(layout.w * k), height: Math.round(layout.h * k) };
+}
+
+export function buildFigmaTemplateNodes(
+  layout: FigmaLayout,
+  options: TemplateBuildOptions
+): Node[] {
+  return templatePiecesToNodes(
+    { id: layout.i, name: layout.n, background: layout.bg },
+    buildFigmaTemplatePieces(layout),
+    options
+  );
+}
+
+/** 按 id 取版式背景色：老目录 / Figma 两套来源的唯一查询口。 */
+export function templateBackgroundById(id: string | undefined | null, fallback = "#ffffff"): string {
+  if (!id) return fallback;
+  const figma = getFigmaLayout(id);
+  if (figma) return figma.bg;
+  const layout = getTemplateLayout(id);
+  return layout ? templateBackground(layout) : fallback;
+}
+export function templateNameById(id: string | undefined | null): string | undefined {
+  if (!id) return undefined;
+  return getFigmaLayout(id)?.n || getTemplateLayout(id)?.n;
+}
+
+/** 模板画板的像素尺寸（与 checkAndEmbedIntoFrame 同口径：data.width/height 优先）。 */
+export function templateFrameSize(frame: Node): { width: number; height: number } {
+  const d = (frame.data || {}) as Record<string, unknown>;
+  const s = (frame.style || {}) as Record<string, unknown>;
+  return {
+    width: Number(d.width) || Number(s.width) || 800,
+    height: Number(d.height) || Number(s.height) || 600,
+  };
+}
+
+/** 画布坐标点落在哪个模板画板里（中心点口径，与画板入画判定一致）；没有返回 null。 */
+export function findTemplateFrameAt(nodes: Node[], point: { x: number; y: number }): Node | null {
+  // 后加的画板在上层，倒序找，与视觉一致
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    if (n.type !== "canvasFrame" || !(n.data as Record<string, unknown>)?.templateLayoutId) continue;
+    const { width, height } = templateFrameSize(n);
+    if (
+      point.x >= n.position.x && point.x <= n.position.x + width &&
+      point.y >= n.position.y && point.y <= n.position.y + height
+    ) return n;
+  }
+  return null;
+}
+
+function isDarkColor(color: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(color || "");
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  const lum = 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255);
+  return lum < 128;
+}
+
+/**
+ * 在模板画板里新建一个文字单元（模板命令条「创建文字」与顶部常驻「文字」工具共用）。
+ * 点击位置即文字左上角；字号 = 画板高度 3.2%，颜色按模板底色自动取黑 / 白。
+ */
+export function createTemplateTextPiece(frame: Node, flowPoint: { x: number; y: number }): TemplatePiece {
+  const { width, height } = templateFrameSize(frame);
+  const d = (frame.data || {}) as Record<string, unknown>;
+  const bg = templateBackgroundById(d.templateLayoutId as string, String(d.bgColor || "#ffffff"));
+  const sizeRatio = 0.032;
+  const w = Math.min(0.6, Math.max(0.2, 320 / width));
+  const h = sizeRatio * 1.5;
+  return {
+    id: `text-${Date.now().toString(36)}`,
+    name: "文字",
+    role: "文字",
+    kind: "text",
+    x: (flowPoint.x - frame.position.x) / width,
+    y: (flowPoint.y - frame.position.y) / height,
+    w,
+    h,
+    order: 999,
+    text: "输入文字",
+    sizeRatio,
+    fontWeight: 500,
+    color: isDarkColor(bg) ? "#ffffff" : "#161616",
+    textAlign: "left",
+    lineHeight: 1.2,
+  };
+}
+
+/** 导入图片单元：按原图比例放进画板中心，长边不超过画板的 60%。 */
+export function createTemplateImagePiece(
+  frame: Node,
+  src: string,
+  natural: { width: number; height: number },
+  name = "图片"
+): TemplatePiece {
+  const { width, height } = templateFrameSize(frame);
+  const nw = Math.max(1, natural.width);
+  const nh = Math.max(1, natural.height);
+  const scale = Math.min((width * 0.6) / nw, (height * 0.6) / nh, 1);
+  const w = (nw * scale) / width;
+  const h = (nh * scale) / height;
+  return {
+    id: `image-${Date.now().toString(36)}`,
+    name,
+    role: "图位",
+    kind: "image",
+    src,
+    x: (1 - w) / 2,
+    y: (1 - h) / 2,
+    w,
+    h,
+    order: 999,
+  };
+}
+
+/** 新单元 → 画布节点（字段与 templatePiecesToNodes 完全一致，导出 / 拖动 / 命令条走同一套）。 */
+export function templatePieceToNode(
+  frame: Node,
+  piece: TemplatePiece,
+  zIndex: number,
+  extraData: Record<string, unknown> = {}
+): Node {
+  const { width, height } = templateFrameSize(frame);
+  const d = (frame.data || {}) as Record<string, unknown>;
+  const id = `${frame.id}-${piece.id}`;
+  return {
+    id,
+    type: "templatePiece",
+    position: {
+      x: frame.position.x + piece.x * width,
+      y: frame.position.y + piece.y * height,
+    },
+    style: {
+      width: Math.max(1, piece.w * width),
+      height: Math.max(1, piece.h * height),
+    },
+    data: {
+      id,
+      title: piece.name,
+      piece,
+      frameW: width,
+      frameH: height,
+      embeddedInFrame: frame.id,
+      templateOwner: frame.id,
+      templateLayoutId: d.templateLayoutId,
+      sizeCustomized: true,
+      ...extraData,
+    },
+    zIndex,
+    selected: true,
+  };
+}
+
+/**
+ * 🔒 拖动结束后把单元的像素位置写回归一化坐标，并按「中心点」重新判定入画 / 出画
+ * （与 checkAndEmbedIntoFrame 同一口径）。
+ * - 中心点落在某个模板画板内 → 归属该画板（可拖进另一套模板），x/y/w/h 按该画板重算；
+ * - 落在所有模板外 → 出画：解除 embeddedInFrame，不随模板导出 / 打印 / 跟随移动。
+ */
+export function syncDraggedTemplatePiece(node: Node, all: Node[]): Node {
+  const d = node.data as Record<string, unknown>;
+  const piece = d.piece as TemplatePiece | undefined;
+  if (!piece) return node;
+  const pxW = Math.max(1, piece.w * (Number(d.frameW) || 800));
+  const pxH = Math.max(1, piece.h * (Number(d.frameH) || 600));
+  const center = { x: node.position.x + pxW / 2, y: node.position.y + pxH / 2 };
+  const frame = findTemplateFrameAt(all, center);
+  if (!frame) {
+    if (!d.embeddedInFrame) return node;
+    return { ...node, data: { ...d, embeddedInFrame: undefined } };
+  }
+  const { width, height } = templateFrameSize(frame);
+  const next: TemplatePiece = {
+    ...piece,
+    x: (node.position.x - frame.position.x) / width,
+    y: (node.position.y - frame.position.y) / height,
+    w: pxW / width,
+    h: pxH / height,
+  };
+  const fd = frame.data as Record<string, unknown>;
+  return {
+    ...node,
+    data: {
+      ...d,
+      piece: next,
+      frameW: width,
+      frameH: height,
+      embeddedInFrame: frame.id,
+      templateOwner: frame.id,
+      templateLayoutId: fd.templateLayoutId,
+    },
+  };
+}
+
+/** 画板 + 子单元节点（老目录与 Figma 共用，保证画布行为完全一致）。 */
+function templatePiecesToNodes(
+  meta: { id: string; name: string; background: string },
+  pieces: TemplatePiece[],
+  options: TemplateBuildOptions
+): Node[] {
+  const { frameId, position, size, zIndex } = options;
+  const bg = meta.background;
+  const layout = { i: meta.id, n: meta.name };
   const frame: Node = {
     id: frameId,
     type: "canvasFrame",

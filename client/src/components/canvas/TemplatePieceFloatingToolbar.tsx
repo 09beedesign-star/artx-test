@@ -7,7 +7,7 @@
  *    不在组件里另写一套下载 / 复制 / 参考图逻辑。
  */
 import { useState } from "react";
-import { Copy, Download, Layers3, MoreHorizontal, Pencil, Rotate3D, RotateCcw, Sparkles, Type } from "lucide-react";
+import { Copy, Download, ImagePlus, Layers3, MoreHorizontal, Pencil, Rotate3D, RotateCcw, Sparkles, Type } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   MORE_COMMANDS,
@@ -90,6 +90,8 @@ export function TemplatePieceFloatingToolbar({ detail }: { detail: TemplateSelec
         icon={Pencil} label="属性编辑" active
         onClick={() => window.dispatchEvent(new CustomEvent(TEMPLATE_PROPERTIES_OPEN_EVENT))}
       />
+      <Btn icon={Type} label="创建文字" onClick={() => command("create-text")} />
+      <Btn icon={ImagePlus} label="导入图片" onClick={() => command("import-image")} />
 
       {moreOpen && (
         <div

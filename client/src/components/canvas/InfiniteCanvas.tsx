@@ -214,15 +214,35 @@ import {
 import {
   TEMPLATE_RESOLUTIONS,
   buildTemplateNodes,
+  buildFigmaTemplateNodes,
   computeTemplatePlacement,
+  figmaLayoutDisplaySize,
   getTemplateLayout,
+  createTemplateImagePiece,
+  createTemplateTextPiece,
+  findTemplateFrameAt,
+  syncDraggedTemplatePiece,
+  templatePieceToNode,
+  isPieceInsideTemplate,
   renderTemplateSvg,
   resolveTemplateSize,
   svgToDataUrl,
-  templateBackground,
+  templateBackgroundById,
+  templateNameById,
   CANVAS_TEMPLATES_ENABLED,
   type TemplatePiece,
 } from "@/lib/canvas-templates";
+import { getFigmaLayout } from "@/lib/canvas-figma-layouts";
+import {
+  TEMPLATE_EXPORT_EVENT,
+  TEMPLATE_EXPORT_FORMATS,
+  cropJobToPiece,
+  downloadBlob,
+  exportTemplateJob,
+  serialFileNames,
+  type TemplateExportJob,
+  type TemplateExportRequest,
+} from "@/lib/canvas-template-export";
 import { AssetPropertiesDialog, type AssetPropertiesTarget } from "./AssetPropertiesDialog";
 import { ThreeDGeneratorPanel } from "./ThreeDGeneratorPanel";
 import { ThreeDViewerDialog } from "./ThreeDViewerDialog";
@@ -12126,6 +12146,12 @@ function TapnowEdge({
   );
 }
 
+/**
+ * 当前画布工具模式的模块级快照（唯一写入点：InnerCanvas 的 tool-mode-change 监听）。
+ * 给拿不到 activeToolMode 的节点组件（如 CanvasFrameNode）判断「此刻是不是文字工具」。
+ */
+const canvasToolModeSnapshot = { current: "move" };
+
 // ── Canvas Frame Node — 画布帧节点 ─────────────────────────────────────────────
 function CanvasFrameNode({
   id,
@@ -12139,6 +12165,7 @@ function CanvasFrameNode({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const viewport = useViewport();
+  const { setNodes: setFrameFlowNodes } = useReactFlow();
 
   // 内部尺寸状态（拖拽过程中实时更新）
   const [localW, setLocalW] = useState<number>((data.width as number) || 800);
@@ -12296,14 +12323,34 @@ function CanvasFrameNode({
   );
   const handleCanvasFrameClick = useCallback(
     (e: React.MouseEvent) => {
+      // 🔒 2026-11-17：文字工具激活时画板不能吞点击 —— 必须冒泡到 ReactFlow onClick
+      //    （handlePaneClick），否则「点模板任意空白处建文字」零反应、零报错（实测踩过）。
+      if (canvasToolModeSnapshot.current === "text") return;
       e.stopPropagation();
-      window.dispatchEvent(
-        new CustomEvent("asset-click-selection", {
-          detail: { selectedIds: [id] },
-        })
-      );
+      // 🔒 2026-11-17：Ctrl/⌘ 点击 = 累加/反选（与图片节点同口径），用于多选模板批量导出。
+      //    以前这里恒广播 [id]，把 xyflow 刚做好的多选覆盖成单选，零报错。
+      const additive = e.ctrlKey || e.metaKey;
+      setFrameFlowNodes(nds => {
+        const wasSelected = Boolean(nds.find(n => n.id === id)?.selected);
+        const nextSelectedIds: string[] = [];
+        const next = nds.map(n => {
+          const sel = additive
+            ? n.id === id
+              ? !wasSelected
+              : Boolean(n.selected)
+            : n.id === id;
+          if (sel) nextSelectedIds.push(n.id);
+          return n.selected === sel ? n : { ...n, selected: sel };
+        });
+        window.dispatchEvent(
+          new CustomEvent("asset-click-selection", {
+            detail: { selectedIds: nextSelectedIds },
+          })
+        );
+        return next;
+      });
     },
-    [id]
+    [id, setFrameFlowNodes]
   );
   const handleCanvasFrameDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -14473,7 +14520,9 @@ function collectTemplatePieces(nodes: Node[], frameId: string): TemplatePiece[] 
         (n.data as Record<string, unknown>).embeddedInFrame === frameId
     )
     .sort((a, b) => ((a.zIndex as number) || 0) - ((b.zIndex as number) || 0))
-    .map(n => (n.data as Record<string, unknown>).piece as TemplatePiece);
+    .map(n => (n.data as Record<string, unknown>).piece as TemplatePiece)
+    // 🔒 模板边界：中心点在模板外 = 出画，不随模板导出（与画板入画/出画同口径）
+    .filter(p => !!p && isPieceInsideTemplate(p));
 }
 
 /** 子单元 → 一张透明画布；绘图仍只走 canvas-templates 的 SVG。 */
@@ -30209,6 +30258,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const mode = (e as CustomEvent<{ mode: string }>).detail?.mode;
       if (!mode) return;
       setActiveToolMode(mode);
+      canvasToolModeSnapshot.current = mode;
       // 切换工具时清除绘制状态
       if (mode !== "smart-canvas") {
         setDrawingRect(null);
@@ -30787,6 +30837,75 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    * ⚠️ 打印导出直接用 nodesRef 里**被用户改过**的 piece，不重新从目录
    *    生成，否则属性面板的编辑会在导出里凭空消失。
    */
+  /**
+   * 🔒 2026-11-17：往模板画板里加一个新单元 —— 命令条「创建文字 / 导入图片」与
+   *    顶部常驻「文字」工具共用这一个出口，节点字段走 templatePieceToNode（与模板自带单元一致）。
+   */
+  const addTemplatePieceToFrame = useCallback(
+    (frameId: string, piece: TemplatePiece, extraData: Record<string, unknown> = {}) => {
+      const frame = nodesRef.current.find(n => n.id === frameId && n.type === "canvasFrame");
+      if (!frame) return null;
+      pushHistory();
+      let createdId = "";
+      setNodes(nds => {
+        const latest = nds.find(n => n.id === frameId) || frame;
+        const node = templatePieceToNode(latest, piece, nextCanvasTopZ(nds), extraData);
+        createdId = node.id;
+        return [...nds.map(n => (n.selected ? { ...n, selected: false } : n)), node];
+      });
+      const id = `${frame.id}-${piece.id}`;
+      setSelectedNodeIds([createdId || id]);
+      return id;
+    },
+    [nodesRef, pushHistory, setNodes, setSelectedNodeIds]
+  );
+
+  /** 命令条「导入图片」：选本地图 → dataURL → 画板中心的图片单元。 */
+  const pickTemplateImage = useCallback(
+    (frameId: string) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/png,image/jpeg,image/webp,image/gif";
+      input.multiple = true;
+      input.onchange = () => {
+        const files = Array.from(input.files || []).filter(f => f.type.startsWith("image/"));
+        if (!files.length) return;
+        files.forEach((file, index) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const src = String(reader.result || "");
+            if (!src) return;
+            const img = new Image();
+            img.onload = () => {
+              const frame = nodesRef.current.find(n => n.id === frameId);
+              if (!frame) return;
+              const piece = createTemplateImagePiece(
+                frame,
+                src,
+                { width: img.naturalWidth, height: img.naturalHeight },
+                file.name.replace(/\.[^.]+$/, "") || "图片"
+              );
+              // 多张时错开一点，避免完全叠在一起
+              const offset = index * 0.03;
+              addTemplatePieceToFrame(frameId, {
+                ...piece,
+                id: `${piece.id}-${index}`,
+                x: piece.x + offset,
+                y: piece.y + offset,
+              });
+            };
+            img.onerror = () => toast.error(`${file.name} 无法读取`);
+            img.src = src;
+          };
+          reader.readAsDataURL(file);
+        });
+        toast.success(`已导入 ${files.length} 张图片到模板（拖出模板边界即不随模板导出）`);
+      };
+      input.click();
+    },
+    [addTemplatePieceToFrame, nodesRef]
+  );
+
   useEffect(() => {
     const resolveAction = (detail: TemplateActionDetail) => {
       const resolution =
@@ -30806,12 +30925,27 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
 
     const handlePlace = (e: Event) => {
       const detail = (e as CustomEvent<TemplateActionDetail>).detail;
-      const layout = getTemplateLayout(detail?.layoutId);
-      if (!layout) {
+      // 🔒 2026-11-17：Figma Layout 页导入的版式（fg-*）与老目录共用同一套放置 / 画板 / 子单元逻辑
+      const figma = getFigmaLayout(detail?.layoutId);
+      const layout = figma ? undefined : getTemplateLayout(detail?.layoutId);
+      if (!figma && !layout) {
         toast.error("这套版式已不在目录里");
         return;
       }
-      const { resolution, size } = resolveAction(detail);
+      const action = resolveAction(detail);
+      const resolution = action.resolution;
+      const size = figma
+        ? (() => {
+            const display = figmaLayoutDisplaySize(figma);
+            const k = (resolution.kind === "long" ? resolution.value : 2400) / Math.max(figma.w, figma.h);
+            return {
+              ...action.size,
+              display,
+              print: { width: Math.round(figma.w * k), height: Math.round(figma.h * k) },
+            };
+          })()
+        : action.size;
+      const layoutName = figma ? figma.n : layout!.n;
       const bounds = nodesRef.current.map(n => {
         const s = getCanvasNodeSize(n);
         return { x: n.position.x, y: n.position.y, width: s.width, height: s.height };
@@ -30820,7 +30954,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const frameId = `template-frame-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 6)}`;
-      const created = buildTemplateNodes(layout, {
+      const buildOptions = {
         frameId,
         position,
         size: size.display,
@@ -30833,7 +30967,10 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           printWidth: size.print.width,
           printHeight: size.print.height,
         },
-      });
+      };
+      const created = figma
+        ? buildFigmaTemplateNodes(figma, buildOptions)
+        : buildTemplateNodes(layout!, buildOptions);
       pushHistory(nodesRef.current, edgesRef.current);
       setNodes(nds => [
         ...nds.map(n => ({ ...n, selected: false })),
@@ -30851,7 +30988,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           duration: 500,
         }
       );
-      toast.success(`「${layout.n}」已放到画布右侧`, {
+      toast.success(`「${layoutName}」已放到画布右侧`, {
         description: "0 积分 · 双击版式卡片可连续放置",
       });
     };
@@ -30870,15 +31007,15 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
       const frameData = frame.data as Record<string, unknown>;
-      const layout = getTemplateLayout(frameData.templateLayoutId as string);
       const pieces = collectTemplatePieces(nodesRef.current, frame.id);
       if (pieces.length === 0) {
         toast.error("这套版式没有可导出的单元");
         return;
       }
-      const bg = layout
-        ? templateBackground(layout)
-        : String(frameData.bgColor || "#ffffff");
+      const bg = templateBackgroundById(
+        frameData.templateLayoutId as string,
+        String(frameData.bgColor || "#ffffff")
+      );
       const bleedPx =
         resolution.kind === "dpi" && detail.bleedMm > 0
           ? Math.min(
@@ -30948,7 +31085,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               width: Math.max(1, next.w * W),
               height: Math.max(1, next.h * H),
             },
-            data: { ...data, piece: next, title: next.name },
+            data: { ...data, piece: next, title: next.name, autoEdit: undefined },
           };
         })
       );
@@ -30993,6 +31130,25 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       const result = runPieceCommand(
         { nodeId, piece, frameW, frameH, layoutName }, command, siblings, args
       );
+      // 🔒 2026-11-17：命令条「创建文字」= 切到全局文字工具（与顶部常驻「文字」同一个模式），
+      //    点击落在模板内 → 建模板文字单元；落在模板外 → 普通文字节点。见 handlePaneClick。
+      if (result.mode === "create-text") {
+        window.dispatchEvent(
+          new CustomEvent("tool-mode-change", { detail: { mode: "text" } })
+        );
+        if (result.message) toast(result.message);
+        return;
+      }
+      if (result.mode === "import-image") {
+        const frameId = data.embeddedInFrame as string | undefined;
+        const frame = frameId ? all.find(n => n.id === frameId) : undefined;
+        if (!frame) {
+          toast.error("该单元已在模板外，请选中模板内的单元再导入图片");
+          return;
+        }
+        pickTemplateImage(frame.id);
+        return;
+      }
       if (!result.patches.length && !result.additions.length && !result.removals.length) {
         if (result.message) toast(result.message);
         return;
@@ -31049,7 +31205,43 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       if (result.message) toast(result.message);
     };
 
+
+    /** 🔒 2026-11-17：属性面板「格式导出」—— PPT / PDF / SVG / PNG / JPG，口径与打印同为 collectTemplatePieces。 */
+    const handleTemplateExport = async (e: Event) => {
+      const { nodeId, format, scope } = (e as CustomEvent<TemplateExportRequest>).detail || ({} as TemplateExportRequest);
+      if (!nodeId || !format) return;
+      const all = nodesRef.current;
+      const target = all.find(n => n.id === nodeId && n.type === "templatePiece");
+      if (!target) return;
+      const data = target.data as Record<string, unknown>;
+      const frameId = data.embeddedInFrame as string | undefined;
+      const frame = frameId ? all.find(n => n.id === frameId) : undefined;
+      const frameData = (frame?.data || {}) as Record<string, unknown>;
+      const width = Number(data.frameW) || 800;
+      const height = Number(data.frameH) || 600;
+      const pieces = frameId ? collectTemplatePieces(all, frameId) : [data.piece as TemplatePiece];
+      const layoutId = frameData.templateLayoutId as string | undefined;
+      const frameName = String(frameData.title || templateNameById(layoutId) || "ArtX版式");
+      const piece = data.piece as TemplatePiece;
+      let job: TemplateExportJob = {
+        pieces, width, height, name: frameName,
+        background: templateBackgroundById(layoutId, String(frameData.bgColor || "#ffffff")),
+      };
+      if (scope === "piece") job = { ...cropJobToPiece(job, piece), name: `${frameName}-${piece.name || "单元"}` };
+      const label = TEMPLATE_EXPORT_FORMATS.find(f => f.id === format)?.label || format;
+      const pending = toast.loading(`正在导出 ${label}…`);
+      try {
+        const { blob, fileName } = await exportTemplateJob(job, format);
+        downloadBlob(blob, fileName);
+        toast.success(`已导出 ${fileName}（0 积分）`, { id: pending });
+      } catch (err) {
+        console.error("[template-export]", err);
+        toast.error(`${label} 导出失败`, { id: pending });
+      }
+    };
+
     window.addEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
+    window.addEventListener(TEMPLATE_EXPORT_EVENT, handleTemplateExport);
     window.addEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
     window.addEventListener(TEMPLATE_PIECE_PATCH_EVENT, handlePiecePatch);
     window.addEventListener(
@@ -31059,6 +31251,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
     window.addEventListener(TEMPLATE_PIECE_COMMAND_EVENT, handlePieceCommand);
     return () => {
       window.removeEventListener(TEMPLATE_PLACE_EVENT, handlePlace);
+      window.removeEventListener(TEMPLATE_EXPORT_EVENT, handleTemplateExport);
       window.removeEventListener(TEMPLATE_PRINT_EVENT, handlePrint);
       window.removeEventListener(TEMPLATE_PIECE_PATCH_EVENT, handlePiecePatch);
       window.removeEventListener(
@@ -31070,6 +31263,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
   }, [
     edgesRef,
     nodesRef,
+    pickTemplateImage,
     pushHistory,
     setCenter,
     setNodes,
@@ -31099,7 +31293,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           frameW: Number(data.frameW) || 800,
           frameH: Number(data.frameH) || 600,
           layoutName:
-            getTemplateLayout(data.templateLayoutId as string)?.n || "版式",
+            templateNameById(data.templateLayoutId as string) || "版式",
         }
       : null;
     window.dispatchEvent(
@@ -33022,7 +33216,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           n => actionIds.includes(n.id) && n.type === "canvasFrame"
         );
         if (selectedAssetNodes.length === 0) {
-          if (selectedFrameNodes.length === 1) {
+          if (selectedFrameNodes.length >= 1) {
+            // 🔒 2026-11-17：多画板 / 多模板批量导出 —— 每个画板以自身边界为导出范围，
+            //    按选中顺序 _01 / _02 序列号命名打包，重名也不会互相覆盖。
             setDownloadGroupId("__frame__");
             setDownloadFormat("png");
             setDownloadDialogOpen(true);
@@ -33031,16 +33227,14 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
             ).__artx_frame_download__ = selectedFrameNodes[0];
             (
               window as unknown as Record<string, unknown>
+            ).__artx_frame_download_batch__ =
+              selectedFrameNodes.length > 1 ? selectedFrameNodes : undefined;
+            (
+              window as unknown as Record<string, unknown>
             ).__artx_download_nodes__ = undefined;
             (
               window as unknown as Record<string, unknown>
             ).__artx_single_download__ = undefined;
-            return;
-          }
-          if (selectedFrameNodes.length > 1) {
-            toast("一次只能导出一个画板", {
-              description: "请只选中一个画板后再导出",
-            });
             return;
           }
           toast("没有可下载的图片节点");
@@ -34738,6 +34932,17 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       // 文字工具：点击画布创建文字节点，创建后自动切换回移动工具
       if (activeToolMode === "text") {
         const flowPos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        // 🔒 2026-11-17：点击落在模板画板内 → 建「模板文字单元」（属于模板、随模板导出）；
+        //    模板命令条「创建文字」与顶部常驻「文字」工具共用这一分支。
+        const templateFrame = findTemplateFrameAt(nodesRef.current, flowPos);
+        if (templateFrame) {
+          const piece = createTemplateTextPiece(templateFrame, flowPos);
+          addTemplatePieceToFrame(templateFrame.id, piece, { autoEdit: true });
+          window.dispatchEvent(
+            new CustomEvent("tool-mode-change", { detail: { mode: "move" } })
+          );
+          return;
+        }
         const id = `text-${Date.now()}`;
         const newNode = {
           id,
@@ -34788,6 +34993,8 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
       screenToFlowPosition,
       isDark,
       pushHistory,
+      addTemplatePieceToFrame,
+      nodesRef,
     ]
   );
 
@@ -40586,6 +40793,21 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
               )
             );
           }
+          // 🔒 2026-11-17：模板单元（文字 / 图片 / 图形）拖动结束 → 写回归一化坐标并按中心点
+          //    判定入画 / 出画（与画板 checkAndEmbedIntoFrame 同口径）。不写回的话导出读的是旧
+          //    piece.x/y，「移动后导出」位置会错、出画也判不出来。放在磁铁量化之后，读量化后的位置。
+          const draggedPieceIds = new Set(
+            [node, ...nodes]
+              .filter(n => n.type === "templatePiece")
+              .map(n => n.id)
+          );
+          if (draggedPieceIds.size) {
+            setNodes(nds =>
+              nds.map(n =>
+                draggedPieceIds.has(n.id) ? syncDraggedTemplatePiece(n, nds) : n
+              )
+            );
+          }
         }}
       >
         <CanvasBackgroundLayer pref={canvasBackgroundPref} isDark={isDark} />
@@ -41472,6 +41694,11 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                     const frameDl = (
                       window as unknown as Record<string, unknown>
                     ).__artx_frame_download__ as Node | undefined;
+                    const frameBatch = (
+                      window as unknown as Record<string, unknown>
+                    ).__artx_frame_download_batch__ as Node[] | undefined;
+                    if (frameDl && frameBatch?.length)
+                      return `批量导出 ${frameBatch.length} 个画板`;
                     if (frameDl) return "导出画板";
                     if (singleDl && !dlNodes) return `下载图片`;
                     const count = dlNodes?.length || 0;
@@ -41584,7 +41811,57 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
                   const frameDl = (window as unknown as Record<string, unknown>)
                     .__artx_frame_download__ as Node | undefined;
 
-                  if (frameDl) {
+                  const frameBatch = (
+                    window as unknown as Record<string, unknown>
+                  ).__artx_frame_download_batch__ as Node[] | undefined;
+                  (
+                    window as unknown as Record<string, unknown>
+                  ).__artx_frame_download_batch__ = undefined;
+
+                  if (frameDl && frameBatch && frameBatch.length > 1) {
+                    // 多画板：逐个按自身边界导出 → 序列号命名 → zip
+                    const pending = toast.loading(
+                      `正在导出 ${frameBatch.length} 个画板…`
+                    );
+                    const fileNames = serialFileNames(
+                      frameBatch.map(f => {
+                        const fd = f.data as Record<string, unknown>;
+                        return String(fd.title || fd.name || "artx-artboard");
+                      }),
+                      downloadFormat
+                    );
+                    const zip = new JSZip();
+                    let ok = 0;
+                    for (let i = 0; i < frameBatch.length; i++) {
+                      const latest =
+                        nodesRef.current.find(n => n.id === frameBatch[i].id) ||
+                        frameBatch[i];
+                      const blob =
+                        downloadFormat === "psd"
+                          ? await exportFrameAsPsdBlob(latest)
+                          : await exportFrameAsImageBlob(latest, downloadFormat);
+                      if (blob) {
+                        zip.file(fileNames[i], blob);
+                        ok++;
+                      }
+                    }
+                    if (!ok) {
+                      toast.error("导出失败", { id: pending });
+                    } else {
+                      const zipBlob = await zip.generateAsync({ type: "blob" });
+                      saveAs(zipBlob, `artx-画板批量导出-${ok}个.zip`);
+                      toast.success(`已导出 ${ok} 个画板（0 积分）`, {
+                        id: pending,
+                        description:
+                          ok < frameBatch.length
+                            ? `${frameBatch.length - ok} 个画板导出失败`
+                            : `${fileNames[0]} … ${fileNames[fileNames.length - 1]}`,
+                      });
+                    }
+                    (
+                      window as unknown as Record<string, unknown>
+                    ).__artx_frame_download__ = undefined;
+                  } else if (frameDl) {
                     const frameData = frameDl.data as Record<string, unknown>;
                     const frameTitle =
                       (frameData.title as string) ||
