@@ -5,10 +5,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, WandSparkles } from "lucide-react";
+import { Check, ChevronDown, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import {
   AUTO_AI_MODEL,
   IMAGE_AI_MODEL_OPTIONS,
@@ -20,7 +22,11 @@ import {
 import { getAiModelEntitlements, listAiModelCatalog } from "../../lib/ai";
 import { getStorageOwnerId } from "../../lib/owner-storage";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
-import { modelPopoverTokens, type ModelPopoverTheme } from "./model-popover-tokens";
+import { modelPopoverTokens, type ModelPopoverTheme, type ModelPopoverTokens } from "./model-popover-tokens";
+import {
+  getImageModelDefaultOutputCount,
+  hasCustomDefaultOutputCount,
+} from "@shared/image-models";
 import {
   getAiImageModelCreditPolicy,
   getAiThreeDModelCreditPolicy,
@@ -330,16 +336,17 @@ export function ModelSelector({
   const entitledModels = useImageModelOptions();
   const models = modelsProp ?? entitledModels;
   /**
-   * 分类 tab 状态："生图"(image) 和"对话"(chat) 两个分类。
-   * 切换分类后面板里展示对应的模型列表,不影响外部 model 值。
-   * 
-   * 2026-11-18: 3D 功能下架,改为显示"生图"和"对话"两个分类,统一三个场景的 UI。
+   * 分类 tab 状态。2026-11-18 起 3D 全面下架,分类改为「生图 / 对话」两等分,
+   * 与右下角 composer 的浮层（AssistantModelPopover）完全一致。
+   * category 只控制「面板里展示哪批」,不影响外部 model 值。
+   * 对话模型是文本模型（TEXT_AI_MODELS）,下游画布会按 isSupportedImageModelId
+   * 自动路由生图 / 对话,所以传出文本模型 id 是安全的。
    */
-  const [category, setCategory] = useState<"image" | "chat">("image");
-  const showCategoryTabs = true; // 始终显示分类 tab
-  const TAB_ROW_HEIGHT = 32;
+  const [category, setCategory] = useState<"image" | "text">("image");
   /** 当前 category 下可见的模型列表 */
-  const displayModels = category === "chat" ? TEXT_AI_MODELS : models;
+  const displayModels: AiModelOption[] = category === "text" ? TEXT_AI_MODELS : models;
+  /** 弹层高度上限（含 tab 行），交给公共浮层做滚动 */
+  const TAB_ROW_HEIGHT = 40;
   /**
    * 当前选中的模型被权益置灰（典型：免费用户 + 节点悬浮条默认即梦 / 本地偏好
    * 里存着 banana）→ 自动切回默认档。不切的话按钮上显示的是一个用不了的模型，
@@ -387,11 +394,11 @@ export function ModelSelector({
   const rowHeight = 40;
   /**
    * 展开栏高度上限（2026-09-21 用户点名 220）。
-   * show3D=true 时额外加 tab 行高度（32px）。
+   * 始终显示「生图 / 对话」tab 行，额外加其高度。
    * 超出的模型行走下方滚动条（overflowY auto + model-selector-scroll）。
    */
   const panelHeight = Math.min(displayModels.length * rowHeight, 220)
-    + (showCategoryTabs ? TAB_ROW_HEIGHT : 0);
+    + TAB_ROW_HEIGHT;
   const popMinWidth = 160;
   const POP_GAP = 4;
   const VIEWPORT_MARGIN = 8;
@@ -511,142 +518,326 @@ export function ModelSelector({
       {open &&
         typeof document !== "undefined" &&
         createPortal(
-          <div
-            ref={popoverRef}
-            className="rounded-[var(--radius-md-design)] overflow-hidden shadow-2xl"
+          <AssistantModelPopover
+            popoverRef={popoverRef}
             style={{
               ...(popoverStyle || {}),
-              background: pop.background,
-              border: `1px solid ${pop.border}`,
-              ...(pop.shadow ? { boxShadow: pop.shadow } : {}),
-              zIndex: 9999,
+              ...(pop.scrollbar ? { scrollbarColor: `${pop.scrollbar} transparent` } : {}),
             }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* 分类 tab 行 —— 始终显示"生图"和"对话"两个分类 */}
-            {showCategoryTabs && (
-              <div
-                style={{
-                  display: "flex",
-                  borderBottom: `1px solid ${pop.border}`,
-                  height: TAB_ROW_HEIGHT,
-                  flexShrink: 0,
-                }}
-              >
-                {(["image", "chat"] as const).map(cat => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCategory(cat)}
-                    style={{
-                      flex: 1,
-                      fontSize: 11,
-                      fontWeight: category === cat ? 600 : 400,
-                      color: pop.text,
-                      opacity: category === cat ? 1 : 0.46,
-                      borderBottom: category === cat
-                        ? `2px solid ${pop.text}`
-                        : "2px solid transparent",
-                      background: "transparent",
-                      cursor: "pointer",
-                      letterSpacing: 0,
-                      transition: "color 0.15s, border-color 0.15s",
-                    }}
-                  >
-                    {cat === "image" ? "生图" : "对话"}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div
-              className="model-selector-scroll"
-              style={{
-                maxHeight: (popoverStyle?.maxHeight != null
-                  ? (popoverStyle.maxHeight as number) - (showCategoryTabs ? TAB_ROW_HEIGHT : 0)
-                  : panelHeight - (showCategoryTabs ? TAB_ROW_HEIGHT : 0)),
-                overflowY: "auto",
-                overscrollBehavior: "contain",
-                scrollbarWidth: "thin",
-                scrollbarColor: `${pop.scrollbar} transparent`,
-              }}
-              onWheel={e => e.stopPropagation()}
-            >
-            {displayModels.map(m => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => {
-                  if (m.disabled) {
-                    toast("当前模型暂不可用", {
-                      description: m.unavailableReason || "请切换其他模型继续创作。",
-                    });
-                    return;
-                  }
-                  onChange(m.id);
-                  setOpen(false);
-                }}
-                disabled={m.disabled}
-                className="flex items-start gap-2 w-full px-3 text-left type-caption transition-colors"
-                style={{
-                  height: rowHeight,
-                  color: pop.text,
-                  background: m.id === model ? pop.selectedBackground : "transparent",
-                  opacity: m.disabled ? 0.46 : 1,
-                  cursor: m.disabled ? "not-allowed" : "pointer",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = pop.hoverBackground)}
-                onMouseLeave={e =>
-                  (e.currentTarget.style.background = m.id === model ? pop.selectedBackground : "transparent")
-                }
-              >
-                <AssistantModelIcon modelId={m.id} icon={m.icon} color={pop.icon} />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span
-                      className="type-caption"
-                      style={{ textTransform: "none", letterSpacing: "0.02em" }}
-                    >
-                      {m.label}
-                    </span>
-                    {/* 图片模型走高消耗角标；3D 模型走积分/次角标 */}
-                    {show3D && category === "3d" ? (() => {
-                      const p = getAiThreeDModelCreditPolicy(m.id);
-                      return p ? (
-                        <span
-                          style={{
-                            fontSize: 9,
-                            lineHeight: "14px",
-                            padding: "0 6px",
-                            color: "#60A5FA",
-                            background: "rgba(96,165,250,0.12)",
-                            border: "1px solid rgba(96,165,250,0.30)",
-                            borderRadius: 99,
-                            letterSpacing: 0,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {p.creditsPerGeneration} 积分/次
-                        </span>
-                      ) : null;
-                    })() : (
-                      <HighCostBadge model={m.id} />
-                    )}
-                  </span>
-                  {"description" in m && m.description ? (
-                    <span
-                      className="truncate"
-                      style={{ fontSize: 10, marginTop: 2, opacity: 0.58, letterSpacing: 0 }}
-                    >
-                      {m.unavailableReason || m.description}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>,
+            activeCategory={category}
+            onCategoryChange={cat => setCategory(cat as "image" | "text")}
+            models={displayModels}
+            selectedModelId={model}
+            onSelectModel={m => {
+              onChange(m.id);
+              setOpen(false);
+            }}
+            tabs={[
+              { id: "image", label: "生图" },
+              { id: "text", label: "对话" },
+            ]}
+            tokens={pop}
+            text={selectedText}
+            sub={isDark ? "#bbbbbb" : "#8b8b8b"}
+            isDark={isDark}
+            border={border}
+          />,
           document.body
         )}
+    </div>
+  );
+}
+
+/* ============================================================================
+ * AssistantModelPopover —— 模型选择器「展开浮层」的唯一 UI 实现（2026-11-18）
+ * ============================================================================
+ * 【为什么收口到这里】
+ * 之前存在两套浮层：
+ *   - A 套：右下角 composer 内联（auto 开关 + 生图/对话胶囊 tab + 模型描述
+ *     + 选中打勾），也就是用户截图里那套「最新 UI」。
+ *   - B 套：本文件的 ModelSelector 浮层（下划线 tab、无 auto、无打勾），首页
+ *     和节点悬浮用的就是它 —— 用户看到的「UI 回退」正是这套。
+ * 两份视觉写死在两个地方，改一处另一处不变。现在把浮层内容收口成本组件，
+ * A 套（右下角）和 B 套（本文件）都渲染它，浮层视觉只此一份。
+ *
+ * ⚠️ 本组件只负责「浮层里画什么」，不含触发按钮、portal 和定位 —— 那些在
+ *    各调用方（右下角 composer / ModelSelector），因为锚点、开关状态、业务
+ *    路由各不相同。当前版本的浮层列表项逐像素复刻 A 套（用户确认的标准）。
+ */
+export type ModelPopoverCategory = "image" | "text" | "3d";
+
+export type ModelPopoverTab = {
+  id: ModelPopoverCategory;
+  label: string;
+  /** 该 tab 是否可见；不传=可见。用于 3D 下架、空模型列表等场景。 */
+  visible?: boolean;
+};
+
+export interface AssistantModelPopoverProps {
+  /** 当前激活的分类（决定展示哪批模型 + 角标口径）。 */
+  activeCategory: ModelPopoverCategory;
+  onCategoryChange: (category: ModelPopoverCategory) => void;
+  /** 当前分类下要展示的模型列表。 */
+  models: AiModelOption[];
+  /** 当前选中的模型 id（用于打勾 / 高亮）。 */
+  selectedModelId: string;
+  /** 点选模型的回调。disabled 的模型不会触发。 */
+  onSelectModel: (model: AiModelOption) => void;
+  /** 分类 tab 配置。默认「生图 / 对话」两等分。 */
+  tabs?: ModelPopoverTab[];
+
+  /** 是否显示顶部 auto 行。右下角 composer=true，首页/节点悬浮=false（默认）。 */
+  showAuto?: boolean;
+  autoMode?: boolean;
+  onAutoModeChange?: (value: boolean) => void;
+  autoDisabled?: boolean;
+
+  /** 配色。由调用方用 modelPopoverTokens 算好后传入，避免组件内散落 isDark 三元。 */
+  tokens: ModelPopoverTokens;
+  /** 模型名 / auto 标题的主文字色。 */
+  text: string;
+  /** 描述 / 次要信息色。 */
+  sub: string;
+  isDark: boolean;
+  /** auto 开关关闭态边框色。 */
+  border: string;
+
+  /** 角标开关：默认都开，首页/节点悬浮可直接用默认值。 */
+  showHighCostBadge?: boolean;
+  showDefaultCountBadge?: boolean;
+  show3DCreditBadge?: boolean;
+
+  /** 透传给浮层根节点的定位样式（portal 的 top/bottom/maxHeight 等）。 */
+  style?: CSSProperties;
+  className?: string;
+  popoverRef?: Ref<HTMLDivElement>;
+  /** 阻止浮层内的点击冒泡到画布节点。默认 true。 */
+  stopClickPropagation?: boolean;
+}
+
+export function AssistantModelPopover({
+  activeCategory,
+  onCategoryChange,
+  models,
+  selectedModelId,
+  onSelectModel,
+  tabs = [
+    { id: "image", label: "生图" },
+    { id: "text", label: "对话" },
+  ],
+  showAuto = false,
+  autoMode = false,
+  onAutoModeChange,
+  autoDisabled = false,
+  tokens,
+  text,
+  sub,
+  isDark,
+  border,
+  showHighCostBadge = true,
+  showDefaultCountBadge = true,
+  show3DCreditBadge = true,
+  style,
+  className,
+  popoverRef,
+  stopClickPropagation = true,
+}: AssistantModelPopoverProps) {
+  const visibleTabs = tabs.filter(tab => tab.visible !== false);
+
+  return (
+    <div
+      ref={popoverRef}
+      className={className ?? "model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"}
+      style={{
+        ...(style || {}),
+        background: tokens.background,
+        border: `1px solid ${tokens.border}`,
+        color: tokens.text,
+        ...(tokens.shadow ? { boxShadow: tokens.shadow } : {}),
+        backdropFilter: "blur(16px)",
+        zIndex: 9999,
+      }}
+      onClick={stopClickPropagation ? e => e.stopPropagation() : undefined}
+    >
+      {/* 顶部 auto 行 —— 仅右下角 composer 显示；首页/节点悬浮不显示 */}
+      {showAuto && onAutoModeChange && (
+        <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm-design)] px-2.5 py-2">
+          <span
+            className="type-caption"
+            style={{ color: text, fontWeight: 700, textTransform: "none", letterSpacing: 0 }}
+          >
+            auto
+          </span>
+          <Switch
+            checked={autoMode}
+            onCheckedChange={onAutoModeChange}
+            disabled={autoDisabled}
+            aria-label="自动模式"
+            style={{
+              background: autoMode
+                ? "var(--artx-action-active-bg)"
+                : isDark
+                  ? "rgba(255,255,255,0.14)"
+                  : "rgba(0,0,0,0.12)",
+              border: `1px solid ${autoMode ? "var(--artx-action-active-border)" : border}`,
+            }}
+            thumbStyle={{
+              background: autoMode
+                ? "var(--artx-action-active-fg)"
+                : isDark
+                  ? "#999999"
+                  : "#fff",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
+            }}
+          />
+        </div>
+      )}
+
+      {/* 分类 tab 行 —— 胶囊圆角、等分网格（生图 / 对话），与截图一致 */}
+      {visibleTabs.length > 0 && (
+        <div
+          className="grid gap-1 px-1 pb-1"
+          style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}
+        >
+          {visibleTabs.map(tab => {
+            const active = activeCategory === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
+                style={{
+                  color: active ? tokens.text : sub,
+                  background: active ? tokens.selectedBackground : "transparent",
+                  border: `1px solid ${active ? tokens.border : "var(--artx-action-border)"}`,
+                }}
+                onClick={() => onCategoryChange(tab.id)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 模型列表：图标 + 名称 + 角标 + 描述 + 选中打勾 */}
+      {models.map(model => {
+        const is3D = activeCategory === "3d";
+        const isImage = activeCategory === "image";
+        const threeDCredit = is3D && show3DCreditBadge
+          ? getAiThreeDModelCreditPolicy(model.id)
+          : null;
+        const hasDefaultCount = isImage && showDefaultCountBadge && hasCustomDefaultOutputCount(model.id);
+        const selected = selectedModelId === model.id;
+        return (
+          <button
+            key={model.id}
+            type="button"
+            disabled={model.disabled}
+            className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
+            style={{
+              color: tokens.text,
+              opacity: model.disabled ? 0.46 : 1,
+              cursor: model.disabled ? "not-allowed" : "pointer",
+              background: selected ? tokens.selectedBackground : "transparent",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = tokens.hoverBackground)}
+            onMouseLeave={e =>
+              (e.currentTarget.style.background = selected ? tokens.selectedBackground : "transparent")
+            }
+            onClick={() => {
+              if (model.disabled) {
+                toast("当前模型暂不可用", {
+                  description: model.unavailableReason || "请切换其他模型继续创作。",
+                });
+                return;
+              }
+              onSelectModel(model);
+            }}
+          >
+            <div className="flex min-w-0 items-start gap-2.5">
+              <AssistantModelIcon modelId={model.id} icon={model.icon} color={tokens.icon} />
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <p
+                    className="truncate text-xs font-semibold"
+                    style={{ color: text, textTransform: "none", letterSpacing: 0 }}
+                  >
+                    {model.label}
+                  </p>
+                  {isImage && showDefaultCountBadge && hasDefaultCount ? (
+                    <span
+                      className="shrink-0 rounded-full"
+                      style={{
+                        fontSize: 9,
+                        lineHeight: "14px",
+                        padding: "0 6px",
+                        color: "#C5ED47",
+                        background: "rgba(197,237,71,0.14)",
+                        border: "1px solid rgba(197,237,71,0.32)",
+                        letterSpacing: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      默认{getImageModelDefaultOutputCount(model.id)}张
+                    </span>
+                  ) : null}
+                  {isImage && showHighCostBadge ? <HighCostBadge model={model.id} /> : null}
+                  {is3D && threeDCredit ? (
+                    <span
+                      className="shrink-0 rounded-full"
+                      style={{
+                        fontSize: 9,
+                        lineHeight: "14px",
+                        padding: "0 6px",
+                        color: sub,
+                        background: tokens.hoverBackground,
+                        border: `1px solid ${tokens.border}`,
+                        letterSpacing: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {threeDCredit.creditsPerGeneration} 积分/次
+                    </span>
+                  ) : null}
+                </div>
+                {"description" in model && model.description ? (
+                  <p
+                    className="truncate"
+                    style={{
+                      color: sub,
+                      fontSize: 10,
+                      letterSpacing: 0,
+                      marginTop: 2,
+                      maxWidth: 150,
+                    }}
+                  >
+                    {model.unavailableReason || model.description}
+                  </p>
+                ) : null}
+                {isImage && hasDefaultCount && !model.unavailableReason ? (
+                  <p
+                    style={{
+                      color: sub,
+                      fontSize: 9,
+                      letterSpacing: 0,
+                      marginTop: 2,
+                      maxWidth: 168,
+                      lineHeight: "13px",
+                      opacity: 0.85,
+                    }}
+                  >
+                    选中后自动出 {getImageModelDefaultOutputCount(model.id)} 张，按张计费，可在「张数」里改
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            {selected && (
+              <Check size={13} style={{ color: tokens.text, flex: "0 0 auto" }} />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

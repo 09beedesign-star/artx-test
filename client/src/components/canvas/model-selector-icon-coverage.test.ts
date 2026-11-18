@@ -81,10 +81,16 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
     /**
      * ⚠️ 必须同时扫两个文件。
      *
-     * 组件定义搬到 ModelSelector.tsx 之后，选择器自身的 2 个调用点也跟着走了；
-     * 若这里还只扫 InfiniteCanvas.tsx，数量断言会从 6 掉到 4 —— 那时候
-     * 把阈值从 6 改成 4 是最省事也最错误的做法：等于默认新文件里的调用点
+     * 组件定义搬到 ModelSelector.tsx 之后，选择器自身的调用点也跟着走了；
+     * 若这里还只扫 InfiniteCanvas.tsx，会漏掉 ModelSelector.tsx 里的调用点 ——
+     * 那时候把阈值调低是最省事也最错误的做法：等于默认新文件里的调用点
      * 不需要守。调用点在哪个文件不重要，重要的是**一个都不能漏**。
+     *
+     * 2026-11-18：浮层 UI 收口到 ModelSelector.tsx 内的 AssistantModelPopover
+     * 公共组件后，原先散在 InfiniteCanvas 内联浮层里的 3 个 AssistantModelIcon
+     * 调用点合并成公共组件里的 1 个，总数从 6 降到 3（InfiniteCanvas 触发按钮
+     * 1 个 + ModelSelector 触发按钮 1 个 + 公共浮层 1 个）。这是**调用点收敛**，
+     * 真正的守护是下面 for 循环逐个校验 icon/modelId，数量下限只防正则空转。
      */
     const sources = [INFINITE_CANVAS_PATH, MODEL_SELECTOR_PATH].map(readStripped);
     const usages = sources.flatMap(
@@ -92,7 +98,7 @@ describe("模型选择器图标不得出现空白（2026-09-13 回归锁）", ()
     );
 
     // 先确认确实扫到了调用点，否则正则一旦失配这条断言会静默空转。
-    expect(usages.length).toBeGreaterThanOrEqual(6);
+    expect(usages.length).toBeGreaterThanOrEqual(3);
 
     for (const usage of usages) {
       expect(usage, `调用点漏传 icon：${usage}`).toMatch(/\sicon=\{/);

@@ -130,8 +130,17 @@ describe("画布张数选择器与模型的联动", () => {
   });
 
   it("选择器和模型下拉都要显示默认张数说明", () => {
-    expect(source).toContain("hasCustomDefaultOutputCount(model.id)");
-    expect(source).toContain("默认{getImageModelDefaultOutputCount(model.id)}张");
+    /*
+     * 2026-11-18：模型下拉浮层收口到 ModelSelector.tsx 的公共组件
+     * AssistantModelPopover，「模型下拉里的默认张数角标」断言随之指向该文件；
+     * 「张数选择器」的说明仍在 InfiniteCanvas.tsx。守护意图不变。
+     */
+    const selectorSource = readFileSync(
+      resolve(__dirname, "ModelSelector.tsx"),
+      "utf-8"
+    );
+    expect(selectorSource).toContain("hasCustomDefaultOutputCount(model.id)");
+    expect(selectorSource).toContain("默认{getImageModelDefaultOutputCount(model.id)}张");
     expect(source).toContain("默认{recommendedCount}张");
   });
 

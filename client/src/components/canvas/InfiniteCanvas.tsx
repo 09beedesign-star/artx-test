@@ -249,9 +249,10 @@ import {
 } from "@/lib/canvas-background-preference";
 import {
   AssistantModelIcon,
-  HighCostBadge,
+  AssistantModelPopover,
   ModelSelector,
   useImageModelOptions,
+  type ModelPopoverCategory,
 } from "./ModelSelector";
 import { Model3DNode } from "./Model3DNode";
 import {
@@ -600,7 +601,6 @@ import { modelPopoverTokens } from "./model-popover-tokens";
 import {
   DEFAULT_IMAGE_OUTPUT_COUNT,
   getImageModelDefaultOutputCount,
-  hasCustomDefaultOutputCount,
   INSPIRATION_SAME_STYLE_MODEL_ID,
   isSupportedImageModelId,
   SMART_TEXT_EDIT_AI_MODEL_ID,
@@ -641,7 +641,6 @@ import { resolveImageCountFromPromptAndSelector } from "@shared/prompt-count-int
 import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import {
   getAiImageModelCreditPolicy,
-  getAiThreeDModelCreditPolicy,
 } from "@shared/ai-credit-policy";
 import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
 import {
@@ -27940,232 +27939,44 @@ function CanvasAssistantPanel({
                     {agentMenuOpen &&
                       typeof document !== "undefined" &&
                       createPortal(
-                        <div
-                          ref={assistantModelPopoverRef}
+                        <AssistantModelPopover
+                          popoverRef={assistantModelPopoverRef}
                           className="model-selector-scroll overflow-y-auto rounded-[var(--radius-md-design)] p-1 shadow-2xl"
-                          style={{
-                            ...(agentMenuStyle || {}),
-                            background: assistantModelPopoverTokens.background,
-                            border: `1px solid ${assistantModelPopoverTokens.border}`,
-                            color: assistantModelPopoverTokens.text,
-                            boxShadow: assistantModelPopoverTokens.shadow || undefined,
-                            backdropFilter: "blur(16px)",
-                            zIndex: 9999,
+                          style={agentMenuStyle || undefined}
+                          activeCategory={(assistantModelPanelCategory === "3d" ? "3d" : assistantModelPanelCategory) as ModelPopoverCategory}
+                          onCategoryChange={cat => {
+                            setAssistantModelPanelCategory(cat);
+                            // 3D 只是展示分类，不改变「对话 / 生图」的业务页签。
+                            if (cat !== "3d") setAssistantModelTab(cat);
                           }}
-                        >
-                          <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm-design)] px-2.5 py-2">
-                            <span
-                              className="type-caption"
-                              style={{
-                                color: text,
-                                fontWeight: 700,
-                                textTransform: "none",
-                                letterSpacing: 0,
-                              }}
-                            >
-                              auto
-                            </span>
-                            <Switch
-                              checked={assistantAutoMode}
-                              onCheckedChange={setAssistantAutoMode}
-                              disabled={availableAssistantImageModels.length === 0}
-                              aria-label="自动模式"
-                              style={{
-                                background: assistantAutoMode
-                                  ? "var(--artx-action-active-bg)"
-                                  : isDark
-                                    ? "rgba(255,255,255,0.14)"
-                                    : "rgba(0,0,0,0.12)",
-                                border: `1px solid ${assistantAutoMode ? "var(--artx-action-active-border)" : border}`,
-                              }}
-                              thumbStyle={{
-                                background: assistantAutoMode
-                                  ? "var(--artx-action-active-fg)"
-                                  : isDark
-                                    ? "#999999"
-                                    : "#fff",
-                                boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
-                              }}
-                            />
-                          </div>
-                          <div className="grid grid-cols-3 gap-1 px-1 pb-1">
-                            {[
-                              { id: "image" as const, label: "生图" },
-                              { id: "text" as const, label: "对话" },
-                              { id: "3d" as const, label: "3D" },
-                            ].filter(tab => tab.id === "image"
-                              ? availableAssistantImageModels.length > 0
-                              : tab.id === "text"
-                                ? availableAssistantTextModels.length > 0
-                                : THREED_GENERATION_ON && THREED_AI_MODEL_OPTIONS.length > 0).map(tab => {
-                              const active = assistantModelPanelCategory === tab.id;
-                              return (
-                              <button
-                                key={tab.id}
-                                type="button"
-                                className="h-7 rounded-[var(--radius-md-design)] type-caption transition-colors"
-                                style={{
-                                  color: active ? assistantModelPopoverTokens.text : sub,
-                                  background: active
-                                    ? assistantModelPopoverTokens.selectedBackground
-                                    : "transparent",
-                                  border: `1px solid ${active ? assistantModelPopoverTokens.border : "var(--artx-action-border)"}`,
-                                }}
-                                onClick={() => {
-                                  setAssistantModelPanelCategory(tab.id);
-                                  // 3D 只是展示分类，不改变「对话 / 生图」的业务页签。
-                                  if (tab.id !== "3d") setAssistantModelTab(tab.id);
-                                }}
-                              >
-                                {tab.label}
-                              </button>
-                              );
-                            })}
-                          </div>
-                          {assistantModelOptions.map(model => (
-                            <button
-                              key={model.id}
-                              type="button"
-                              disabled={model.disabled}
-                              className="flex w-full items-center justify-between rounded-[var(--radius-sm-design)] px-2.5 py-2 text-left transition-colors"
-                              style={{
-                                color: assistantModelPopoverTokens.text,
-                                opacity: model.disabled ? 0.46 : 1,
-                                cursor: model.disabled ? "not-allowed" : "pointer",
-                                background:
-                                  assistantModel.id === model.id
-                                    ? assistantModelPopoverTokens.selectedBackground
-                                    : "transparent",
-                              }}
-                              onMouseEnter={e =>
-                                (e.currentTarget.style.background =
-                                  assistantModelPopoverTokens.hoverBackground)
-                              }
-                              onMouseLeave={e =>
-                                (e.currentTarget.style.background =
-                                  assistantModel.id === model.id
-                                    ? assistantModelPopoverTokens.selectedBackground
-                                    : "transparent")
-                              }
-                              onClick={() => {
-                                if (model.disabled) {
-                                  toast("当前模型暂不可用", {
-                                    description: model.unavailableReason || "请切换其他模型继续创作。",
-                                  });
-                                  return;
-                                }
-                                if (assistantModelPanelCategory === "3d") {
-                                  setAssistant3DModelId(model.id);
-                                } else if (assistantModelPanelCategory === "image") {
-                                  setAssistantImageModelId(model.id);
-                                } else {
-                                  setAssistantTextModelId(model.id);
-                                }
-                                setAssistantAutoMode(false);
-                                setAgentMenuOpen(false);
-                              }}
-                            >
-                              <div className="flex min-w-0 items-start gap-2.5">
-                                {/* 面板内图标统一走同一份 token：浅色白底深图标、深色黑底白图标。 */}
-                                <AssistantModelIcon
-                                  modelId={model.id}
-                                  icon={model.icon}
-                                  color={assistantModelPopoverTokens.icon}
-                                />
-                                <div className="min-w-0">
-                                  <div className="flex min-w-0 items-center gap-1.5">
-                                    <p
-                                      className="truncate text-xs font-semibold"
-                                      style={{
-                                        color: text,
-                                        textTransform: "none",
-                                        letterSpacing: 0,
-                                      }}
-                                    >
-                                      {model.label}
-                                    </p>
-                                    {assistantModelPanelCategory === "image" &&
-                                    hasCustomDefaultOutputCount(model.id) ? (
-                                      <span
-                                        className="shrink-0 rounded-full"
-                                        style={{
-                                          fontSize: 9,
-                                          lineHeight: "14px",
-                                          padding: "0 6px",
-                                          color: "#C5ED47",
-                                          background: "rgba(197,237,71,0.14)",
-                                          border: "1px solid rgba(197,237,71,0.32)",
-                                          letterSpacing: 0,
-                                          whiteSpace: "nowrap",
-                                        }}
-                                      >
-                                        默认{getImageModelDefaultOutputCount(model.id)}张
-                                      </span>
-                                    ) : null}
-                                    {assistantModelPanelCategory === "image" ? (
-                                      <HighCostBadge model={model.id} />
-                                    ) : null}
-                                    {/* 3D 模型单价各不同（300~500 积分/次），选中前必须让用户看见花多少。 */}
-                                    {assistantModelPanelCategory === "3d" &&
-                                    getAiThreeDModelCreditPolicy(model.id) ? (
-                                      <span
-                                        className="shrink-0 rounded-full"
-                                        style={{
-                                          fontSize: 9,
-                                          lineHeight: "14px",
-                                          padding: "0 6px",
-                                          color: sub,
-                                          background:
-                                            assistantModelPopoverTokens.hoverBackground,
-                                          border: `1px solid ${assistantModelPopoverTokens.border}`,
-                                          letterSpacing: 0,
-                                          whiteSpace: "nowrap",
-                                        }}
-                                      >
-                                        {getAiThreeDModelCreditPolicy(model.id)!.creditsPerGeneration} 积分/次
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  {"description" in model &&
-                                  model.description ? (
-                                    <p
-                                      className="truncate"
-                                      style={{
-                                        color: sub,
-                                        fontSize: 10,
-                                        letterSpacing: 0,
-                                        marginTop: 2,
-                                        maxWidth: 150,
-                                      }}
-                                    >
-                                      {model.unavailableReason || model.description}
-                                    </p>
-                                  ) : null}
-                                  {assistantModelPanelCategory === "image" &&
-                                  hasCustomDefaultOutputCount(model.id) &&
-                                  !model.unavailableReason ? (
-                                    <p
-                                      style={{
-                                        color: sub,
-                                        fontSize: 9,
-                                        letterSpacing: 0,
-                                        marginTop: 2,
-                                        maxWidth: 168,
-                                        lineHeight: "13px",
-                                        opacity: 0.85,
-                                      }}
-                                    >
-                                      选中后自动出 {getImageModelDefaultOutputCount(model.id)} 张，按张计费，可在「张数」里改
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {assistantModel.id === model.id && (
-                                <Check size={13} style={{ color: assistantModelPopoverTokens.text }} />
-                              )}
-                            </button>
-                          ))}
-                        </div>,
+                          models={assistantModelOptions}
+                          selectedModelId={assistantModel.id}
+                          onSelectModel={model => {
+                            if (assistantModelPanelCategory === "3d") {
+                              setAssistant3DModelId(model.id);
+                            } else if (assistantModelPanelCategory === "image") {
+                              setAssistantImageModelId(model.id);
+                            } else {
+                              setAssistantTextModelId(model.id);
+                            }
+                            setAssistantAutoMode(false);
+                            setAgentMenuOpen(false);
+                          }}
+                          tabs={[
+                            { id: "image", label: "生图", visible: availableAssistantImageModels.length > 0 },
+                            { id: "text", label: "对话", visible: availableAssistantTextModels.length > 0 },
+                            { id: "3d", label: "3D", visible: THREED_GENERATION_ON && THREED_AI_MODEL_OPTIONS.length > 0 },
+                          ]}
+                          showAuto
+                          autoMode={assistantAutoMode}
+                          onAutoModeChange={setAssistantAutoMode}
+                          autoDisabled={availableAssistantImageModels.length === 0}
+                          tokens={assistantModelPopoverTokens}
+                          text={text}
+                          sub={sub}
+                          isDark={isDark}
+                          border={border}
+                        />,
                         document.body
                       )}
                   </div>

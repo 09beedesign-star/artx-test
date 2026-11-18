@@ -17,6 +17,8 @@ function readSource(name: string) {
   return stripped;
 }
 const source = readSource("InfiniteCanvas.tsx");
+/** 2026-11-18：3D 积分角标渲染已抽到公共浮层组件，单独读一份。 */
+const selectorSource = readSource("ModelSelector.tsx");
 
 /** 切出 handleSubmit 开头（3D 分支必须在这段里，切空会让断言集体假绿）。 */
 function readSubmitHead() {
@@ -120,11 +122,13 @@ describe("右下角 composer 3D 生成链路", () => {
     expect(source).toMatch(/useState<"image" \| "text" \| "3d">/);
     expect(source).toContain('"正在生成 3D 模型..."');
     // 3D 模型单价必须在选中前可见（混元生 3D 2400 积分/次）。
-    // ⚠️ 锁渲染条件本身：只搜函数名会命中角标里的第二次调用，
+    // ⚠️ 锁渲染条件本身：只搜函数名会命中别处的调用，
     //    把条件改成恒 false 后函数还在，断言照样绿（变异实测抓不到）。
-    expect(source).toMatch(
-      /assistantModelPanelCategory === "3d"\s*&&\s*getAiThreeDModelCreditPolicy\(model\.id\)/
+    // 2026-11-18 起角标渲染收口在公共浮层 AssistantModelPopover，只在 3D 分类显示。
+    expect(selectorSource).toMatch(
+      /const threeDCredit = is3D && show3DCreditBadge\s*\?\s*getAiThreeDModelCreditPolicy\(model\.id\)/
     );
-    expect(source).toContain("积分/次");
+    expect(selectorSource).toMatch(/\{is3D && threeDCredit \? \(/);
+    expect(selectorSource).toContain("积分/次");
   });
 });
