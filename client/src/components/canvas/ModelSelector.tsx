@@ -329,12 +329,14 @@ export function ModelSelector({
   const entitledModels = useImageModelOptions();
   const models = modelsProp ?? entitledModels;
   /**
-   * 分类 tab 状态。enable3D=false 时固定在 "image"，不渲染 tab 行。
-   * 切到 3D tab 后选图片模型不会回跳 —— category 只控制「面板里展示哪批」，
-   * 不影响外部 model 值（3D 模型选中时外部拿到的就是 3D model id）。
+   * 分类 tab 状态。enable3D=false 时固定在 "image",不渲染 tab 行。
+   * 切到 3D tab 后选图片模型不会回跳 —— category 只控制「面板里展示哪批」,
+   * 不影响外部 model 值(3D 模型选中时外部拿到的就是 3D model id)。
+   * 
+   * 2026-11-18: 3D 功能全面下架,所有场景统一只显示图片模型,不再渲染分类 tab。
    */
   const [category, setCategory] = useState<"image" | "3d">("image");
-  const show3D = enable3D !== false;
+  const show3D = false; // 强制关闭 3D 分类 tab,所有场景统一
   const TAB_ROW_HEIGHT = 32;
   /** 当前 category 下可见的模型列表 */
   const displayModels = show3D && category === "3d" ? THREED_AI_MODEL_OPTIONS : models;
