@@ -98,7 +98,7 @@ function localThumb(layout: TemplateLayoutData): { src: string; containers: numb
   const h = THUMB_LONG;
   const w = Math.round(h * aspect);
   const variant = pickTemplateVariant(layout, aspect);
-  const pieces = buildTemplatePieces(layout, variant, aspect);
+  const pieces = buildTemplatePieces(layout, variant);
   return { src: svgToDataUrl(renderTemplateSvg(pieces, w, h, templateBackground(layout))), containers: pieces.length };
 }
 

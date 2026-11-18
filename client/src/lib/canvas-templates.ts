@@ -480,6 +480,36 @@ function labelToPiece(
 /** 页眉页脚全部是本平台自己的文案，与参考站点不重名。 */
 const BRAND_LINE = "ARTX / 版式工作台";
 
+/**
+ * 从 Figma 布局数据构建模板片段
+ */
+export function buildFigmaTemplatePieces(
+  layout: import("./canvas-figma-layouts").FigmaLayout
+): TemplatePiece[] {
+  return layout.pieces.map(piece => ({
+    id: piece.id,
+    name: piece.name,
+    role: piece.role as "文字" | "图形" | "底纹",
+    kind: piece.kind as TemplatePieceKind,
+    x: piece.x,
+    y: piece.y,
+    w: piece.w,
+    h: piece.h,
+    order: piece.order,
+    text: piece.text,
+    fill: piece.fill,
+    path: piece.path,
+    opacity: piece.opacity,
+    fontFamily: piece.fontFamily,
+    fontWeight: piece.fontWeight,
+    color: piece.color,
+    textAlign: piece.textAlign as "left" | "center" | "right" | undefined,
+    lineHeight: piece.lineHeight,
+    sizeRatio: piece.sizeRatio,
+    trackingRatio: piece.trackingRatio,
+  }));
+}
+
 export function buildTemplatePieces(
   layout: TemplateLayoutData,
   geometry: TemplateGeometry
