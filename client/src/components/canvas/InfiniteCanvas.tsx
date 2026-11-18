@@ -617,12 +617,19 @@ import {
   MODEL3D_SIZE_LIMIT_NOTICE_ZH,
   isModel3DOversized,
   isModel3DFilename,
+  isThreeDGenerationEnabled,
 } from "@shared/model3d";
 import {
   uploadModel3DFile,
   validateModel3DFile,
 } from "@/lib/model3d-client";
 import { resolveEditAspectLock } from "@shared/edit-aspect-lock";
+
+/**
+ * 🔒 2026-11-18：「AI 生成 3D 模型」下架，不上正式环境（本地 dev 照常可用）。
+ * ⚠️ 三个入口都读这一个值：composer「3D」分类 / 图片右键「生成 3D 模型」/ 悬浮面板模型选择器。
+ */
+const THREED_GENERATION_ON = isThreeDGenerationEnabled(import.meta.env.DEV);
 
 import {
   VIEWPOINT_LOCK_PROMPT_ZH,
@@ -17382,7 +17389,7 @@ function NodeContextMenu({
    * 3D 生成入口：只在单选 asset 节点时出现。
    */
   const threeDGenerateItems =
-    menu.nodeType === "asset" && selectedCount === 1
+    THREED_GENERATION_ON && menu.nodeType === "asset" && selectedCount === 1
       ? [
           {
             icon: <Box size={13} />,
@@ -19797,7 +19804,7 @@ function ImageGeneratorPopover({
               models={imageModelOptions}
               popoverTheme={isDark ? "dark" : "light"}
               placement="up"
-              enable3D={true}
+              enable3D={THREED_GENERATION_ON}
             />
           </div>
           <div className="min-w-0">
@@ -27990,7 +27997,7 @@ function CanvasAssistantPanel({
                               ? availableAssistantImageModels.length > 0
                               : tab.id === "text"
                                 ? availableAssistantTextModels.length > 0
-                                : THREED_AI_MODEL_OPTIONS.length > 0).map(tab => {
+                                : THREED_GENERATION_ON && THREED_AI_MODEL_OPTIONS.length > 0).map(tab => {
                               const active = assistantModelPanelCategory === tab.id;
                               return (
                               <button
@@ -32652,6 +32659,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         return;
       }
       if (action === "generate-3d") {
+        if (!THREED_GENERATION_ON) return;
         const node = getNodes().find(n => n.id === nodeId);
         const imageUrl =
           node?.type === "asset"

@@ -55,6 +55,7 @@ import { replaceImageText } from "./text-replace";
 import { getPicWishBackgroundTemplates } from "./picwish-background-templates";
 import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS, isSupportedImageModelId, isVodModelId, normalizeImageModelId } from "../shared/image-models";
 import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
+import { THREED_GENERATION_OFFLINE_NOTICE_ZH, isThreeDGenerationEnabled } from "../shared/model3d";
 import { getInspirationReferences } from "./inspiration-references";
 import { cleanupExpiredUploads, getFeedbackRetentionDays, getUploadRetentionDays, getUploadsRoot, listExpiringUploadsForUser, storeGeneratedImagesForUser } from "./local-image-storage";
 import { ProjectCoverError, storeProjectCover } from "./project-cover-storage";
@@ -2462,6 +2463,14 @@ async function startServer() {
   app.post("/api/threed/generate", async (req, res) => {
     const user = await requireSessionUser(req, res);
     if (!user) return;
+    // 🔒 2026-11-18：AI 生成 3D 下架（shared/model3d.ts THREED_GENERATION_PUBLIC）。
+    // ⚠️ 必须在预扣费之前拦截；只藏前端入口 = 接口仍能被直接调用并真实扣 2400 积分。
+    if (!isThreeDGenerationEnabled(
+      process.env.NODE_ENV !== "production" || process.env.THREED_GENERATION_ENABLED === "1",
+    )) {
+      res.status(403).json({ error: THREED_GENERATION_OFFLINE_NOTICE_ZH, code: "THREED_GENERATION_OFFLINE", status: "failed" });
+      return;
+    }
 
     const rawModel = String(req.body?.model ?? "hunyuan3d-2.5");
     const rawTaskId = typeof req.body?.taskId === "string" && req.body.taskId.trim()

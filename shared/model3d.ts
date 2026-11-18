@@ -108,6 +108,22 @@ export const DEFAULT_THREED_GEN_MODEL_ID: ThreeDGenModelId = "hunyuan3d-2.5";
  */
 export const THREED_SELECTABLE_MODEL_IDS: readonly ThreeDGenModelId[] = ["hunyuan3d-2.5"];
 
+/**
+ * 🔒 2026-11-18 用户要求：「AI 生成 3D 模型」下架，不上正式环境。
+ *    前端三个入口（composer 3D 分类 / 图片右键「生成 3D 模型」/ 悬浮面板模型选择器 3D tab）
+ *    与后端 /api/threed/generate 都读这一个开关 —— 只关前端 = 接口仍可被直接调用扣费。
+ * - 本地开发（vite dev / 非 production 的 Node）照常可用，不影响继续开发。
+ * - 正式发布时把它改为 true 即可（后端也可用环境变量 THREED_GENERATION_ENABLED=1 临时放开）。
+ * ⚠️ 只下架「AI 生成」；上传 / 查看本地 3D 模型文件（/api/models3d）是 10 月已上线的老功能，不受影响。
+ */
+export const THREED_GENERATION_PUBLIC = false;
+
+export const THREED_GENERATION_OFFLINE_NOTICE_ZH = "3D 模型生成暂未开放";
+
+export function isThreeDGenerationEnabled(isDev: boolean): boolean {
+  return THREED_GENERATION_PUBLIC || isDev;
+}
+
 export function isThreeDGenModelId(id: string): id is ThreeDGenModelId {
   return (THREED_GEN_MODEL_IDS as readonly string[]).includes(id);
 }
