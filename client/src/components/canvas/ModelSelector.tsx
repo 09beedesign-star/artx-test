@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import {
   AUTO_AI_MODEL,
   IMAGE_AI_MODEL_OPTIONS,
+  TEXT_AI_MODELS,
   THREED_AI_MODEL_OPTIONS,
   mergeImageAiModelOptions,
   type AiModelOption,
@@ -329,17 +330,16 @@ export function ModelSelector({
   const entitledModels = useImageModelOptions();
   const models = modelsProp ?? entitledModels;
   /**
-   * 分类 tab 状态。enable3D=false 时固定在 "image",不渲染 tab 行。
-   * 切到 3D tab 后选图片模型不会回跳 —— category 只控制「面板里展示哪批」,
-   * 不影响外部 model 值(3D 模型选中时外部拿到的就是 3D model id)。
+   * 分类 tab 状态："生图"(image) 和"对话"(chat) 两个分类。
+   * 切换分类后面板里展示对应的模型列表,不影响外部 model 值。
    * 
-   * 2026-11-18: 3D 功能全面下架,所有场景统一只显示图片模型,不再渲染分类 tab。
+   * 2026-11-18: 3D 功能下架,改为显示"生图"和"对话"两个分类,统一三个场景的 UI。
    */
-  const [category, setCategory] = useState<"image" | "3d">("image");
-  const show3D = false; // 强制关闭 3D 分类 tab,所有场景统一
+  const [category, setCategory] = useState<"image" | "chat">("image");
+  const showCategoryTabs = true; // 始终显示分类 tab
   const TAB_ROW_HEIGHT = 32;
   /** 当前 category 下可见的模型列表 */
-  const displayModels = show3D && category === "3d" ? THREED_AI_MODEL_OPTIONS : models;
+  const displayModels = category === "chat" ? TEXT_AI_MODELS : models;
   /**
    * 当前选中的模型被权益置灰（典型：免费用户 + 节点悬浮条默认即梦 / 本地偏好
    * 里存着 banana）→ 自动切回默认档。不切的话按钮上显示的是一个用不了的模型，
@@ -391,7 +391,7 @@ export function ModelSelector({
    * 超出的模型行走下方滚动条（overflowY auto + model-selector-scroll）。
    */
   const panelHeight = Math.min(displayModels.length * rowHeight, 220)
-    + (show3D ? TAB_ROW_HEIGHT : 0);
+    + (showCategoryTabs ? TAB_ROW_HEIGHT : 0);
   const popMinWidth = 160;
   const POP_GAP = 4;
   const VIEWPORT_MARGIN = 8;
@@ -523,8 +523,8 @@ export function ModelSelector({
             }}
             onClick={e => e.stopPropagation()}
           >
-            {/* 分类 tab 行 —— 仅 enable3D=true 时渲染 */}
-            {show3D && (
+            {/* 分类 tab 行 —— 始终显示"生图"和"对话"两个分类 */}
+            {showCategoryTabs && (
               <div
                 style={{
                   display: "flex",
@@ -533,7 +533,7 @@ export function ModelSelector({
                   flexShrink: 0,
                 }}
               >
-                {(["image", "3d"] as const).map(cat => (
+                {(["image", "chat"] as const).map(cat => (
                   <button
                     key={cat}
                     type="button"
@@ -553,7 +553,7 @@ export function ModelSelector({
                       transition: "color 0.15s, border-color 0.15s",
                     }}
                   >
-                    {cat === "image" ? "🖼 图片" : "📦 3D"}
+                    {cat === "image" ? "生图" : "对话"}
                   </button>
                 ))}
               </div>
@@ -562,8 +562,8 @@ export function ModelSelector({
               className="model-selector-scroll"
               style={{
                 maxHeight: (popoverStyle?.maxHeight != null
-                  ? (popoverStyle.maxHeight as number) - (show3D ? TAB_ROW_HEIGHT : 0)
-                  : panelHeight - (show3D ? TAB_ROW_HEIGHT : 0)),
+                  ? (popoverStyle.maxHeight as number) - (showCategoryTabs ? TAB_ROW_HEIGHT : 0)
+                  : panelHeight - (showCategoryTabs ? TAB_ROW_HEIGHT : 0)),
                 overflowY: "auto",
                 overscrollBehavior: "contain",
                 scrollbarWidth: "thin",
