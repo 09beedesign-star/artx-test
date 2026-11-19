@@ -8,6 +8,7 @@
  */
 import type { Node } from "@xyflow/react";
 import { TEMPLATE_CATALOG } from "./canvas-template-catalog";
+import { FIGMA_LAYOUT_CATEGORIES, type FigmaLayout } from "./canvas-figma-layouts";
 import type {
   TemplateDecoration,
   TemplateGeometry,
@@ -183,8 +184,11 @@ export function resolveTemplateSize(options: {
 }
 
 // ─── 目录查询 ────────────────────────────────────────────────────────────────
-export function getTemplateLayout(id: string): TemplateLayoutData | undefined {
-  return TEMPLATE_CATALOG.layouts.find(l => l.i === id);
+export type CanvasTemplateLayout = TemplateLayoutData | FigmaLayout;
+
+export function getTemplateLayout(id: string): CanvasTemplateLayout | undefined {
+  return TEMPLATE_CATALOG.layouts.find(l => l.i === id) ||
+    FIGMA_LAYOUT_CATEGORIES.flatMap(category => category.layouts).find(l => l.i === id);
 }
 export function pickTemplateVariant(
   layout: TemplateLayoutData,
@@ -943,7 +947,8 @@ export function renderPieceSvg(
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(pw)}" height="${n(ph)}" viewBox="${n(piece.x * W)} ${n(piece.y * H)} ${n(pw)} ${n(ph)}" overflow="visible">${body}</svg>`;
 }
 
-export function templateBackground(layout: TemplateLayoutData): string {
+export function templateBackground(layout: CanvasTemplateLayout): string {
+  if ("pieces" in layout) return layout.bg;
   const palette = TEMPLATE_CATALOG.palettes[layout.p] || DEFAULT_PALETTE;
   return palette[0];
 }
@@ -997,12 +1002,13 @@ export interface TemplateBuildOptions {
   };
 }
 export function buildTemplateNodes(
-  layout: TemplateLayoutData,
+  layout: CanvasTemplateLayout,
   options: TemplateBuildOptions
 ): Node[] {
   const { frameId, position, size, zIndex } = options;
-  const geometry = pickTemplateVariant(layout, size.width / size.height);
-  const pieces = buildTemplatePieces(layout, geometry);
+  const pieces = "pieces" in layout
+    ? buildFigmaTemplatePieces(layout)
+    : buildTemplatePieces(layout, pickTemplateVariant(layout, size.width / size.height));
   const bg = templateBackground(layout);
   const frame: Node = {
     id: frameId,

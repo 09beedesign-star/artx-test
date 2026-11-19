@@ -39,7 +39,7 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
   const autoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
 
-  const { pos, dragging, dragHandlers } = useDraggablePanel("layers", { x: 84, y: 68 }, { width: 220, height: 260 });
+  const { pos, dragging, dragHandlers } = useDraggablePanel("layers", { x: 84, y: 68 }, { width: 280, height: 260 });
 
   useEffect(() => {
     const handler = (e: Event) => setRows((e as CustomEvent<{ rows: LayerRow[] }>).detail.rows);
@@ -203,15 +203,15 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
     <div
       data-artx-canvas-layers-panel=""
       className="fixed nodrag nopan"
-      style={{ left: pos.x, top: pos.y, zIndex: 210, width: 220 }}
+      style={{ left: pos.x, top: pos.y, zIndex: 210, width: 280, maxWidth: "calc(100vw - 16px)" }}
       onMouseDown={e => e.stopPropagation()}
     >
-      <div className="flex flex-col overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
-        style={{ background: bg, border: `1px solid ${border}`, backdropFilter: "blur(20px)", maxHeight: "calc(100vh - 160px)" }}>
+      <div data-artx-canvas-layers-surface="" className="flex flex-col overflow-hidden rounded-[var(--radius-lg-design)] shadow-2xl"
+        style={{ background: bg, border: `1px solid ${border}`, padding: 16, boxSizing: "border-box", backdropFilter: "blur(20px)", maxHeight: "calc(100vh - 160px)" }}>
         {/* 头部 = 拖拽把手 */}
         <div {...dragHandlers}
-          className="flex items-center justify-between px-3 py-2"
-          style={{ borderBottom: `1px solid ${dividerColor}`, cursor: dragging ? "grabbing" : "grab", userSelect: "none", touchAction: "none" }}>
+          className="flex shrink-0 items-center justify-between"
+          style={{ paddingBottom: 12, borderBottom: `1px solid ${dividerColor}`, cursor: dragging ? "grabbing" : "grab", userSelect: "none", touchAction: "none" }}>
           <span style={{ color: textColor, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em" }}>图层</span>
           <button data-panel-no-drag="" onClick={onClose} aria-label="关闭图层面板" data-artx-canvas-layers-close=""
             style={{ color: subColor, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>
@@ -219,14 +219,14 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
           </button>
         </div>
 
-        <div className="px-3 pt-2 pb-1" style={{ color: subColor, fontSize: 10, lineHeight: "1.5", userSelect: "none" }}>
+        <div className="shrink-0" style={{ padding: "12px 0 8px", color: subColor, fontSize: 10, lineHeight: "1.5", userSelect: "none" }}>
           拖动图层调整顺序；右键可重命名 / 复制 / 打组 / 属性编辑。
         </div>
 
         {rows.length === 0 ? (
           <div className="flex items-center justify-center py-8" style={{ color: subColor, fontSize: 11 }}>暂无图层</div>
         ) : (
-          <div ref={listRef} className="overflow-y-auto" aria-label="图层列表" style={{ maxHeight: "calc(100vh - 260px)" }}>
+          <div ref={listRef} className="min-h-0 overflow-y-auto" aria-label="图层列表" style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: "calc(100vh - 260px)" }}>
             {rows.map(row => (
               <div
                 key={row.id}
@@ -239,10 +239,10 @@ export function CanvasLayersPanel({ isDark, onClose }: { isDark: boolean; onClos
                 onClick={e => handleRowClick(row.id, e)}
                 onContextMenu={e => openContext(row, e)}
                 style={{
-                  display: "flex", alignItems: "center", height: 36,
+                  display: "flex", alignItems: "center", height: 36, flexShrink: 0,
                   paddingLeft: 8 + row.depth * 14, paddingRight: 4, gap: 5,
                   cursor: row.hidden || row.locked ? "default" : "pointer",
-                  borderRadius: 7, margin: "1px 4px",
+                  borderRadius: 7, margin: 0,
                   background: row.id === dragOverId ? (isDark ? "rgba(30,100,220,0.22)" : "rgba(18,102,198,0.10)")
                     : row.selected ? selectedBg : "transparent",
                   opacity: row.id === dragId ? 0.4 : row.hidden ? 0.4 : 1,

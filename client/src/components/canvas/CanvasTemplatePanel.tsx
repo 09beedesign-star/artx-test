@@ -195,7 +195,7 @@ export function CanvasTemplatePanel({ isDark }: { isDark: boolean }) {
         bleedMm: 0,
       } satisfies TemplateActionDetail,
     }));
-    toast.success("模板已加载到画布");
+    // 成功反馈由画布在创建节点后给出，派发事件本身不代表加载成功。
   };
 
   if (!open) return null;

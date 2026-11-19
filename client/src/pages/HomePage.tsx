@@ -47,8 +47,8 @@ import {
   useImageModelOptions,
 } from "@/components/canvas/ModelSelector";
 import {
-  readPreferredImageModelId,
-  writePreferredImageModelId,
+  readPreferredAssistantModelId,
+  writePreferredAssistantModelId,
 } from "@/lib/assistant-model-preference";
 import {
   fitReferencesToBudget,
@@ -228,7 +228,7 @@ export default function HomePage() {
     () =>
       hasAnnouncementForcePending() || !hasSeenAnnouncement(HOME_ANNOUNCEMENT.id)
   );
-  const [homeImageModelId, setHomeImageModelId] = useState(readPreferredImageModelId);
+  const [homeImageModelId, setHomeImageModelId] = useState(readPreferredAssistantModelId);
   const homeImageModelOptions = useImageModelOptions();
   const [homeReferences, setHomeReferences] = useState<HomePromptReference[]>([]);
   const [homeActiveSkill, setHomeActiveSkill] = useState<PendingSkillLoad | null>(null);
@@ -405,7 +405,7 @@ export default function HomePage() {
    */
   const handleHomeImageModelChange = (modelId: string) => {
     setHomeImageModelId(modelId);
-    writePreferredImageModelId(modelId);
+    writePreferredAssistantModelId(modelId);
   };
 
   const handleHomeReferenceFiles = async (files: File[]) => {

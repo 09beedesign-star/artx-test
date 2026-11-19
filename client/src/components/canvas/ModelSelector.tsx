@@ -339,10 +339,14 @@ export function ModelSelector({
    * 分类 tab 状态。2026-11-18 起 3D 全面下架,分类改为「生图 / 对话」两等分,
    * 与右下角 composer 的浮层（AssistantModelPopover）完全一致。
    * category 只控制「面板里展示哪批」,不影响外部 model 值。
-   * 对话模型是文本模型（TEXT_AI_MODELS）,下游画布会按 isSupportedImageModelId
-   * 自动路由生图 / 对话,所以传出文本模型 id 是安全的。
+   * 对话模型由提交入口显式识别，不能落入图片编辑或意图路由。
    */
-  const [category, setCategory] = useState<"image" | "text">("image");
+  const [category, setCategory] = useState<"image" | "text">(() =>
+    TEXT_AI_MODELS.some(m => m.id === model) ? "text" : "image"
+  );
+  useEffect(() => {
+    setCategory(TEXT_AI_MODELS.some(m => m.id === model) ? "text" : "image");
+  }, [model]);
   /** 当前 category 下可见的模型列表 */
   const displayModels: AiModelOption[] = category === "text" ? TEXT_AI_MODELS : models;
   /** 弹层高度上限（含 tab 行），交给公共浮层做滚动 */
@@ -368,6 +372,7 @@ export function ModelSelector({
     null
   );
   const current = models.find(m => m.id === model)
+    || TEXT_AI_MODELS.find(m => m.id === model)
     || THREED_AI_MODEL_OPTIONS.find(m => m.id === model)
     || AUTO_AI_MODEL;
   const bg = surface ? surface.background : getMinimapSurfaceBackground(isDark);

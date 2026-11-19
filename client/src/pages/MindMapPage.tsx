@@ -600,9 +600,17 @@ export default function MindMapPage() {
     panStart.current = null;
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setZoom((z) => Math.min(2.5, Math.max(0.3, z - e.deltaY * 0.001)));
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    // 仅拦截画布滚轮，避免捏合手势触发整页缩放而影响左栏。
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(2.5, Math.max(0.3, z - e.deltaY * 0.001)));
+    };
+    svg.addEventListener("wheel", handleWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", handleWheel);
   }, []);
 
   const resetView = useCallback(() => {
@@ -884,7 +892,6 @@ export default function MindMapPage() {
           onPointerMove={onSvgPointerMove}
           onPointerUp={onSvgPointerUp}
           onPointerCancel={onSvgPointerUp}
-          onWheel={handleWheel}
           style={{ touchAction: "none" }}
         >
           <rect width="100%" height="100%" fill={bg} />

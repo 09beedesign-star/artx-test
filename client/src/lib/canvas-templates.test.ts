@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { TEMPLATE_CATALOG } from "./canvas-template-catalog";
+import { FIGMA_LAYOUT_CATEGORIES } from "./canvas-figma-layouts";
 import {
   TEMPLATE_CREDIT_COST,
   TEMPLATE_PAPER_PRESETS,
   TEMPLATE_RESOLUTIONS,
   buildTemplateNodes,
   buildTemplatePieces,
+  getTemplateLayout,
+  buildFigmaTemplatePieces,
+  templateBackground,
   computeTemplatePlacement,
   filterTemplateLayouts,
   pickTemplateVariant,
@@ -18,12 +22,63 @@ import {
 
 const A4_300 = TEMPLATE_RESOLUTIONS.find(r => r.kind === "dpi" && r.value === 300)!;
 
+describe("面板全部目录必须真正生成可编辑节点", () => {
+  it.each(FIGMA_LAYOUT_CATEGORIES.flatMap(category => category.layouts))(
+    "Figma $i：查找、背景、子单元都来自所选模板",
+    layout => {
+      const resolved = getTemplateLayout(layout.i);
+      expect(resolved, `面板展示了 ${layout.i}，加载目录却找不到`).toBe(layout);
+      expect(templateBackground(resolved!)).toBe(layout.bg);
+      const nodes = buildTemplateNodes(resolved!, {
+        frameId: `test-${layout.i}`, position: { x: 300, y: 200 },
+        size: { width: layout.w, height: layout.h }, zIndex: 10,
+        print: { paperId: "a4", orientation: "landscape", resolution: A4_300,
+          bleedMm: 0, printWidth: layout.w, printHeight: layout.h },
+      });
+      expect(nodes).toHaveLength(layout.pieces.length + 1);
+      expect(nodes[0].type).toBe("canvasFrame");
+      expect(nodes[0].data.templateLayoutId).toBe(layout.i);
+      expect(nodes[0].data.bgColor).toBe(layout.bg);
+      expect(nodes.slice(1).map(node => node.data.piece)).toEqual(buildFigmaTemplatePieces(layout));
+      expect(nodes.slice(1).every(node => node.type === "templatePiece" &&
+        node.data.embeddedInFrame === `test-${layout.i}`)).toBe(true);
+      expect(new Set(nodes.map(node => node.id)).size).toBe(nodes.length);
+    }
+  );
+
+  it.each(TEMPLATE_CATALOG.layouts)("本地 $i：加载仍生成画板和独立子单元", layout => {
+    const resolved = getTemplateLayout(layout.i);
+    expect(resolved).toBe(layout);
+    const size = { width: 794, height: 1123 };
+    const nodes = buildTemplateNodes(resolved!, {
+      frameId: `local-${layout.i}`, position: { x: 50, y: 80 }, size, zIndex: 1,
+      print: { paperId: "a4", orientation: "portrait", resolution: A4_300,
+        bleedMm: 0, printWidth: 2480, printHeight: 3508 },
+    });
+    expect(nodes[0].data.templateLayoutId).toBe(layout.i);
+    const expected = buildTemplatePieces(layout, pickTemplateVariant(layout, size.width / size.height));
+    expect(expected.length).toBeGreaterThan(0);
+    expect(nodes.slice(1).map(node => node.data.piece)).toEqual(expected);
+    expect(nodes.slice(1).every(node => node.type === "templatePiece" &&
+      node.data.embeddedInFrame === `local-${layout.i}`)).toBe(true);
+  });
+
+  it("本地目录不丢失，未知或已下架模板不能回落成其他模板", () => {
+    for (const layout of TEMPLATE_CATALOG.layouts) {
+      expect(getTemplateLayout(layout.i)).toBe(layout);
+    }
+    expect(getTemplateLayout("missing-template")).toBeUndefined();
+    expect(getTemplateLayout("fg-204-104")).toBeUndefined();
+  });
+});
+
 describe("版式目录", () => {
   it("分类、版式、ID 与文案都是本平台的", () => {
-    expect(TEMPLATE_CATALOG.layouts).toHaveLength(104);
+    // 用户指定移除流体字形、暗场节拍、纸层叠字，原 104 个本地版式剩 101 个。
+    expect(TEMPLATE_CATALOG.layouts).toHaveLength(104 - 3);
     expect(TEMPLATE_CATALOG.categories).toHaveLength(19);
     const ids = TEMPLATE_CATALOG.layouts.map(l => l.i);
-    expect(new Set(ids).size).toBe(104);
+    expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every(id => id.startsWith("tpl-"))).toBe(true);
     const blob = JSON.stringify(TEMPLATE_CATALOG);
     // 参考站的固定文案一个都不许留
@@ -33,6 +88,79 @@ describe("版式目录", () => {
     ]) {
       expect(blob).not.toContain(banned);
     }
+  });
+
+  const allLayouts = [
+    ...TEMPLATE_CATALOG.layouts,
+    ...FIGMA_LAYOUT_CATEGORIES.flatMap(category => category.layouts),
+  ];
+
+  it("Figma 目录仅移除演示文稿·二六项，分类和全目录 ID 仍唯一", () => {
+    expect(FIGMA_LAYOUT_CATEGORIES.map(category => [category.id, category.layouts.length]))
+      .toEqual([
+        ["fgc1", 23], ["fgc2", 10], ["fgc3", 10], ["fgc4", 10],
+        ["fgc5", 25 - 6], ["fgc6", 15], ["fgc7", 10],
+      ]);
+    // Figma 原 103 项，删除演示文稿·二 02/06/10/11/16/23 后剩 97 项。
+    const figmaLayouts = FIGMA_LAYOUT_CATEGORIES.flatMap(category => category.layouts);
+    expect(figmaLayouts).toHaveLength(103 - 6);
+    const ids = allLayouts.map(layout => layout.i);
+    expect(new Set(ids).size).toBe(ids.length);
+    const figmaIds = figmaLayouts.map(layout => layout.figmaId);
+    expect(new Set(figmaIds).size).toBe(figmaIds.length);
+  });
+
+  it.each([
+    ["tpl-034", "流体字形"],
+    ["tpl-039", "暗场节拍"],
+    ["tpl-041", "纸层叠字"],
+    ["fg-204-104", "演示文稿 · 二 02"],
+  ])("指定删除的 %s（%s）不得按 ID 或名称复活", (id, name) => {
+    expect(allLayouts.map(layout => layout.i)).not.toContain(id);
+    expect(allLayouts.map(layout => layout.n.replace(/\s/g, "")))
+      .not.toContain(name.replace(/\s/g, ""));
+  });
+
+  it.each([2, 6, 10, 11, 16, 23])("演示文稿·二 %s（含不补零写法）不得出现在任一目录", number => {
+    const removedName = new RegExp(`^演示文稿·二0?${number}$`);
+    for (const layout of allLayouts) {
+      expect(layout.n.replace(/\s/g, "")).not.toMatch(removedName);
+    }
+  });
+
+  it("删除本地三项不能误删或改名相邻模板", () => {
+    for (const [i, n] of [
+      ["tpl-033", "斜面故事"], ["tpl-035", "胶囊序列"],
+      ["tpl-038", "流线字形"], ["tpl-040", "环形律动"], ["tpl-042", "流域构成"],
+    ]) {
+      expect(TEMPLATE_CATALOG.layouts.find(layout => layout.i === i)).toMatchObject({ i, n });
+    }
+  });
+
+  it("演示文稿·二未指定删除项保持原 ID、名称与顺序，包括删除项两侧邻居", () => {
+    const category = FIGMA_LAYOUT_CATEGORIES.find(category => category.id === "fgc5");
+    expect(category?.name).toBe("演示文稿 · 二");
+    expect(category?.layouts.map(layout => [layout.i, layout.n])).toEqual([
+      ["fg-199-135", "演示文稿 · 二 01"],
+      ["fg-206-125", "演示文稿 · 二 03"],
+      ["fg-222-138", "演示文稿 · 二 04"],
+      ["fg-222-152", "演示文稿 · 二 05"],
+      ["fg-223-183", "演示文稿 · 二 07"],
+      ["fg-225-196", "演示文稿 · 二 08"],
+      ["fg-270-212", "演示文稿 · 二 09"],
+      ["fg-272-256", "演示文稿 · 二 12"],
+      ["fg-272-274", "演示文稿 · 二 13"],
+      ["fg-282-285", "演示文稿 · 二 14"],
+      ["fg-282-319", "演示文稿 · 二 15"],
+      ["fg-329-86", "演示文稿 · 二 17"],
+      ["fg-329-97", "演示文稿 · 二 18"],
+      ["fg-329-106", "演示文稿 · 二 19"],
+      ["fg-382-122", "演示文稿 · 二 20"],
+      ["fg-382-139", "演示文稿 · 二 21"],
+      ["fg-450-78", "演示文稿 · 二 22"],
+      ["fg-450-101", "演示文稿 · 二 24"],
+      ["fg-452-114", "演示文稿 · 二 25"],
+    ]);
   });
 
   it("每个版式都保留 11 档长宽比与完整参数", () => {

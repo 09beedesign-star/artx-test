@@ -88,7 +88,7 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
 // 否则前端传参会被服务端白名单静默丢弃。
 // 注意：上面的 IMAGE_AI_MODELS 属于图片**生成**模型，一个都不能动。
 export const TEXT_AI_MODELS: AiModelOption[] = [
-  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "#bbbbbb", icon: "anthropic" },
+  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "#bbbbbb", description: "图文理解、创意分析与多轮对话", icon: "anthropic" },
 ];
 
 // ── 3D 生成模型 ───────────────────────────────────────────────

@@ -25282,6 +25282,27 @@ function CanvasAssistantPanel({
            * 图片模型"，对"要不要出图"毫无影响 —— 等于用户在首页选的图片模型
            * 被当成了纯装饰。提示词一旦被判成 text 就走下面的文字分支，永远拿不到图。
            */
+          const homeSelectedTextModel = TEXT_AI_MODELS.find(model => model.id === payload.model);
+          if (homeSelectedTextModel) {
+            setAssistantTextModelId(homeSelectedTextModel.id);
+            setAssistantModelTab("text");
+            setAssistantModelPanelCategory("text");
+            setAssistantAutoMode(false);
+            setSubmittingKind("text");
+            const result = await callLLM({
+              module: "home-prompt-chat",
+              model: homeSelectedTextModel.id,
+              images: importedReferences,
+              messages: [{ role: "user", content: submittedText }],
+            });
+            setMessages(prev => [...prev, {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: result.text,
+              timestamp: new Date(),
+            }]);
+            return;
+          }
           const homeSelectedImageModel = isSupportedImageModelId(payload.model)
             ? payload.model!
             : null;
@@ -25320,11 +25341,7 @@ function CanvasAssistantPanel({
             const imagePayload: ImageGeneratorPayload = {
               projectId,
               prompt: imagePrompt,
-              model: ALL_AI_MODEL_OPTIONS.some(
-                model => model.id === payload.model
-              )
-                ? payload.model!
-                : assistantImageModel.id,
+              model: payload.model === AUTO_AI_MODEL.id ? AUTO_AI_MODEL.id : homeSelectedImageModel || assistantImageModel.id,
               // 首页入口没有比例选择器，等价于「用户未选择」= auto，
               // 因此必须走全站 auto 默认值，而不是硬编码 1:1。
               ratio: DEFAULT_AUTO_RATIO,
@@ -38163,6 +38180,28 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        * 抢同一个节点（generationId 被覆盖、撤销快照错乱），用户侧表现为 crash。
        * 判定与面板提示条同源：getAssetBusyState。
        */
+      const selectedTextModel = TEXT_AI_MODELS.find(model => model.id === payload.model);
+      if (selectedTextModel) {
+        if (assetEditInFlightRef.current.has(target.nodeId)) return;
+        assetEditInFlightRef.current.add(target.nodeId);
+        try {
+          const src = (await getVisibleAssetImageSource(target.nodeId)) || target.src;
+          const result = await callLLM({
+            module: "node-composer-chat",
+            model: selectedTextModel.id,
+            images: [{ src, title: target.title }, ...payload.references],
+            messages: [{ role: "user", content: payload.prompt.trim() || "请分析这张图片" }],
+          });
+          window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+            detail: { role: "assistant", content: result.text },
+          }));
+        } catch (error) {
+          notifyAiFailure("图片对话失败", error instanceof Error ? error.message : "请稍后重试");
+        } finally {
+          assetEditInFlightRef.current.delete(target.nodeId);
+        }
+        return;
+      }
       const busy = getAssetBusyState(sourceNode.data);
       if (busy.busy || assetEditInFlightRef.current.has(target.nodeId)) {
         toast(busy.title || "图片正在局部重绘中", {
@@ -38524,7 +38563,9 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
         new CustomEvent("canvas-assistant-external-message", {
           detail: {
             role: "user",
-            content: `对「${title}」重新生成：${promptText || "智能优化"}${refText}${countText}`,
+            content: TEXT_AI_MODELS.some(model => model.id === payload.model)
+              ? `关于「${title}」：${promptText || "请分析这张图片"}${refText}`
+              : `对「${title}」重新生成：${promptText || "智能优化"}${refText}${countText}`,
           },
         })
       );

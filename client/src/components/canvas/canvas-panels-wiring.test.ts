@@ -108,6 +108,22 @@ describe("属性编辑面板", () => {
   });
 });
 
+describe("图层面板尺寸与统一留白", () => {
+  it("外层扩至280px且拖拽边界使用同一宽度，内容四边由容器统一留16px", () => {
+    const root = block(layers, 'data-artx-canvas-layers-panel=""', '{/* 头部 = 拖拽把手 */}');
+    expect(root).toMatch(/width: 280, maxWidth: "calc\(100vw - 16px\)"/);
+    expect(root).toContain('data-artx-canvas-layers-surface=""');
+    expect(root).toContain('padding: 16, boxSizing: "border-box"');
+    expect(layers).toContain('useDraggablePanel("layers", { x: 84, y: 68 }, { width: 280, height: 260 })');
+    const list = block(layers, '<div ref={listRef}', '{ctx && createPortal(');
+    expect(list).toContain('className="min-h-0 overflow-y-auto"');
+    expect(list).toContain('flexDirection: "column", gap: 2');
+    expect(list).toContain('height: 36, flexShrink: 0');
+    expect(list).toContain('borderRadius: 7, margin: 0');
+    expect(list).not.toContain('margin: "1px 4px"');
+  });
+});
+
 describe("两个面板：可拖拽 + 只能被 X 关闭", () => {
   it("都用同一个拖拽 hook，且头部是把手、X 不触发拖拽", () => {
     expect(layers).toContain('useDraggablePanel("layers"');

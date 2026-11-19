@@ -2,6 +2,7 @@ import {
   AUTO_AI_MODEL,
   DEFAULT_IMAGE_AI_MODEL_ID,
   IMAGE_AI_MODELS,
+  TEXT_AI_MODELS,
 } from "./workspace-data";
 import { getOwnedItem, ownerScopedKey } from "./owner-storage";
 
@@ -30,6 +31,38 @@ const IMAGE_MODEL_STORAGE_KEY = "artx:canvas-assistant-image-model";
 const AUTO_MODE_STORAGE_KEY = "artx:canvas-assistant-auto-mode";
 /** 旧版只有这一个 key，保留兼容读，与画布 :18367 的口径一致。 */
 const LEGACY_MODEL_STORAGE_KEY = "artx:canvas-assistant-model";
+const MODEL_TAB_STORAGE_KEY = "artx:canvas-assistant-model-tab";
+const TEXT_MODEL_STORAGE_KEY = "artx:canvas-assistant-text-model";
+
+/** 首页与主助手共用模式偏好；图片专用读写仍保持原契约。 */
+export function readPreferredAssistantModelId(): string {
+  try {
+    const ls = window.localStorage;
+    if (getOwnedItem(ls, ownerScopedKey(MODEL_TAB_STORAGE_KEY)) === "text" &&
+        getOwnedItem(ls, ownerScopedKey(AUTO_MODE_STORAGE_KEY)) === "0") {
+      const stored = getOwnedItem(ls, ownerScopedKey(TEXT_MODEL_STORAGE_KEY));
+      return TEXT_AI_MODELS.find(model => model.id === stored)?.id || TEXT_AI_MODELS[0].id;
+    }
+  } catch { /* storage unavailable */ }
+  return readPreferredImageModelId();
+}
+
+export function writePreferredAssistantModelId(modelId: string) {
+  if (modelId !== AUTO_AI_MODEL.id &&
+      !TEXT_AI_MODELS.some(model => model.id === modelId) &&
+      !IMAGE_AI_MODELS.some(model => model.id === modelId)) return;
+  try {
+    const ls = window.localStorage;
+    if (TEXT_AI_MODELS.some(model => model.id === modelId)) {
+      ls.setItem(ownerScopedKey(TEXT_MODEL_STORAGE_KEY), modelId);
+      ls.setItem(ownerScopedKey(MODEL_TAB_STORAGE_KEY), "text");
+      ls.setItem(ownerScopedKey(AUTO_MODE_STORAGE_KEY), "0");
+    } else {
+      writePreferredImageModelId(modelId);
+      ls.setItem(ownerScopedKey(MODEL_TAB_STORAGE_KEY), "image");
+    }
+  } catch { /* storage unavailable */ }
+}
 
 /**
  * 读出用户偏好的出图模型。

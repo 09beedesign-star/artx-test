@@ -12,10 +12,10 @@ const panel = readFileSync(
   "utf8"
 );
 
-describe("版式工作台：线上屏蔽，提示即将上线（2026-11-17）", () => {
-  it("正式发布前线上不可打开，本地开发可打开", () => {
-    expect(CANVAS_TEMPLATES_PUBLIC).toBe(false);
-    expect(canOpenTemplatePanel(false)).toBe(false);
+describe("版式工作台：正式上架且保留入口防护", () => {
+  it("正式生产环境与本地开发均可打开", () => {
+    expect(CANVAS_TEMPLATES_PUBLIC).toBe(true);
+    expect(canOpenTemplatePanel(false)).toBe(true);
     expect(canOpenTemplatePanel(true)).toBe(true);
   });
 
@@ -24,10 +24,15 @@ describe("版式工作台：线上屏蔽，提示即将上线（2026-11-17）", 
   });
 
   it("面板唯一打开口子先过闸门，未开放时弹提示而不是 setOpen", () => {
-    const toggle = panel.slice(panel.indexOf("const toggle = () => {"), panel.indexOf("const close"));
-    expect(toggle.indexOf("canOpenTemplatePanel()")).toBeGreaterThan(-1);
-    expect(toggle.indexOf("CANVAS_TEMPLATES_COMING_SOON_TITLE")).toBeLessThan(toggle.indexOf("setOpen(v => !v)"));
-    // 面板内不得有其它直接打开的口子
-    expect(panel).not.toMatch(/setOpen\(true\)/);
+    const start = panel.indexOf("const toggle = () => {");
+    const end = panel.indexOf("const close", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const toggle = panel.slice(start, end);
+    expect(toggle).toMatch(/if\s*\(!canOpenTemplatePanel\(\)\)\s*\{\s*toast\(CANVAS_TEMPLATES_COMING_SOON_TITLE,\s*\{\s*description:\s*CANVAS_TEMPLATES_COMING_SOON_DESC\s*\}\);\s*return;\s*\}\s*setOpen\(v => !v\);/);
+    // 面板内不得有其它直接打开的口子。
+    const openCalls = panel.match(/setOpen\((?!false\))[^;]+;/g) || [];
+    expect(openCalls).toEqual(["setOpen(v => !v);"]);
+    expect(panel).not.toMatch(/setOpen\(\s*true\s*\)/);
   });
 });
