@@ -24,9 +24,8 @@ describe("selectable model catalog", () => {
   it("normalizes only models exposed in the frontend picker", () => {
     expect(listAvailableModels()).toEqual({
       image: expectedPriority,
-      // 文本白名单仍保留 GPT 系列，只为兼容历史请求参数；
-      // 用户可选项已切到 claude-opus-5（见下一个用例）。
-      text: expect.arrayContaining([DEFAULT_TEXT_MODEL, "gpt-5.5"]),
+      // 可执行 / 可选文本模型已收敛为唯一的 gpt-6-luna。
+      text: [DEFAULT_TEXT_MODEL],
     });
     expect(normalizeAllowedModels([
       DEFAULT_IMAGE_MODEL_ID,
@@ -43,9 +42,9 @@ describe("selectable model catalog", () => {
     expect(isSelectableModel("gpt-image-2")).toBe(false);
     expect(isSelectableModel("gpt-4o")).toBe(false);
     expect(isSelectableModel("picwish-scale")).toBe(false);
-    // 文本模型切到 claude-opus-5 后，旧的 gpt-5.4-mini 不再是「可选项」，
-    // 它只留在 SUPPORTED 白名单里做历史参数兼容。
+    // 历史文本模型只用于迁移识别，不再出现在可执行 / 可选清单里。
     expect(isSelectableModel("gpt-5.4-mini")).toBe(false);
+    expect(isSelectableModel("claude-opus-5")).toBe(false);
     expect(listSelectableModelIds()).toEqual([...expectedPriority, DEFAULT_TEXT_MODEL]);
     expect(listSelectableModelIds()).not.toContain("gpt-image-2");
     expect(listSelectableModelIds()).not.toContain("gpt-4o");
@@ -59,7 +58,7 @@ describe("selectable model catalog", () => {
     // 后续 user-model-access 的「新旧互认」根本拿不到旧 id，必然误判为无权限。
     expect(normalizeAllowedModels([DEFAULT_IMAGE_MODEL_ID, "gpt-5.4-mini"]))
       .toEqual([DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL]);
-    for (const legacy of ["gpt-5.4", "gpt-5.5", "gpt-4o"]) {
+    for (const legacy of ["gpt-5.4", "gpt-5.5", "gpt-4o", "claude-opus-5", "claude-sonnet-5", "deepseek-v4-flash"]) {
       expect(normalizeAllowedModels([legacy])).toEqual([DEFAULT_TEXT_MODEL]);
     }
     // 迁移只对已知模型生效：未知 id 与后端固定模型仍应被丢弃，不能凭空放大权限。
@@ -87,7 +86,7 @@ describe("selectable model catalog", () => {
     expect(isSelectableModel("og-image2-medium")).toBe(true);
   });
 
-  it("routes chat and brand-kit capabilities to the claude text model", () => {
+  it("routes chat and brand-kit capabilities to the locked Luna text model", () => {
     // 回归防护：品牌包解析走的是多模态理解（读图），不是图片生成，
     // 必须落在文本模型上；若被误判成图片能力会直接把图片模型发给 /chat/completions。
     expect(resolveModelRoute("chat").model).toBe(DEFAULT_TEXT_MODEL);

@@ -1,6 +1,6 @@
 import { isImageModel, isSelectableModel, isTextModel, type AiCapability } from "./model-router";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
-import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
+import { DEFAULT_TEXT_MODEL, HISTORICAL_TEXT_MODEL_IDS } from "../shared/text-models";
 import {
   DEFAULT_IMAGE_MODEL_ID,
   isRetiredRelayImageModelId,
@@ -24,19 +24,11 @@ const DEFAULT_IMAGE_MODEL_ACCESS = DEFAULT_IMAGE_MODEL_ID;
 const DEFAULT_TEXT_MODEL_ACCESS = DEFAULT_TEXT_MODEL;
 
 /**
- * 文本模型从 GPT 系列切到 claude-opus-5 之前，老账号的 allowedAiModels
- * 白名单里存的是 "gpt-5.4-mini" 这类旧 id。若不做等价映射，
- * 这些账号一使用文本能力就会被判为「无权使用该模型」。
- *
- * 这里把「持有任意旧文本模型授权」视同「持有新文本模型授权」，
- * 避免切换当天所有存量账号集体失效。
+ * 文本模型已统一切到 gpt-6-luna。老账号白名单里可能仍是 Claude、旧 GPT、
+ * DeepSeek 等历史 ID；这里把它们视同「持有当前文本模型授权」，
+ * 避免存量账号在切换当天集体失去文本能力。只影响文本模型鉴权。
  */
-const LEGACY_TEXT_MODEL_ACCESS_IDS = [
-  "gpt-5.4-mini",
-  "gpt-5.4",
-  "gpt-5.5",
-  "gpt-4o",
-];
+const LEGACY_TEXT_MODEL_ACCESS_IDS: readonly string[] = HISTORICAL_TEXT_MODEL_IDS;
 
 function hasModelAccess(allowed: string[], requestedModel: string) {
   if (allowed.includes(requestedModel)) return true;

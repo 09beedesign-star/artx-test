@@ -8,7 +8,7 @@
 //     （2026-09-13 起不再有 meitu —— 账号被上游停用，整条通道已下线）
 //
 // ⚠️ 额度提示：本脚本会真实调用上游，**会产生少量消耗**。
-//   - 文本模型：每个模型 1 次 5-token 请求
+//   - 文本模型：主备各 1 次最多 256-token 请求，必须返回最终正文
 //   - 图片模型：每个模型提交 1 个出图任务（返回 task_id，任务确实入队）
 //   只想确认「默认配置能不能用」时加 --quick，可把调用量降到每类 1 次。
 //
@@ -25,7 +25,10 @@
 import process from "node:process";
 
 await import("../server/env.ts");
-const { TEXT_MODEL_FALLBACK_IDS, isClaudeTextModelId } = await import("../shared/text-models.ts");
+const {
+  PRIMARY_TEXT_MODEL, DEFAULT_TEXT_MODEL, FALLBACK_TEXT_MODEL,
+  TEXT_MODEL_FALLBACK_CHAIN,
+} = await import("../shared/text-models.ts");
 
 const args = process.argv.slice(2);
 const QUICK = args.includes("--quick");
@@ -84,24 +87,30 @@ async function checkTextModels() {
   console.log(`\n${C.bold}AI 文本模型${C.reset} ${C.dim}(${process.env.AI_TEXT_BASE_URL || "未配置"})${C.reset}`);
 
   const baseUrl = process.env.AI_TEXT_BASE_URL?.replace(/\/+$/, "");
-  const apiKey = process.env.AI_TEXT_API_KEY;
-  if (!baseUrl || !apiKey) {
-    record("text", "AI_TEXT 配置", "skip", "未配置，纯文本能力不可用");
+  const textApiKey = process.env.AI_TEXT_API_KEY_OVERRIDE || process.env.AI_TEXT_API_KEY;
+  if (!baseUrl || !textApiKey) {
+    record("text", "AI_TEXT 配置", "skip", "未配置，文本 / 多模态理解不可用");
     return;
   }
 
   const configured = process.env.AI_TEXT_MODEL?.replace(/['"]/g, "");
-  // 覆盖降级链上的全部模型，默认模型排最前。
-  // 候选列表直接取自 shared/text-models.ts，不要在这里另抄一份硬编码：
-  // 抄一份的后果是探活口径与线上真实降级链脱节，
-  // 探活全绿但线上首选模型其实是挂的（2026-09-10 切 claude 时就踩过）。
-  const candidates = [...new Set([
-    configured, ...TEXT_MODEL_FALLBACK_IDS,
-  ].filter(Boolean))];
-
+  // 独立验证三级候选，防止首选正常掩盖下游鉴权故障；DS 用独立 key，其余共用文本 key。
+  const candidates = [...TEXT_MODEL_FALLBACK_CHAIN];
   const list = QUICK ? candidates.slice(0, 1) : candidates;
 
+  if (configured && configured !== DEFAULT_TEXT_MODEL) {
+    record("text", "AI_TEXT_MODEL 配置", "fail", `残留历史值 ${configured}；实际执行固定首选 ${PRIMARY_TEXT_MODEL}`);
+  }
+
+  const modelLabel = (model) => model === PRIMARY_TEXT_MODEL
+    ? "首选 Claude" : model === FALLBACK_TEXT_MODEL ? "第三 DS" : "第二 Luna";
+
   for (const model of list) {
+    const apiKey = model === FALLBACK_TEXT_MODEL ? process.env.AI_DEEPSEEK_API_KEY : textApiKey;
+    if (!apiKey) {
+      record("text", model, "skip", "未配置文本凭据");
+      continue;
+    }
     const { value, error, ms } = await timed(() =>
       withTimeout(
         fetch(`${baseUrl}/chat/completions`, {
@@ -112,20 +121,26 @@ async function checkTextModels() {
           },
           body: JSON.stringify({
             model,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 5,
+            messages: [{ role: "user", content: "只回复 OK" }],
+            max_tokens: 256,
           }),
         }).then(async r => ({ status: r.status, text: await r.text() }))
       )
     );
 
-    const tag = model === configured ? `${C.cyan}(生效中)${C.reset}` : "";
+    const tag = `${C.cyan}(${modelLabel(model)})${C.reset}`;
     if (error) {
       record("text", `${model} ${tag}`, "fail", briefError(error), ms);
       continue;
     }
     if (value.status === 200) {
-      record("text", `${model} ${tag}`, "ok", "可用", ms);
+      let output;
+      try {
+        const data = JSON.parse(value.text);
+        output = data?.choices?.[0]?.message?.content || data?.output_text;
+      } catch { /* 非 JSON 或无最终正文不能算探活成功 */ }
+      record("text", `${model} ${tag}`, typeof output === "string" && output.trim() ? "ok" : "fail",
+        typeof output === "string" && output.trim() ? "可用（有最终正文）" : "HTTP 200 但无最终正文", ms);
       continue;
     }
 

@@ -56,7 +56,7 @@ function parseEnvFile(filePath) {
     const eq = line.indexOf("=");
     if (eq <= 0) continue;
     const key = line.slice(0, eq).trim();
-    // 去掉包裹的引号：.env 里 AI_TEXT_MODEL='claude-opus-5' 这种写法是合法的
+    // 去掉包裹的引号：.env 里 AI_TEXT_MODEL='gpt-6-luna' 这种写法是合法的
     const value = line.slice(eq + 1).trim().replace(/^['"]|['"]$/g, "");
     parsed[key] = value;
   }
@@ -81,16 +81,16 @@ const capabilities = [
     impact: "全站所有出图功能 100% 不可用，无兜底通道（中转站图片能力已于 2026-09-12 下线）",
   },
   {
-    name: "文本 / 多模态理解（中转站 claude-opus-5）",
+    name: "文本 / 多模态理解（claude-opus-5-5 首选 → gpt-6-luna 第二）",
     keys: ["AI_TEXT_API_KEY", "AI_TEXT_BASE_URL"],
     required: true,
-    impact: "对话、意图路由、OCR 文字提取全部不可用",
+    impact: "对话、意图路由、OCR 文字提取的前两个候选全部不可用",
   },
   {
-    name: "图生文 / 视觉识图（复用中转站图片端点）",
-    keys: ["AI_IMAGE_API_KEY", "AI_IMAGE_BASE_URL"],
+    name: "语言 / 视觉第三顺位（deepseek-v4-flash，复用文本 baseURL）",
+    keys: ["AI_DEEPSEEK_API_KEY"],
     required: false,
-    impact: "多模态识图与部分 OCR 链路降级",
+    impact: "前两级均失败时无第三兜底；OCR、品牌解析、反推与图文理解同样受影响",
   },
   {
     name: "佐糖 PicWish 图像工具链（抠图 / 擦除 / 高清化）",
@@ -151,6 +151,22 @@ if (imageModel) {
   }
 } else {
   console.log("\nOK   AI_IMAGE_MODEL 留空 → 回落到 vod-og25-sunburst-medium（推荐写法）");
+}
+
+/**
+ * 语言主模型固定为 Luna，DeepSeek 仅由统一失败链触发。
+ * 环境变量留空时代码内默认值生效；历史值虽然不会再改变实际上游请求，
+ * 但会让运维误判线上模型，因此部署门禁必须报 FAIL。
+ */
+const textModel = read("AI_TEXT_MODEL");
+if (!textModel) {
+  console.log("\nOK   AI_TEXT_MODEL 留空 → 回落到 gpt-6-luna（推荐写法）");
+} else if (textModel === "gpt-6-luna") {
+  console.log(`\nOK   AI_TEXT_MODEL="${textModel}"`);
+} else {
+  hasBlocking = true;
+  console.log(`\nFAIL AI_TEXT_MODEL="${textModel}" 不是受支持的文本模型`);
+  console.log("     实际执行固定为 claude-opus-5-5 → gpt-6-luna → deepseek-v4-flash；请清理历史环境变量，避免监控与任务记录误判。");
 }
 
 /**

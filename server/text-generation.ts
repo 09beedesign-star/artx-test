@@ -1,22 +1,25 @@
 import {
-  DEFAULT_TEXT_MODEL,
-  SUPPORTED_TEXT_MODEL_IDS,
-  TEXT_MODEL_FALLBACK_IDS,
-  isClaudeTextModelId,
+  FALLBACK_TEXT_MODEL,
+  PRIMARY_TEXT_MODEL,
+  TEXT_MODEL_FALLBACK_CHAIN,
 } from "../shared/text-models";
 
 type ChatRole = "system" | "user" | "assistant";
 
 export type TextMessage = {
   role: ChatRole;
-  content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+  content:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string } }
+      >;
   /**
-   * 【2026-09-11 新增】本条历史消息自带的图片。
+   * 本条历史消息自带的图片。
    *
-   * 与顶层 `images` 的区别：顶层那批是**当前轮**引用的素材，
-   * 会被统一放在历史之前；而这里的图属于**特定某一轮**，
-   * 必须就地展开在该条消息里，模型才分得清
-   * 「第一轮生成的图」和「第三轮生成的图」。
+   * 与顶层 images 的区别：顶层那批是当前轮引用的素材，
+   * 会统一放在历史之前；这里的图属于特定某一轮，必须就地展开，
+   * 模型才分得清「第一轮生成的图」和「第三轮生成的图」。
    */
   images?: Array<{ src: string; title?: string }>;
 };
@@ -25,8 +28,11 @@ type TextGenerateInput = {
   prompt?: string;
   messages?: TextMessage[];
   images?: Array<{ src: string; title?: string }>;
+  /** 仅为兼容旧调用方保留；执行顺序固定为 Claude→Luna→DeepSeek，不接受调用方改序。 */
   model?: string;
   module?: string;
+  /** 服务端业务调用方验证最终正文；不合格时尝试唯一备用，不降级成功标准。 */
+  validateOutput?: (text: string) => boolean;
 };
 
 type ChatCompletionResponse = {
@@ -36,18 +42,6 @@ type ChatCompletionResponse = {
   error?: { message?: string };
 };
 
-type ResponsesApiResponse = {
-  output?: Array<{
-    type?: string;
-    content?: Array<{
-      type?: string;
-      text?: string;
-    }>;
-  }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-  error?: { message?: string; code?: string };
-};
-
 type ProviderTokenUsage = {
   promptTokens?: number;
   completionTokens?: number;
@@ -55,7 +49,6 @@ type ProviderTokenUsage = {
 
 function safeParseJson<T>(raw: string): T | null {
   if (!raw) return null;
-
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -68,148 +61,104 @@ function getChatEndpoint(baseUrl: string) {
   return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/chat/completions`;
 }
 
-function getResponsesEndpoint(baseUrl: string) {
-  const normalized = baseUrl.replace(/\/+$/, "");
-  return `${normalized}${normalized.endsWith("/v1") ? "" : "/v1"}/responses`;
-}
-
 function getProviderConfig() {
-  const textApiKey = process.env.AI_TEXT_API_KEY_OVERRIDE || process.env.AI_TEXT_API_KEY;
-  if (textApiKey) {
-    return {
-      apiKey: textApiKey,
-      baseUrl: process.env.AI_TEXT_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
-      model: process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL,
-    };
-  }
-
-  const imageApiKey = process.env.AI_IMAGE_API_KEY || process.env.OPENAI_API_KEY;
+  const textApiKey =
+    process.env.AI_TEXT_API_KEY_OVERRIDE || process.env.AI_TEXT_API_KEY;
   return {
-    apiKey: imageApiKey,
-    baseUrl: process.env.AI_IMAGE_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com",
-    // 注意：这里刻意不再回落到 AI_IMAGE_MODEL。
-    // AI_IMAGE_MODEL 是图片生成模型（og-image2-medium / gpt-image-2 等），
-    // 把它当文本模型发给 /chat/completions 会直接 400。
-    model: process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL,
+    // Claude Opus 5.5 与 Luna 都复用原 Opus / Claude 的中转凭据（同一把 key）；
+    // 不再借用图片 / OpenAI key，避免凭据错配时静默跑通。
+    apiKey: textApiKey,
+    // 三级候选严格共用原 Opus 文本地址；绝不把独立密钥送到图片或 OpenAI 配置的地址。
+    baseUrl: process.env.AI_TEXT_BASE_URL || "https://token.bkeel.com/v1",
   };
 }
 
-const supportedTextModels = new Set<string>(SUPPORTED_TEXT_MODEL_IDS);
-
-/**
- * 是否允许给该模型下发 temperature。
- *
- * 中转站的 claude 系列会对 temperature 直接返回 400：
- *   {"error":{"message":"`temperature` is deprecated for this model."}}
- *
- * 这个失败极其隐蔽：generateText 的降级链会静默吞掉 400，
- * 一路退到 gpt-5.5 并正常返回文案。表面上「功能没坏」，
- * 实际上首选模型 100% 失效，全站文本能力仍然跑在 GPT 上，
- * 而且每次请求都要多付两次无效往返（实测 +4s）。
- * 2026-09-10 首次切换 claude-opus-5 时就是这样被瞒过去的。
- */
-function supportsTemperature(model: string) {
-  return !isClaudeTextModelId(model);
+function redactFailure(error: unknown): string {
+  let message = error instanceof Error ? error.message : String(error);
+  const secrets = Object.entries(process.env)
+    .filter(
+      ([name, value]) =>
+        /(?:KEY|TOKEN|SECRET|PASSWORD)(?:_OVERRIDE)?$/i.test(name) && value
+    )
+    .flatMap(([, value]) => [
+      value!,
+      JSON.stringify(value!).slice(1, -1),
+      encodeURIComponent(value!),
+    ])
+    .sort((a, b) => b.length - a.length);
+  for (const secret of secrets)
+    message = message.split(secret).join("[REDACTED]");
+  return message.replace(/[\r\n\t]+/g, " ").slice(0, 400);
 }
 
-function flattenMessageContent(content: TextMessage["content"]): string {
-  if (typeof content === "string") return content;
-
-  return content
-    .map((item) => {
-      if (item.type === "text") return item.text;
-      if (item.type === "image_url") return `[image] ${item.image_url.url}`;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
-function extractResponsesText(data: ResponsesApiResponse) {
-  return (data.output || [])
-    .flatMap((item) => item.content || [])
-    .filter((item) => item.type === "output_text" && typeof item.text === "string")
-    .map((item) => item.text || "")
-    .join("\n")
-    .trim();
-}
-
-function tokenUsage(input?: { prompt_tokens?: number; completion_tokens?: number; input_tokens?: number; output_tokens?: number }): ProviderTokenUsage | undefined {
-  const promptTokens = input?.prompt_tokens ?? input?.input_tokens;
-  const completionTokens = input?.completion_tokens ?? input?.output_tokens;
-  if (!Number.isFinite(promptTokens) && !Number.isFinite(completionTokens)) return undefined;
-  return {
-    ...(Number.isFinite(promptTokens) ? { promptTokens: Math.max(0, Math.round(promptTokens!)) } : {}),
-    ...(Number.isFinite(completionTokens) ? { completionTokens: Math.max(0, Math.round(completionTokens!)) } : {}),
-  };
-}
-
-async function callResponsesApi(
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  messages: TextMessage[],
-): Promise<{ text: string; usage?: ProviderTokenUsage }> {
-  const input = messages.map((message) => ({
-    role: message.role,
-    content: flattenMessageContent(message.content),
-  }));
-
-  const response = await fetch(getResponsesEndpoint(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input,
-    }),
+async function withTextRequestTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const configured = Number(process.env.AI_TEXT_CANDIDATE_TIMEOUT_MS);
+  const timeoutMs =
+    Number.isFinite(configured) && configured > 0
+      ? Math.min(120_000, Math.max(1, Math.round(configured)))
+      : 30_000;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`文本请求超时（${timeoutMs}ms）`));
+      controller.abort();
+    }, timeoutMs);
   });
-
-  const text = await response.text();
-  const data = safeParseJson<ResponsesApiResponse>(text) || {};
-
-  if (!response.ok) {
-    throw new Error(data.error?.message || `Responses provider returned ${response.status}`);
+  try {
+    // 同一预算覆盖请求发出与响应体读取。
+    return await Promise.race([run(controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  return { text: extractResponsesText(data), usage: tokenUsage(data.usage) };
+function tokenUsage(input?: {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}): ProviderTokenUsage | undefined {
+  const promptTokens = input?.prompt_tokens;
+  const completionTokens = input?.completion_tokens;
+  if (!Number.isFinite(promptTokens) && !Number.isFinite(completionTokens))
+    return undefined;
+  return {
+    ...(Number.isFinite(promptTokens)
+      ? { promptTokens: Math.max(0, Math.round(promptTokens!)) }
+      : {}),
+    ...(Number.isFinite(completionTokens)
+      ? { completionTokens: Math.max(0, Math.round(completionTokens!)) }
+      : {}),
+  };
 }
 
 function buildMessages(input: TextGenerateInput): TextMessage[] {
   const userContent = input.images?.length
     ? [
-        { type: "text" as const, text: input.prompt || "请理解这些图片并给出创作建议。" },
-        ...input.images.map((image) => ({
+        {
+          type: "text" as const,
+          text: input.prompt || "请理解这些图片并给出创作建议。",
+        },
+        ...input.images.map(image => ({
           type: "image_url" as const,
           image_url: { url: image.src },
         })),
       ]
     : input.prompt || "";
-  /**
-   * 历史消息里自带的图要**就地展开**成多模态 content。
-   *
-   * 不这么做的话，`message.images` 会被整个忽略，
-   * 「上一轮那张图」永远传不到模型面前。
-   * 注意保留原 content 文本在最前面，图片跟在后面 ——
-   * 顺序反了模型会把图当成新指令的主体。
-   */
+
   const expandHistoryImages = (messageList: TextMessage[]): TextMessage[] =>
-    messageList.map((message) => {
+    messageList.map(message => {
       if (!message.images?.length) return message;
-      const baseText =
+      const baseContent =
         typeof message.content === "string"
-          ? message.content
-          : message.content
-              .map((part) => (part.type === "text" ? part.text : ""))
-              .filter(Boolean)
-              .join("\n");
+          ? [{ type: "text" as const, text: message.content }]
+          : message.content;
       return {
         role: message.role,
         content: [
-          { type: "text" as const, text: baseText },
-          ...message.images.map((image) => ({
+          ...baseContent,
+          ...message.images.map(image => ({
             type: "image_url" as const,
             image_url: { url: image.src },
           })),
@@ -220,18 +169,24 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
   const messages = input.messages?.length
     ? expandHistoryImages(input.messages)
     : [{ role: "user" as const, content: userContent }];
-  const imageContext: TextMessage[] = input.messages?.length && input.images?.length
-    ? [{
-        role: "user",
-        content: [
-          { type: "text", text: "以下是当前引用/选中的视觉素材，请结合它们理解用户意图。" },
-          ...input.images.map((image) => ({
-            type: "image_url" as const,
-            image_url: { url: image.src },
-          })),
-        ],
-      }]
-    : [];
+  const imageContext: TextMessage[] =
+    input.messages?.length && input.images?.length
+      ? [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "以下是当前引用/选中的视觉素材，请结合它们理解用户意图。",
+              },
+              ...input.images.map(image => ({
+                type: "image_url" as const,
+                image_url: { url: image.src },
+              })),
+            ],
+          },
+        ]
+      : [];
 
   return [
     {
@@ -251,70 +206,88 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
   ];
 }
 
-export async function generateText(input: TextGenerateInput): Promise<{ text: string; model: string; usage?: ProviderTokenUsage }> {
-  const messages = buildMessages(input);
-  const hasContent = messages.some((message) => {
-    if (typeof message.content === "string") return message.content.trim();
-    return message.content.length > 0;
-  });
-  if (!hasContent) {
+/**
+ * 全站唯一的语言 / 多模态理解出口。
+ *
+ * 固定降级链：Claude Opus 5.5 → GPT Luna → DeepSeek V4 Flash。
+ * Claude 与 Luna 共用文本 baseURL 和文本 key；DeepSeek 用独立 key、同 baseURL。
+ * 当前及历史图片完整复用同一份 messages，不把视觉请求降成纯文本。
+ * input.model / AI_TEXT_MODEL 不能改变顺序；每候选预算独立且最多三次请求。
+ * 所有图片相关大语言模型能力都走此出口，故生效模型对全部能力天然一致。
+ */
+export async function generateText(
+  input: TextGenerateInput
+): Promise<{ text: string; model: string; usage?: ProviderTokenUsage }> {
+  const hasInputContent = Boolean(
+    input.prompt?.trim() || input.messages?.length || input.images?.length
+  );
+  if (!hasInputContent) {
     throw new Error("Missing prompt");
   }
 
-  const { apiKey, baseUrl, model } = getProviderConfig();
-  if (!apiKey) {
-    throw new Error("Missing AI_TEXT_API_KEY");
-  }
+  const messages = buildMessages(input);
+  const { apiKey, baseUrl } = getProviderConfig();
+  // Claude 与 Luna 共用文本 key；DeepSeek 用独立 key。
+  const keyForModel = (model: string) =>
+    model === FALLBACK_TEXT_MODEL
+      ? { apiKey: process.env.AI_DEEPSEEK_API_KEY, keyName: "AI_DEEPSEEK_API_KEY" }
+      : { apiKey, keyName: "AI_TEXT_API_KEY" };
+  const candidates = TEXT_MODEL_FALLBACK_CHAIN.map(model => ({
+    model,
+    ...keyForModel(model),
+  }));
+  const failures: string[] = [];
 
-  const selectedModel = input.model && supportedTextModels.has(input.model) ? input.model : model;
-  // 降级链只保留网关上确实存活的型号。
-  // 历史写法是 ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"]，而前两个已被网关下线，
-  // 首选失败后要白白空转两次超时（实测总耗时 134s）才轮到能用的型号。
-  const fallbackModels = (TEXT_MODEL_FALLBACK_IDS as readonly string[]).filter((name, index, list) => {
-    return name !== selectedModel && list.indexOf(name) === index;
-  });
-  const attempts = [selectedModel, ...fallbackModels];
-
-  let lastError: Error | null = null;
-  for (const candidateModel of attempts) {
+  for (const candidate of candidates) {
+    const { model, apiKey } = candidate;
+    if (!apiKey) {
+      // 备用未配置时不借主模型 / 出图凭据，保留主通道的真实失败。
+      // Claude 与 Luna 共用 key，缺配置只记一次，避免错误里重复刷屏。
+      if (model === PRIMARY_TEXT_MODEL)
+        failures.push(`${model}: Missing ${candidate.keyName}`);
+      continue;
+    }
     try {
-      const response = await fetch(getChatEndpoint(baseUrl), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: candidateModel,
-          messages,
-          // claude 系列不接受 temperature（见 supportsTemperature 注释），
-          // 带上就是 400 + 静默降级回 GPT。
-          ...(supportsTemperature(candidateModel) ? { temperature: 0.7 } : {}),
-        }),
+      return await withTextRequestTimeout(async signal => {
+        const response = await fetch(getChatEndpoint(baseUrl), {
+          signal,
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.7,
+          }),
+        });
+        signal.throwIfAborted();
+        const text = await response.text();
+        signal.throwIfAborted();
+        const data = safeParseJson<ChatCompletionResponse>(text);
+
+        if (!response.ok) {
+          const detail =
+            typeof data?.error?.message === "string"
+              ? `: ${redactFailure(data.error.message)}`
+              : "";
+          throw new Error(`Chat HTTP ${response.status}${detail}`);
+        }
+
+        const output =
+          data?.choices?.[0]?.message?.content || data?.output_text || "";
+        if (typeof output !== "string" || !output.trim()) {
+          throw new Error("文本模型未返回正文");
+        }
+        if (input.validateOutput && !input.validateOutput(output)) {
+          throw new Error("文本模型返回内容未通过业务结构校验");
+        }
+        return { text: output, model, usage: tokenUsage(data?.usage) };
       });
-
-      const text = await response.text();
-      const data = safeParseJson<ChatCompletionResponse>(text);
-
-      if (!response.ok) {
-        throw new Error(data?.error?.message || `Text provider returned ${response.status}`);
-      }
-
-      const output = data?.choices?.[0]?.message?.content || data?.output_text || "";
-      if (output.trim()) {
-        return { text: output, model: candidateModel, usage: tokenUsage(data?.usage) };
-      }
-
-      const responsesResult = await callResponsesApi(baseUrl, apiKey, candidateModel, messages);
-      if (responsesResult.text) {
-        return { text: responsesResult.text, model: candidateModel, usage: responsesResult.usage };
-      }
-
-      throw new Error("Text provider returned no content");
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      failures.push(`${model}: ${redactFailure(error)}`);
     }
   }
-
-  throw lastError || new Error("Text provider returned no content");
+  throw new Error(`文本请求失败：${failures.join("；")}`);
 }

@@ -1902,9 +1902,9 @@ async function startServer() {
     await handleTrackedAiRequest(req, res, {
       capabilityKey: "image_ocr",
       capability: "图片 OCR / 文案提取",
-      // OCR 走中转站视觉模型，用常量而非字面量，避免与健康度条目名漂移。
+      // OCR 已统一走 gpt-6-luna 的多模态 chat，不再由请求体或图片模型 env 改写。
       provider: IMAGE_PROVIDER_RELAY,
-      model: getRouteModel(req.body, process.env.AI_IMAGE_MODEL || "vision-chat-ocr"),
+      model: DEFAULT_TEXT_MODEL,
       failureMessage: "Image OCR failed",
       outputUnits: () => 1,
     }, async () => {
@@ -1996,7 +1996,7 @@ async function startServer() {
       capabilityKey: "text_generation",
       capability: "提示词优化 / 文案生成",
       provider: "AI_TEXT",
-      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL),
+      model: DEFAULT_TEXT_MODEL,
       failureMessage: "AI request failed",
       outputUnits: () => 1,
     }, async () => {
@@ -2098,7 +2098,10 @@ async function startServer() {
       user = await requireSessionUser(req, res);
       if (!user) return;
       const preflightCapabilityKey = requestedOrchestratorCapability(req.body);
-      const preflightModel = getRouteModel(req.body, "auto");
+      // 文本 / 品牌解析类能力实际固定走 gpt-6-luna；图片能力仍按请求路由。
+      const preflightModel = preflightCapabilityKey === "text_generation"
+        ? DEFAULT_TEXT_MODEL
+        : getRouteModel(req.body, "auto");
       preflightTracking = {
         capabilityKey: preflightCapabilityKey,
         capability: typeof req.body?.capability === "string" ? req.body.capability : "AI 编排",
@@ -2181,8 +2184,8 @@ async function startServer() {
             capability: typeof req.body?.capability === "string" ? req.body.capability : "ai_orchestration",
             // 失败记录同样要有正确归属，否则「失败率」在厂商维度上永远是 0。
             provider: preflightTracking?.provider
-              || resolveProviderByCapability("text_generation", getRouteModel(req.body, "auto")),
-            model: preflightTracking?.model || getRouteModel(req.body, "auto"),
+              || resolveProviderByCapability("text_generation", DEFAULT_TEXT_MODEL),
+            model: preflightTracking?.model || DEFAULT_TEXT_MODEL,
             failureMessage: "AI orchestration failed",
           },
           startedAt,
@@ -2616,7 +2619,7 @@ async function startServer() {
       capabilityKey: "text_generation",
       capability: "品牌包解析",
       provider: "AI_TEXT",
-      model: getRouteModel(req.body, process.env.AI_TEXT_MODEL || DEFAULT_TEXT_MODEL),
+      model: DEFAULT_TEXT_MODEL,
       failureMessage: "Brand kit parse failed",
       outputUnits: () => 1,
     }, async () => {

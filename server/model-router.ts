@@ -32,7 +32,7 @@ const TEXT_MODELS = new Set<string>(SUPPORTED_TEXT_MODEL_IDS);
 
 const SELECTABLE_IMAGE_MODELS = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
-// 用户在 UI 上可见可选的文本模型。已从 gpt-5.4-mini 切换到 claude-opus-5。
+// 用户在 UI 上可见可选的文本模型：已收敛为唯一的 gpt-6-luna。
 const SELECTABLE_TEXT_MODELS = new Set<string>(SELECTABLE_TEXT_MODEL_IDS);
 
 function normalizeModelName(model?: string) {
@@ -116,7 +116,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 
   return {
     capability,
-    model: model && isTextModel(model) ? model : DEFAULT_TEXT_MODEL,
+    model: DEFAULT_TEXT_MODEL,
     provider: "text",
   };
 }
@@ -124,6 +124,6 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 export function listAvailableModels() {
   return {
     image: [...IMAGE_MODEL_PRIORITY_IDS],
-    text: [...Array.from(TEXT_MODELS)],
+    text: [...Array.from(SELECTABLE_TEXT_MODELS)],
   };
 }

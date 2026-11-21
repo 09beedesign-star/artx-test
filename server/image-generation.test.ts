@@ -1422,7 +1422,7 @@ describe("generated image source normalization", () => {
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("/images/"))).toBe(true);
   });
 
-  it("falls back to multimodal text extraction when image OCR returns empty text", async () => {
+  it("uses only the locked Claude model for OCR even with legacy overrides", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "gpt-image-2");
@@ -1445,7 +1445,7 @@ describe("generated image source normalization", () => {
         return Response.json({ choices: [{ message: { content: "" } }] });
       }
       if (endpoint.startsWith("https://text.example")) {
-        return Response.json({ choices: [{ message: { content: "SALE 2026\nARTX TEST" } }] });
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ text: "SALE 2026\nARTX TEST", regions: [{text: "SALE 2026", x: 0.1, y: 0.2, width: 0.5, height: 0.2}] }) } }] });
       }
       throw new Error(`Unexpected fetch ${endpoint}`);
     });
@@ -1455,9 +1455,12 @@ describe("generated image source normalization", () => {
     });
 
     expect(result.text).toBe("SALE 2026\nARTX TEST");
-    expect(result.provider).toBe("vision-chat-ocr+text-fallback");
-    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(true);
+    expect(result.provider).toBe("vision-chat-ocr");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body || "{}")));
+    // 固定链首选 Claude，不受历史 AI_TEXT_MODEL（gpt-5.4-mini）影响。
+    expect(bodies.every(body => body.model === "claude-opus-5-5")).toBe(true);
   });
 
   /*
@@ -1471,7 +1474,7 @@ describe("generated image source normalization", () => {
    * 503 model_not_found → 整条 OCR 抛错，智能文案编辑与提示词反推
    * **一个字都拿不到**。
    */
-  it("falls back to multimodal text extraction when the primary OCR model is rejected", async () => {
+  it("ignores a rejected image-side OCR model and calls only Luna", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "");
@@ -1505,11 +1508,49 @@ describe("generated image source normalization", () => {
 
     expect(result.text).toBe("春季新品发布会");
     expect(result.regions.length).toBeGreaterThan(0);
-    expect(result.provider).toBe("vision-chat-ocr+text-fallback");
+    expect(result.provider).toBe("vision-chat-ocr");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://image.example"))).toBe(false);
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("https://text.example"))).toBe(true);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body || "{}")));
+    // 首选直接落到固定链首位 Claude，不走出图模型，也不受历史 AI_TEXT_MODEL 影响。
+    expect(bodies.every(body => body.model === "claude-opus-5-5")).toBe(true);
   });
 
-  it("surfaces the primary OCR error when both channels fail", async () => {
+  it.each(["invalid-json", "missing-regions", "http-error"])("OCR %s 逐级重试到 DeepSeek 且复用同一份真实像素", async (failure) => {
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_DEEPSEEK_API_KEY", "test-deepseek-key");
+    vi.stubEnv("AI_TEXT_BASE_URL", "https://text.example/v1");
+    const source = await sharp({create: {width:160, height:90, channels:3, background:"#ffffff"}}).png().toBuffer();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const model = JSON.parse(String(init?.body)).model;
+      if (model === "deepseek-v4-flash") {
+        return Response.json({choices:[{message:{content:'{"text":"SALE 2026","regions":[{"text":"SALE 2026","x":0.1,"y":0.2,"width":0.5,"height":0.2}]}'}}]});
+      }
+      // Claude 与 Luna 逐级失败：结构不合格或 HTTP 错误。
+      if (failure === "http-error") return new Response("{}", {status:503});
+      return Response.json({choices:[{message:{content:failure === "invalid-json" ? "无法解析这张图" : '{"text":"SALE 2026","regions":[]}'}}]});
+    });
+    const result = await extractImageText({imageSrc:`data:image/png;base64,${source.toString("base64")}`});
+    expect(result.text).toBe("SALE 2026");
+    expect(result.regions.length).toBeGreaterThan(0);
+    const bodies = fetchMock.mock.calls.map(([,init])=>JSON.parse(String(init?.body)));
+    expect(bodies.map(body=>body.model)).toEqual(["claude-opus-5-5", "gpt-6-luna", "deepseek-v4-flash"]);
+    // 三个候选必须是同一份 messages（同一张图、同一提示词），不能降级成丢图纯文本。
+    expect(bodies[1].messages).toEqual(bodies[0].messages);
+    expect(bodies[2].messages).toEqual(bodies[0].messages);
+    expect(fetchMock.mock.calls[2][1]?.headers).toMatchObject({Authorization:"Bearer test-deepseek-key"});
+  });
+
+  it("valid empty OCR does not call the fallback", async () => {
+    vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
+    vi.stubEnv("AI_DEEPSEEK_API_KEY", "test-deepseek-key");
+    const source = await sharp({create:{width:160,height:90,channels:3,background:"#ffffff"}}).png().toBuffer();
+    const fetchMock = vi.spyOn(globalThis,"fetch").mockResolvedValue(Response.json({choices:[{message:{content:'{"text":"","regions":[]}'}}]}));
+    await expect(extractImageText({imageSrc:`data:image/png;base64,${source.toString("base64")}`})).resolves.toMatchObject({text:"",regions:[]});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the OCR channel error without a configured fallback", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
@@ -1533,7 +1574,7 @@ describe("generated image source normalization", () => {
 
     await expect(
       extractImageText({ imageSrc: `data:image/png;base64,${source.toString("base64")}` }),
-    ).rejects.toThrow(/No available channel for model/);
+    ).rejects.toThrow(/text provider down/);
   });
 
   /*
@@ -1545,7 +1586,7 @@ describe("generated image source normalization", () => {
    * 否则即使兜底成功，用户每次也要先白等首选模型空转的十几到上百秒。
    * 首选应直接落到 AI_TEXT_MODEL（claude-opus-5，实测支持视觉识图）。
    */
-  it("uses the text model as primary OCR model when AI_IMAGE_MODEL is unset", async () => {
+  it("uses the locked Claude model as the only OCR model on the happy path", async () => {
     vi.stubEnv("AI_IMAGE_API_KEY", "test-image-key");
     vi.stubEnv("AI_IMAGE_BASE_URL", "https://image.example/v1");
     vi.stubEnv("AI_IMAGE_MODEL", "");
@@ -1575,9 +1616,9 @@ describe("generated image source normalization", () => {
 
     expect(result.text).toBe("春季新品发布会");
     expect(result.provider).toBe("vision-chat-ocr");
-    // 首选（也是唯一一次）调用必须带 claude 文本模型，而不是出图模型。
+    // 唯一一次调用必须带固定链首位 Claude，而不是出图模型或任何历史文本模型。
     expect(requestBodies.length).toBe(1);
-    expect(requestBodies[0].model).toBe("claude-opus-5");
+    expect(requestBodies[0].model).toBe("claude-opus-5-5");
     expect(fetchMock.mock.calls.length).toBe(1);
   });
 
@@ -1614,7 +1655,7 @@ describe("generated image source normalization", () => {
       const endpoint = String(url);
       if (endpoint.startsWith("https://image.example")) {
         const body = JSON.parse(String(init?.body || "{}"));
-        for (const part of body?.messages?.[0]?.content || []) {
+        for (const part of body?.messages?.[2]?.content || []) {
           if (part?.type === "image_url") imageUrls.push(String(part?.image_url?.url || ""));
         }
         return Response.json({

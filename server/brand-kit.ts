@@ -124,7 +124,7 @@ export async function parseBrandKitFromImage(
   const result = await chat({
     module: "brand-kit-parse",
     // 品牌包解析要读图（多模态理解），不是图片生成，所以走文本模型。
-    // claude-opus-5 已实测支持 image_url 输入，可直接替换原 gpt-5.4-mini。
+    // generateText 统一处理 Claude → Luna → DeepSeek 三级视觉降级链，不在此另建候选或剥离图片。
     model: DEFAULT_TEXT_MODEL,
     images: [{ src: imageSrc, title: "brand reference" }],
     prompt: [
