@@ -28,7 +28,7 @@ export type CanvasConversationMeta = {
   /**
    * 【2026-10-17 新增】本对话的记忆开关。
    * 
-   * ⚠️ 默认 false：用户拍板「每新建一个对话，记忆默认是关闭的」。
+   * 默认开启；已有明确的关闭选择保留。
    * 开关开 → 本对话的近期提示词 + 长期记忆（不冲突维度合并）。
    * 开关关 → 只用长期记忆。
    * 📌 对话之间互相独立 —— 对话 A 的记忆不会泄漏进对话 B。
@@ -140,8 +140,8 @@ function normalizeMeta(value: CanvasConversationMeta): CanvasConversationMeta {
       typeof value.messageCount === "number" && Number.isFinite(value.messageCount)
         ? value.messageCount
         : 0,
-    // ⚠️ 只认严格 true：老数据没有该字段 / 脏数据 → 一律关闭（默认关）。
-    memoryEnabled: value.memoryEnabled === true,
+    // 缺字段或脏值默认开启，已有布尔值保持用户选择。
+    memoryEnabled: typeof value.memoryEnabled === "boolean" ? value.memoryEnabled : true,
   };
 }
 
@@ -170,7 +170,8 @@ export function isConversationMemoryEnabled(
   conversationId: string
 ): boolean {
   return index.conversations.some(
-    item => item.id === conversationId && item.memoryEnabled === true
+    item => item.id === conversationId &&
+      (typeof item.memoryEnabled === "boolean" ? item.memoryEnabled : true)
   );
 }
 
@@ -228,8 +229,7 @@ export function createConversationMeta(
   id = createCanvasConversationId()
 ): CanvasConversationMeta {
   const now = new Date().toISOString();
-  // memoryEnabled: false —— 用户拍板「每新建一个对话，记忆默认是关闭的」。
-  return { id, title: "", createdAt: now, updatedAt: now, messageCount: 0, memoryEnabled: false };
+  return { id, title: "", createdAt: now, updatedAt: now, messageCount: 0, memoryEnabled: true };
 }
 
 /**
@@ -373,6 +373,7 @@ export function ensureConversationIndex(
       createdAt: now,
       updatedAt: now,
       messageCount: legacyCount,
+      memoryEnabled: true,
     };
     return persist({
       activeId: LEGACY_CONVERSATION_ID,

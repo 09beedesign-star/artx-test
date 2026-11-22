@@ -7,7 +7,11 @@ import {
   SELECTABLE_TEXT_MODEL_IDS,
   SUPPORTED_TEXT_MODEL_IDS,
   TEXT_MODEL_FALLBACK_CHAIN,
+  getTextModelDisplayName,
   isKnownTextModelId,
+  isSelectableTextModelId,
+  resolveRequestedTextModel,
+  resolveTextModelFallbackChain,
 } from "../shared/text-models";
 
 const C = "claude-opus-5-5";
@@ -72,17 +76,121 @@ function configureTextKeys() {
 }
 
 describe("三级降级链与可选列表", () => {
-  it("Claude 第一、Luna 第二、DS 第三；UI 仍仅 Luna", () => {
+  it("默认 Claude 第一、Luna 第二、DS 第三；三级型号均可手动选择", () => {
     expect(PRIMARY_TEXT_MODEL).toBe(C);
     expect(DEFAULT_TEXT_MODEL).toBe(L);
     expect(FALLBACK_TEXT_MODEL).toBe(D);
     expect(TEXT_MODEL_FALLBACK_CHAIN).toEqual([C, L, D]);
-    expect(SELECTABLE_TEXT_MODEL_IDS).toEqual([L]);
+    expect(SELECTABLE_TEXT_MODEL_IDS).toEqual([C, L, D]);
     expect(SUPPORTED_TEXT_MODEL_IDS).toEqual([C, L, D]);
     expect(HISTORICAL_TEXT_MODEL_IDS).toContain("claude-opus-5");
     expect(isKnownTextModelId(C)).toBe(true);
     expect(isKnownTextModelId(L)).toBe(true);
     expect(isKnownTextModelId(D)).toBe(true);
+  });
+
+  it.each([
+    [C, [C, L, D]],
+    [L, [L, C, D]],
+    [D, [D, C, L]],
+  ] as const)("共享 helper 仅 manual 时将 %s 提前且去重", (model, chain) => {
+    expect(isSelectableTextModelId(` ${model} `)).toBe(true);
+    expect(resolveRequestedTextModel(` ${model} `)).toBe(model);
+    expect(resolveTextModelFallbackChain(` ${model} `, "manual")).toEqual(chain);
+    expect(resolveTextModelFallbackChain(model)).toEqual([C, L, D]);
+  });
+
+  it.each([undefined, "", "auto", " AUTO ", "unknown", "gpt-4o", "claude-opus-5"])(
+    "共享 helper 对无效/历史型号 %s 不启用手动优先", (model) => {
+      expect(isSelectableTextModelId(model)).toBe(false);
+      expect(resolveRequestedTextModel(model)).toBe(L);
+      expect(resolveTextModelFallbackChain(model, "manual")).toEqual([C, L, D]);
+    },
+  );
+
+  it.each([C, L, D])("手动选择 %s 健康时首跳即成功，保留真实型号和 usage", async (model) => {
+    configureTextKeys();
+    const { calls, body, models } = setupFetch(() => respond("手动完成", {
+      usage: { prompt_tokens: 21, completion_tokens: 8 },
+    }));
+    const generateText = await loadGenerateText();
+
+    await expect(generateText({ prompt: "测试", model, modelSelection: "manual" })).resolves.toEqual({
+      text: "手动完成", model, usage: { promptTokens: 21, completionTokens: 8 },
+    });
+    expect(models()).toEqual([model]);
+    expect(calls[0].init.headers).toMatchObject({
+      Authorization: `Bearer ${model === D ? "mock-deepseek-key" : "mock-text-key"}`,
+    });
+    expect(body(calls[0])).not.toHaveProperty("modelSelection");
+  });
+
+  it.each([
+    [C, [C, L, D]],
+    [L, [L, C, D]],
+    [D, [D, C, L]],
+  ] as const)("手动选择 %s 失败后余下候选按原顺序兜底，返回实际成功型号", async (model, chain) => {
+    configureTextKeys();
+    const { calls, models } = setupFetch((_u, _i, candidate) => candidate === chain[2]
+      ? respond("末候选完成", { usage: { prompt_tokens: 12, completion_tokens: 3 } })
+      : fail(503));
+    const generateText = await loadGenerateText();
+
+    await expect(generateText({ prompt: "测试", model, modelSelection: "manual" })).resolves.toEqual({
+      text: "末候选完成", model: chain[2], usage: { promptTokens: 12, completionTokens: 3 },
+    });
+    expect(models()).toEqual(chain);
+    expect(calls).toHaveLength(3);
+  });
+
+  it.each([
+    [C, L],
+    [L, C],
+    [D, C],
+  ])("手动选择 %s 首跳失败后下一候选 %s 成功即停止", async (model, fallback) => {
+    configureTextKeys();
+    const { models } = setupFetch((_u, _i, candidate) => candidate === model ? fail() : respond());
+    const generateText = await loadGenerateText();
+
+    await expect(generateText({ prompt: "测试", model, modelSelection: "manual" }))
+      .resolves.toMatchObject({ model: fallback });
+    expect(models()).toEqual([model, fallback]);
+  });
+
+  describe.each([undefined, "auto"] as const)("非手动标记 %s", (selection) => {
+    it.each([undefined, C, L, D, "auto", "claude-opus-5", "unknown"])(
+      "显式型号 %s 不改完整三级链", async (model) => {
+        configureTextKeys();
+        const { models } = setupFetch((_u, _i, candidate) => candidate === D ? respond() : fail());
+        const generateText = await loadGenerateText();
+
+        await expect(generateText({ prompt: "测试", model, modelSelection: selection as "manual" | undefined }))
+          .resolves.toMatchObject({ model: D });
+        expect(models()).toEqual([C, L, D]);
+      },
+    );
+  });
+
+  it.each(["auto", "gpt-4o", "claude-opus-5", "unknown", ""])(
+    "manual 配合非当前型号 %s 时仍按默认链执行", async (model) => {
+      configureTextKeys();
+      const { models } = setupFetch((_u, _i, candidate) => candidate === D ? respond() : fail());
+      const generateText = await loadGenerateText();
+
+      await expect(generateText({ prompt: "测试", model, modelSelection: "manual" })).resolves.toMatchObject({ model: D });
+      expect(models()).toEqual([C, L, D]);
+    },
+  );
+
+  it("显式 DEFAULT_TEXT_MODEL 无标记及运行时 auto 标记仍 Claude 首跳，无跨请求粘性", async () => {
+    configureTextKeys();
+    const { models } = setupFetch();
+    const generateText = await loadGenerateText();
+
+    await generateText({ prompt: "测试", model: L, modelSelection: "manual" });
+    await generateText({ prompt: "测试", model: DEFAULT_TEXT_MODEL });
+    await generateText({ prompt: "测试", model: D, modelSelection: "auto" as never });
+    expect(models()).toEqual([L, C, C]);
   });
 
   it("历史 model 参数与旧 AI_TEXT_MODEL 都不能改变上游首选型号", async () => {
@@ -137,6 +245,35 @@ describe("三级降级链与可选列表", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([C, L, D])("手动选择 %s 全缺凭据时逐候选明确报错，错误聚合不为空", async (model) => {
+    const { fetchMock } = setupFetch();
+    const generateText = await loadGenerateText();
+
+    const error = await generateText({ prompt: "测试", model, modelSelection: "manual" }).catch((error: Error) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain(`${C}: Missing AI_TEXT_API_KEY`);
+    expect(String(error)).toContain(`${L}: Missing AI_TEXT_API_KEY`);
+    expect(String(error)).toContain(`${D}: Missing AI_DEEPSEEK_API_KEY`);
+    expect(String(error).indexOf(`${model}: Missing`)).toBeLessThan(String(error).indexOf("；"));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("手动 DS 缺凭据时仍可回退 Claude，DS 缺凭据且余下全失败时保留全部原因", async () => {
+    vi.stubEnv("AI_TEXT_API_KEY", "mock-text-key");
+    let failRequests = false;
+    const { fetchMock, models } = setupFetch(() => failRequests ? fail(503) : respond());
+    const generateText = await loadGenerateText();
+
+    await expect(generateText({ prompt: "测试", model: D, modelSelection: "manual" })).resolves.toMatchObject({ model: C });
+    failRequests = true;
+    const error = await generateText({ prompt: "测试", model: D, modelSelection: "manual" }).catch((error: Error) => error);
+    expect(String(error)).toContain(`${D}: Missing AI_DEEPSEEK_API_KEY`);
+    expect(String(error)).toContain(`${C}: Chat HTTP 503`);
+    expect(String(error)).toContain(`${L}: Chat HTTP 503`);
+    expect(models()).toEqual([C, C, L]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it.each([401, 429, 503])("未配置 DS 时 HTTP %s 只尝试共用文本 key 的两次候选", async (status) => {
     vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
     vi.stubEnv("AI_TEXT_BASE_URL", "https://provider.example");
@@ -165,7 +302,7 @@ describe("三级降级链与可选列表", () => {
     expect(models()).toEqual([C, L]);
   });
 
-  it("空正文不触发协议兜底，也不换模型", async () => {
+  it("空正文按模型链降级，但不触发 responses 协议兜底", async () => {
     vi.stubEnv("AI_TEXT_API_KEY", "test-text-key");
     vi.stubEnv("AI_TEXT_BASE_URL", "https://provider.example");
     const { calls, models } = setupFetch(() => new Response(
@@ -224,7 +361,11 @@ describe("降级切换与凭据边界", () => {
     expect(calls[0].init.headers).toMatchObject({ Authorization: "Bearer mock-override-key" });
     expect(calls[1].init.headers).toMatchObject({ Authorization: "Bearer mock-override-key" });
     expect(calls[2].init.headers).toMatchObject({ Authorization: "Bearer mock-deepseek-key" });
-    expect(body(calls[2])).toEqual({ ...body(calls[0]), model: D });
+    expect(body(calls[2])).toEqual({
+      ...body(calls[0]), model: D,
+      messages: [body(calls[2]).messages[0], ...body(calls[0]).messages.slice(1)],
+    });
+    expect(body(calls[2]).messages[0].content).toContain("本次实际执行的模型名称是：DeepSeek V4 Flash");
   });
 
   it.each(["仅文本 key", "仅 DS", "仅 DS 且不借用图片 base", "仅 DS 且不借用 OpenAI base"])(
@@ -263,7 +404,7 @@ describe("降级切换与凭据边界", () => {
       expect(result.usage).toBeUndefined();
       expect(models()).toEqual([C, L, D]);
       expect(calls.every((call) => call.url === "https://provider.example/v1/chat/completions")).toBe(true);
-      expect(body(calls[2]).messages).toEqual(body(calls[0]).messages);
+      expect(body(calls[2]).messages.slice(1)).toEqual(body(calls[0]).messages.slice(1));
       expect(calls[0].init.headers).toMatchObject({ Authorization: "Bearer mock-text-key" });
       expect(calls[2].init.headers).toMatchObject({ Authorization: "Bearer mock-deepseek-key" });
     },
@@ -325,9 +466,9 @@ describe("降级切换与凭据边界", () => {
   it.each([
     undefined, "general", "chat", "brand_kit_parse", "brand-kit-parse", "multimodal-text-extraction",
     "mindmap", "workspace-chat-generation", "home-prompt-chat", "home-prompt-canvas-router",
-    "home-prompt-documents", "bottom-global-prompt-router", "bottom-global-prompt-chat",
-    "right-ai-assistant", "right-ai-assistant-chat", "right-ai-assistant-documents",
-    "node-composer-chat", "node-composer-documents", "chat-node", "prompt-node-generation",
+    "bottom-global-prompt-router", "bottom-global-prompt-chat",
+    "right-ai-assistant", "right-ai-assistant-chat",
+    "node-composer-chat", "chat-node", "prompt-node-generation",
     "image-quick-edit-prompt", "model3d-view-render-prompt", "image-prompt-reverse-engineering",
     "commercial-ocr-copy-structure", "帮助与反馈", "帮助弹窗", "unknown-module",
   ])("模块 %s 均走相同的 Claude → Luna → DS 链", async (module) => {
@@ -337,15 +478,121 @@ describe("降级切换与凭据边界", () => {
 
     await expect(generateText({ prompt: "测试", module })).resolves.toMatchObject({ model: D });
     expect(models()).toEqual([C, L, D]);
-    expect(body(calls[1]).messages).toEqual(body(calls[0]).messages);
+    expect(body(calls[1]).messages.slice(1)).toEqual(body(calls[0]).messages.slice(1));
     expect(body(calls[1]).messages[1]).toEqual({ role: "system", content: `当前能力模块：${module || "general"}` });
   });
 });
 
-describe("多模态与超时保护", () => {
-  it.each([false, true])("当前图、历史 images 与历史内联图全部保留原顺序（降级：%s）", async (degrade) => {
+describe("模型身份只回复本次实际型号", () => {
+  const names: Record<string, string> = { [C]: "Claude Opus 5.5", [L]: "GPT-6 Luna", [D]: "DeepSeek V4 Flash" };
+
+  it.each([C, L, D])("手选 %s 不采信上游的 Kiro/Hero 自称，保留真实 usage", async model => {
     configureTextKeys();
-    const { calls, body, models } = setupFetch((_u, _i, model) => degrade && model === C ? fail(503) : respond());
+    const { calls, body } = setupFetch(() => respond("我是 Kiro，是 Hero 智能体，我可以帮你写代码。", { usage: { prompt_tokens: 18, completion_tokens: 9 } }));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt: "你是谁？", model, modelSelection: "manual", module: "chat" }))
+      .resolves.toEqual({ text: names[model], model, usage: { promptTokens: 18, completionTokens: 9 } });
+    expect(body(calls[0]).messages[0].content).toContain(`本次实际执行的模型名称是：${names[model]}`);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each(["介绍一下自己", "请自我介绍", "你能自我介绍一下吗", "介绍一下你自己", "你是什么模型？", "你叫什么？", "你是kiro吗？", "Who are you?", "Introduce yourself."])("身份问法 %s 仅回复名称", async prompt => {
+    configureTextKeys();
+    setupFetch(() => respond("我是 Kiro"));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt })).resolves.toMatchObject({ text: names[C], model: C });
+  });
+
+  it.each([C, L, D])("降级成功为 %s 时不冒充手选或上一候选", async success => {
+    configureTextKeys();
+    const { calls, body } = setupFetch((_url, _init, model) => model === success ? respond("我是 Hero") : fail());
+    const generateText = await loadGenerateText();
+    const result = await generateText({ prompt: "你是谁", module: "chat" });
+    expect(result).toMatchObject({ text: names[success], model: success });
+    for (const call of calls) {
+      expect(body(call).messages[0].content).toContain(`本次实际执行的模型名称是：${names[body(call).model]}`);
+    }
+  });
+
+  it("只判断最后一条 user 内容，兼容多模态消息，不沿用历史身份", async () => {
+    configureTextKeys();
+    setupFetch(() => respond("我是 Kiro"));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt: "旧提示词", messages: [
+      { role: "assistant", content: "我是 Kiro" },
+      { role: "user", content: [{ type: "text", text: "你是谁？" }, { type: "image_url", image_url: { url: "data:image/png;base64,a" } }] },
+    ] })).resolves.toMatchObject({ text: names[C] });
+  });
+
+  it.each(["帮我写一份自我介绍", "翻译：你是谁", "图片中的你是谁是什么意思", "介绍一下 Hero 这个智能体", "告诉我你是谁，然后分析这张图", "你好，帮我分析版式", "介绍一下"])("业务请求 %s 不被关键词误截断", async prompt => {
+    configureTextKeys();
+    setupFetch(() => respond("正常业务正文"));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt, module: "chat" })).resolves.toMatchObject({ text: "正常业务正文" });
+  });
+
+  it.each(["brand_kit_parse", "multimodal-text-extraction", "image-prompt-reverse-engineering"])("内部模块 %s 不套用身份短回复", async module => {
+    configureTextKeys();
+    setupFetch(() => respond('{"text":"你是谁"}'));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt: "你是谁", module })).resolves.toMatchObject({ text: '{"text":"你是谁"}' });
+  });
+
+  it("校验器仍校验原始结构，身份词不能绕过业务校验", async () => {
+    configureTextKeys();
+    setupFetch(() => respond('{"ok":true}'));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt: "你是谁", validateOutput: text => JSON.parse(text).ok === true }))
+      .resolves.toMatchObject({ text: '{"ok":true}' });
+  });
+
+  it("历史身份问句不影响最新普通问题", async () => {
+    configureTextKeys();
+    setupFetch(() => respond("正常分析正文"));
+    const generateText = await loadGenerateText();
+    await expect(generateText({ prompt: "你是谁", messages: [
+      { role: "user", content: "你是谁" }, { role: "assistant", content: "我是 Kiro" }, { role: "user", content: "分析版式" },
+    ] })).resolves.toMatchObject({ text: "正常分析正文" });
+  });
+});
+
+describe("多模态与超时保护", () => {
+  it.each([
+    [C, [C, L, D]],
+    [L, [L, C, D]],
+    [D, [D, C, L]],
+  ] as const)("手动 %s 无历史消息时，当前提示词与图片在全部候选保持一致", async (model, chain) => {
+    configureTextKeys();
+    const { calls, body, models } = setupFetch((_u, _i, candidate) => candidate === chain[2] ? respond() : fail());
+    const generateText = await loadGenerateText();
+
+    await expect(generateText({
+      prompt: "理解当前图片",
+      model,
+      modelSelection: "manual",
+      images: [{ src: "data:image/png;base64,current-a" }, { src: "https://cdn.example/current-b.png" }],
+    })).resolves.toMatchObject({ model: chain[2] });
+    expect(models()).toEqual(chain);
+    for (const call of calls) {
+      expect(body(call).messages.slice(1)).toEqual(body(calls[0]).messages.slice(1));
+      expect(body(call).messages[2]).toEqual({ role: "user", content: [
+        { type: "text", text: "理解当前图片" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,current-a" } },
+        { type: "image_url", image_url: { url: "https://cdn.example/current-b.png" } },
+      ] });
+    }
+  });
+
+  it.each([
+    [false, undefined, [C]],
+    [true, undefined, [C, L]],
+    [true, C, [C, L, D]],
+    [true, L, [L, C, D]],
+    [true, D, [D, C, L]],
+  ] as const)("当前图、历史 images 与历史内联图全部保留原顺序（降级：%s，手动：%s）", async (_degrade, selectedModel, expectedModels) => {
+    configureTextKeys();
+    const successfulModel = expectedModels[expectedModels.length - 1];
+    const { calls, body, models } = setupFetch((_u, _i, model) => model === successfulModel ? respond() : fail(503));
     const generateText = await loadGenerateText();
     const inline = [
       { type: "image_url" as const, image_url: { url: "data:image/png;base64,inline-first" } },
@@ -354,6 +601,8 @@ describe("多模态与超时保护", () => {
     ];
 
     const result = await generateText({
+      model: selectedModel,
+      modelSelection: selectedModel ? "manual" : undefined,
       images: [{ src: "https://cdn.example/current-a.png" }, { src: "https://cdn.example/current-b.png" }],
       messages: [
         { role: "assistant", content: inline, images: [{ src: "https://cdn.example/history-a.png" }] },
@@ -362,7 +611,7 @@ describe("多模态与超时保护", () => {
         { role: "user", content: "理解全部图片" },
       ],
     });
-    expect(result.model).toBe(degrade ? L : C);
+    expect(result.model).toBe(successfulModel);
 
     const messages = body(calls[0]).messages;
     expect(messages[2].content.slice(1)).toEqual([
@@ -382,9 +631,10 @@ describe("多模态与超时保护", () => {
       { role: "assistant", content: "第二轮回复" },
       { role: "user", content: "理解全部图片" },
     ]);
-    expect(models()).toEqual(degrade ? [C, L] : [C]);
+    expect(models()).toEqual(expectedModels);
     for (const call of calls) {
-      expect(body(call).messages).toEqual(messages);
+      expect(body(call).messages.slice(1)).toEqual(messages.slice(1));
+      expect(body(call).messages[0].content).toContain(`本次实际执行的模型名称是：${getTextModelDisplayName(body(call).model)}`);
       expect(String(call.url)).not.toContain("/responses");
     }
   });

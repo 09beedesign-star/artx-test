@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { syncWorkspaceNow } from "./workspace-sync";
+import { normalizeWorkspaceSyncPayload } from "../../../shared/workspace-sync";
 import {
   CONVERSATION_TITLE_MAX_LENGTH,
   MAX_CANVAS_CONVERSATIONS,
@@ -9,7 +11,10 @@ import {
   deriveConversationTitle,
   ensureConversationIndex,
   formatConversationTime,
+  isConversationMemoryEnabled,
   parseConversationIndex,
+  setConversationMemoryEnabled,
+  type CanvasConversationMeta,
   removeConversation,
   searchConversations,
   sortConversations,
@@ -326,6 +331,171 @@ describe("ensureConversationIndex 老数据迁移", () => {
 
   it("⚠️ 不传 write 时不能崩（SSR / 只读探测场景）", () => {
     expect(() => ensureConversationIndex("p1", () => null)).not.toThrow();
+  });
+});
+
+describe("对话记忆默认开启", () => {
+  it("新建及首次初始化的会话默认开启", () => {
+    const created = createConversationMeta("c1");
+    expect(created.memoryEnabled).toBe(true);
+    const index = ensureConversationIndex("p1", () => null);
+    expect(index.conversations[0].memoryEnabled).toBe(true);
+    expect(isConversationMemoryEnabled(index, index.activeId)).toBe(true);
+  });
+
+  it.each([undefined, null, "false", 0, {}, []])("旧索引缺字段或脏值 %j 默认开启", memoryEnabled => {
+    const meta = { id: "c1", title: "旧对话", memoryEnabled };
+    const raw = JSON.stringify({ activeId: "c1", conversations: [meta] });
+    const parsed = parseConversationIndex(raw)!;
+    const restored = ensureConversationIndex("p1", key =>
+      key === canvasConversationIndexKey("p1") ? raw : null
+    );
+    expect(parsed.conversations[0].memoryEnabled).toBe(true);
+    expect(restored.conversations[0].memoryEnabled).toBe(true);
+    const unnormalized = { activeId: "c1", conversations: [meta as CanvasConversationMeta] };
+    expect(isConversationMemoryEnabled(unnormalized, "c1")).toBe(true);
+  });
+
+  it.each([true, false])("显式 %j 在序列化和恢复后保持不变", memoryEnabled => {
+    const initial = { activeId: "c1", conversations: [createConversationMeta("c1")] };
+    const changed = setConversationMemoryEnabled(initial, "c1", memoryEnabled);
+    const store = new Map([[canvasConversationIndexKey("p1"), JSON.stringify(changed)]]);
+    const restored = ensureConversationIndex("p1", key => store.get(key) ?? null);
+    expect(restored.conversations[0].memoryEnabled).toBe(memoryEnabled);
+    expect(isConversationMemoryEnabled(restored, "c1")).toBe(memoryEnabled);
+    expect(changed.conversations[0].updatedAt).toBe(initial.conversations[0].updatedAt);
+    expect(initial.conversations[0].memoryEnabled).toBe(true);
+  });
+
+  it("开关只影响目标对话，找不到会话仍关闭", () => {
+    const initial = {
+      activeId: "c1",
+      conversations: [createConversationMeta("c1"), createConversationMeta("c2")],
+    };
+    const changed = setConversationMemoryEnabled(initial, "c1", false);
+    expect(isConversationMemoryEnabled(changed, "c1")).toBe(false);
+    expect(isConversationMemoryEnabled(changed, "c2")).toBe(true);
+    expect(isConversationMemoryEnabled(changed, "missing")).toBe(false);
+    expect(isConversationMemoryEnabled({ activeId: "", conversations: [] }, "")).toBe(false);
+    expect(setConversationMemoryEnabled(changed, "missing", true)).toEqual(changed);
+  });
+
+  it("legacy 迁移立即开启并落盘，原消息保持不变", () => {
+    const legacyKey = canvasConversationMessagesKey("p1", "");
+    const legacy = JSON.stringify([msg("user", "旧对话内容")]);
+    const store = new Map([[legacyKey, legacy]]);
+    const read = (key: string) => store.get(key) ?? null;
+    const migrated = ensureConversationIndex("p1", read, (key, value) => store.set(key, value));
+    expect(migrated.activeId).toBe("");
+    expect(migrated.conversations[0].memoryEnabled).toBe(true);
+    expect(isConversationMemoryEnabled(migrated, "")).toBe(true);
+    expect(JSON.parse(store.get(canvasConversationIndexKey("p1"))!).conversations[0].memoryEnabled).toBe(true);
+    expect(ensureConversationIndex("p1", read).conversations[0].memoryEnabled).toBe(true);
+    expect(store.get(legacyKey)).toBe(legacy);
+  });
+
+  it("删除最后一条已关闭的会话后，重建会话默认开启", () => {
+    const initial = {
+      activeId: "c1",
+      conversations: [{ ...createConversationMeta("c1"), memoryEnabled: false }],
+    };
+    const next = removeConversation(initial, "c1").index;
+    expect(next.activeId).not.toBe("c1");
+    expect(next.conversations[0].memoryEnabled).toBe(true);
+    expect(isConversationMemoryEnabled(next, next.activeId)).toBe(true);
+    expect(isConversationMemoryEnabled(next, "c1")).toBe(false);
+  });
+
+  it("消息更新补建会话时默认开启，已有关闭状态不被覆盖", () => {
+    const initial = {
+      activeId: "c1",
+      conversations: [{ ...createConversationMeta("c1"), memoryEnabled: false }],
+    };
+    const updated = touchConversation(initial, "c1", [msg("user", "继续")]);
+    expect(isConversationMemoryEnabled(updated, "c1")).toBe(false);
+    const rebuilt = touchConversation(updated, "c2", [msg("user", "新对话")]);
+    expect(isConversationMemoryEnabled(rebuilt, "c2")).toBe(true);
+  });
+});
+
+describe("对话记忆经云同步往返", () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = new Map();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+    };
+    vi.stubGlobal("window", {
+      localStorage: storage, sessionStorage: storage,
+      location: { hostname: "localhost" }, dispatchEvent: vi.fn(),
+    });
+    store.set("artx-auth-session", JSON.stringify({ token: "test-token", user: { id: "memory-test" } }));
+    store.set("artx:workspace-project-history:memory-test", JSON.stringify([{
+      id: "p1", title: "项目", cover: null, nodeCount: 0,
+      createdAt: "2026-11-21T00:00:00.000Z", updatedAt: "2026-11-21T00:00:00.000Z",
+    }]));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([undefined, true, false])("本地记忆值 %j 上行后在另一台设备恢复，显式关闭不被默认值覆盖", async memoryEnabled => {
+    const meta = { ...createConversationMeta("c1"), memoryEnabled };
+    store.set(canvasConversationIndexKey("p1"), JSON.stringify({ activeId: "c1", conversations: [meta] }));
+    let uploaded: ReturnType<typeof normalizeWorkspaceSyncPayload> | undefined;
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const incoming = normalizeWorkspaceSyncPayload(JSON.parse(init!.body as string));
+      if (!uploaded) uploaded = incoming;
+      return { ok: true, text: async () => JSON.stringify({ document: { ...uploaded, revision: 1 } }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncWorkspaceNow();
+    const expected = memoryEnabled ?? true;
+    expect(uploaded?.conversations[0].memoryEnabled).toBe(expected);
+    store.delete(canvasConversationIndexKey("p1"));
+    await syncWorkspaceNow();
+    const restored = ensureConversationIndex("p1", key => store.get(key) ?? null);
+    expect(restored.activeId).toBe("c1");
+    expect(restored.conversations[0].memoryEnabled).toBe(expected);
+    expect(isConversationMemoryEnabled(restored, "c1")).toBe(expected);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([undefined, null, "false", true, false])("远端新版本的记忆值 %j 下行后遵守默认值且保留布尔值", async memoryEnabled => {
+    const local = { ...createConversationMeta("c1"), updatedAt: "2026-11-21T00:00:00.000Z", memoryEnabled: memoryEnabled === false };
+    store.set(canvasConversationIndexKey("p1"), JSON.stringify({ activeId: "c1", conversations: [local] }));
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ document: {
+        projects: [{ id: "p1", title: "项目", updatedAt: "2026-11-22T00:00:00.000Z" }],
+        conversations: [{ projectId: "p1", conversationId: "c1", updatedAt: "2026-11-22T00:00:00.000Z", memoryEnabled }],
+        revision: 2,
+      } }),
+    })));
+    await syncWorkspaceNow();
+    const restored = ensureConversationIndex("p1", key => store.get(key) ?? null);
+    expect(restored.conversations[0].memoryEnabled).toBe(typeof memoryEnabled === "boolean" ? memoryEnabled : true);
+  });
+
+  it("远端旧缺字段会话不会覆盖本地更新的显式关闭", async () => {
+    const local = { ...createConversationMeta("c1"), updatedAt: "2026-11-22T00:00:00.000Z", memoryEnabled: false };
+    store.set(canvasConversationIndexKey("p1"), JSON.stringify({ activeId: "c1", conversations: [local] }));
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ document: {
+        projects: [{ id: "p1", title: "项目", updatedAt: "2026-11-21T00:00:00.000Z" }],
+        conversations: [{ projectId: "p1", conversationId: "c1", updatedAt: "2026-11-21T00:00:00.000Z" }],
+        revision: 2,
+      } }),
+    })));
+    await syncWorkspaceNow();
+    const restored = ensureConversationIndex("p1", key => store.get(key) ?? null);
+    expect(isConversationMemoryEnabled(restored, "c1")).toBe(false);
   });
 });
 

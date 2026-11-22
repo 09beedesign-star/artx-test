@@ -6,7 +6,7 @@ import {
   SUPPORTED_IMAGE_MODEL_IDS,
   sortImageModelIdsByPriority,
 } from "../../../shared/image-models";
-import { DEFAULT_TEXT_MODEL } from "../../../shared/text-models";
+import { DEFAULT_TEXT_MODEL, PRIMARY_TEXT_MODEL, FALLBACK_TEXT_MODEL } from "../../../shared/text-models";
 import { THREED_SELECTABLE_MODEL_IDS } from "../../../shared/model3d";
 
 // ── AI Models ────────────────────────────────────────────────
@@ -82,13 +82,12 @@ export const IMAGE_AI_MODELS: AiModelOption[] = [
   { id: "vod-jimeng", label: "jimeng 4.0", color: "#cccccc", description: "性价比高，国潮插画", icon: "jimeng" },
 ];
 
-// 文本 / 多模态理解模型清单（用户下拉框唯一可见项）。
-// 2026-09-10 起全站文本能力统一走中转站的 claude-opus-5，
-// id 必须与 shared/text-models.ts 的 DEFAULT_TEXT_MODEL 一致，
-// 否则前端传参会被服务端白名单静默丢弃。
-// 注意：上面的 IMAGE_AI_MODELS 属于图片**生成**模型，一个都不能动。
+// 对话、首页及图片节点共用此清单；语言理解与图片生成型号严格分开。
+// 手选型号优先执行，自动模式仍使用 shared/text-models.ts 中的三级链。
 export const TEXT_AI_MODELS: AiModelOption[] = [
-  { id: DEFAULT_TEXT_MODEL, label: "Claude Opus 5", color: "#bbbbbb", description: "图文理解、创意分析与多轮对话", icon: "anthropic" },
+  { id: PRIMARY_TEXT_MODEL, label: "Claude Opus 5.5", color: "#bbbbbb", description: "图文理解、创意分析与多轮对话", icon: "anthropic" },
+  { id: DEFAULT_TEXT_MODEL, label: "GPT-6 Luna", color: "#bbbbbb", description: "图文理解、提示词优化与多轮对话", icon: "openai" },
+  { id: FALLBACK_TEXT_MODEL, label: "DeepSeek V4 Flash", color: "#bbbbbb", description: "图文理解、文案分析与多轮对话", icon: "deepseek" },
 ];
 
 // ── 3D 生成模型 ───────────────────────────────────────────────

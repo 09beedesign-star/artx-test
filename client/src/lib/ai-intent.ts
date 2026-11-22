@@ -312,8 +312,58 @@ const SIMPLE_IMAGE_OBJECT_PATTERN =
 const NOUN_PHRASE_IMAGE_PATTERN =
   /^一(?:个|只|张|幅|位|件|款|辆|朵|棵|条|匹)[^，,。.!！?？有是能会要该吗呢几多少如何怎]{2,20}$/i;
 
-const EXPLICIT_REFERENCE_SEARCH_PATTERN =
-  /(找|搜|搜索|抓|抓取|收集|参考|素材|灵感|案例|样例|范例).{0,12}(参考图|参考图片|素材|灵感|案例|样例|范例)|(?:参考图|参考图片|素材|灵感|案例|样例|范例).{0,12}(找|搜|搜索|抓|抓取|收集|给我|帮我)/i;
+// 「给我」不是动作：只有其后直接接数量宾语，才能确定是在索取图片。
+// 其余主题/动作边界不清的表达交给模型，不能把「给我解释…图片」当索图。
+const REFERENCE_REQUEST_ACTION_PATTERN =
+  /^(?:帮我|为我)?(?:(?:给我|发我)(?:一些|几张|一组|一张|些|点)|(?:提供|推荐|找|搜索|搜|抓取|抓|收集)(?:一下|一些|几张|一组|一张|些|点)?)[^，,。.!！?？\n]{0,80}(?:图片|照片|参考图|参考图片|壁纸|配图|素材图|素材|灵感|案例|样例|范例)(?:供我参考|作为参考|参考一下|看看)?$/i;
+
+const COMPLETE_IMAGE_ACTION_PATTERN = new RegExp(
+  `^(?:帮我|为我|给我)?(?:${DIRECT_IMAGE_PATTERN.source})(?:一下)?$`,
+  "i"
+);
+const REQUEST_WRAPPER_PATTERN =
+  /^(?:请|麻烦)?\s*(?:(?:你|您)?(?:能不能|可不可以|是否可以|可以|能否|能)\s*)?(?:请|麻烦)?\s*/;
+const NON_ACTION_PATTERN = /不要|别(?:给|画|生成|搜|找)|不需要|不用|而不是|[“”「」『』"']|^(?:帮我|给我|为我)?不/;
+
+function isCompleteImageAction(action: string) {
+  return COMPLETE_IMAGE_ACTION_PATTERN.test(action) || SIMPLE_IMAGE_OBJECT_PATTERN.test(action) ||
+    /^(?:帮我)?把(?:这|那)?[一张幅]{0,2}(?:图|图片|照片)[^，,。.!！?？\n]{0,10}?(?:换成|改成|替换成|变成|调成|换为|改为)[^，,。.!！?？\n]+$/.test(action);
+}
+
+function hasRequestTextSignal(action: string) {
+  // 「给我几张照片」的几张是宾语数量，不是「照片有几张」的咨询谓语。
+  const semanticAction = REFERENCE_REQUEST_ACTION_PATTERN.test(action)
+    ? action.replace(/^(?:帮我|为我)?(?:给我|发我|提供|推荐|找|搜索|搜|抓取|抓|收集)(?:一下)?几张/, "")
+    : action;
+  return DIRECT_TEXT_PATTERN.test(semanticAction) || /[吗呢]\s*$/.test(action) || NON_ACTION_PATTERN.test(action);
+}
+
+/** 只为完整的肯定动作去掉问句外壳；宾语之后的咨询谓语和否定不得消失。 */
+function unwrapPoliteRequest(prompt: string) {
+  const wrapper = prompt.match(REQUEST_WRAPPER_PATTERN)?.[0] || "";
+  const body = prompt.slice(wrapper.length).trim();
+  const candidate = body.replace(/(?:可以吗|好吗|行吗|吗|呢)?[？?！!。.]?\s*$/, "").trim();
+  const completeAction = REFERENCE_REQUEST_ACTION_PATTERN.test(candidate) || isCompleteImageAction(candidate);
+  if (wrapper && completeAction && !hasRequestTextSignal(candidate)) {
+    return candidate;
+  }
+  // 非礼貌请求保留问号/吗：它们可能是在询问生成费用、能力或是否执行。
+  return body;
+}
+
+function getRequestSignals(prompt: string) {
+  const action = unwrapPoliteRequest(prompt);
+  return {
+    action,
+    hasTextSignal: hasRequestTextSignal(action),
+    hasImageSignal: DIRECT_IMAGE_PATTERN.test(action),
+  };
+}
+
+function isExplicitReferenceRequest(prompt: string) {
+  const { action, hasTextSignal, hasImageSignal } = getRequestSignals(prompt);
+  return !hasTextSignal && !hasImageSignal && REFERENCE_REQUEST_ACTION_PATTERN.test(action);
+}
 
 /**
  * 结构化视觉规格（JSON / YAML）的字段白名单。
@@ -431,8 +481,8 @@ const MODEL_SWITCH_REPLY_PATTERN =
   /切换.*模型|模型.*切换|选择.*模型|请选择.*模型|换.*模型|自主切换|手动.*切换|切到.*(生图|对话|图片)|改用.*模型/i;
 
 function buildReferenceSearchQuery(prompt: string) {
-  const cleaned = prompt
-    .replace(/^(?:请|麻烦)?(?:帮我|给我|为我)?(?:找|搜|搜索|抓|抓取|收集)(?:一些|几张|一组|一下)?/i, "")
+  const cleaned = unwrapPoliteRequest(prompt)
+    .replace(/^(?:帮我|为我)?(?:给我|提供|发我|推荐|搜索|找|搜|抓取|抓|收集)(?:一些|几张|一组|一张|一下)?/i, "")
     .replace(/^(?:参考图|参考图片|素材|灵感|案例|样例|范例)\s*(?:关于|有关|围绕|针对)?\s*/i, "")
     .replace(/^(?:关于|有关|围绕|针对|参考)\s*/i, "")
     .replace(/[，,。.!！?？]+/g, " ")
@@ -472,6 +522,9 @@ function normalizeTargetImageIndex(value: unknown): number | undefined {
 
 export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string): CreativeIntentDecision {
   const parsed = extractJsonObject(raw);
+  const { action, hasImageSignal, hasTextSignal } = getRequestSignals(fallbackPrompt);
+  const canFallbackToImage = !hasTextSignal && isCompleteImageAction(action) &&
+    (hasImageSignal || SIMPLE_IMAGE_OBJECT_PATTERN.test(action));
   if (parsed?.mode === "reference_search") {
     return {
       mode: "reference_search",
@@ -494,9 +547,9 @@ export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string)
     const reply = parsed.reply?.trim() || raw.trim();
     if (MODEL_SWITCH_REPLY_PATTERN.test(reply)) {
       return {
-        mode: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? "image" : "text",
-        reply: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? undefined : fallbackPrompt,
-        imagePrompt: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? fallbackPrompt : undefined,
+        mode: canFallbackToImage ? "image" : "text",
+        reply: canFallbackToImage ? undefined : fallbackPrompt,
+        imagePrompt: canFallbackToImage ? fallbackPrompt : undefined,
         reason: "拦截模型切换提示，继续自动路由",
         confidence: "medium",
       };
@@ -510,9 +563,9 @@ export function inferCreativeIntentDecision(raw: string, fallbackPrompt: string)
   }
   if (MODEL_SWITCH_REPLY_PATTERN.test(raw)) {
     return {
-      mode: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? "image" : "text",
-      reply: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? undefined : fallbackPrompt,
-      imagePrompt: DIRECT_IMAGE_PATTERN.test(fallbackPrompt) ? fallbackPrompt : undefined,
+      mode: canFallbackToImage ? "image" : "text",
+      reply: canFallbackToImage ? undefined : fallbackPrompt,
+      imagePrompt: canFallbackToImage ? fallbackPrompt : undefined,
       reason: "拦截模型切换提示，继续自动路由",
       confidence: "medium",
     };
@@ -534,14 +587,13 @@ export async function routeCreativeIntent({
   const hasReferences = referencedAssets.length > 0;
   const wantsReferenceSearch =
     allowReferenceSearch &&
-    !hasReferences &&
     trimmedPrompt.length > 0 &&
-    EXPLICIT_REFERENCE_SEARCH_PATTERN.test(trimmedPrompt);
+    isExplicitReferenceRequest(trimmedPrompt) &&
+    !DIRECT_IMAGE_PATTERN.test(trimmedPrompt);
 
-  // forceModelDecision 下跳过全部正则短路，直接落到底部的 LLM 判断。
-  // 注意 reference_search 不在跳过之列：它是「去网上找图」，
-  // 和「理解图文混排后出图」是两件事，用户明确要找参考图时仍应优先满足。
-  if (forceModelDecision && !wantsReferenceSearch) {
+  // 有引用图时，强制裁决必须连索图正则一起跳过，保留读图和底图判断。
+  // 无引用图的明确索图仍沿用搜索短路；歧义表达始终交给模型。
+  if (forceModelDecision && (hasReferences || !wantsReferenceSearch)) {
     return routeCreativeIntentWithModel({
       module,
       model,
@@ -593,11 +645,23 @@ export async function routeCreativeIntent({
     };
   }
 
-  const hasTextSignal = Boolean(trimmedPrompt) && DIRECT_TEXT_PATTERN.test(trimmedPrompt);
-  const hasImageSignal = Boolean(trimmedPrompt) && DIRECT_IMAGE_PATTERN.test(trimmedPrompt);
+  const { action, hasTextSignal, hasImageSignal } = getRequestSignals(trimmedPrompt);
 
-  // 两边都命中 = 语义混合，正则已经无法可靠裁决，交给大模型读全句。
-  if (hasTextSignal && hasImageSignal) {
+  // 有咨询/否定，或创作词之后仍有未识别谓语时，都不能仅凭词命中触发付费。
+  if (hasImageSignal && (hasTextSignal || !isCompleteImageAction(action))) {
+    return routeCreativeIntentWithModel({
+      module,
+      model,
+      trimmedPrompt,
+      referencedAssets,
+      recentMessages,
+      allowReferenceSearch,
+    });
+  }
+
+  // 「不要新画」只是否定生成，不是否定索图；此类现成素材诉求必须先交模型裁决。
+  // 不能让否定词提前短路成聊天，否则只会声称找到了图却没有执行搜索。
+  if (allowReferenceSearch && /(?:想|希望|需要|要|搜集|收集|看看)[^。！？\n]{0,60}(?:视觉参考|现成(?:的)?(?:照片|图片)|(?:图片|照片)素材)/i.test(trimmedPrompt)) {
     return routeCreativeIntentWithModel({
       module,
       model,
@@ -629,7 +693,7 @@ export async function routeCreativeIntent({
   }
 
   // 「画一只橘猫」这类带动词的极简生图。
-  if (trimmedPrompt && SIMPLE_IMAGE_OBJECT_PATTERN.test(trimmedPrompt)) {
+  if (trimmedPrompt && SIMPLE_IMAGE_OBJECT_PATTERN.test(action)) {
     return {
       mode: "image",
       imagePrompt: trimmedPrompt,
@@ -725,6 +789,7 @@ async function routeCreativeIntentWithModel({
    */
   const historyImages = historyWindow.flatMap((item) => item.images || []);
   const hasReferences = referencedAssets.length > 0;
+  const modes = allowReferenceSearch ? "text|image|reference_search" : "text|image";
   const result = await callLLM({
     module,
     model,
@@ -734,14 +799,12 @@ async function routeCreativeIntentWithModel({
     ],
     prompt: [
       "你是 artx 的统一意图路由器。",
-      "你的目标是像成熟的创意画布产品一样，精准判断当前请求更适合文字回复还是直接生成图片。",
+      "根据用户当前真实动作和上下文，选择文字问答、生成/修改新图片，或搜索现成参考图片；不是介绍可用网站后就结束任务。",
       "只返回 JSON，不要 Markdown，不要额外解释。",
-      referencedAssets.length >= 2
-        ? "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"targetImageIndex\":1,\"reason\":\"一句话原因\",\"confidence\":\"high|medium|low\"}"
-        : "JSON 格式：{\"mode\":\"text|image\",\"reply\":\"文字回复内容\",\"imagePrompt\":\"适合图片模型的提示词\",\"reason\":\"一句话原因\",\"confidence\":\"high|medium|low\"}",
-      "禁止回复让用户切换模型、选择模型、改用图片模型或改用对话模型。当前处于 Auto 时，你必须自己判断并返回 text 或 image。",
+      `JSON 格式：{"mode":"${modes}","reply":"文字回复内容","imagePrompt":"适合图片模型的提示词","searchQuery":"搜图关键词","followUp":"选图引导",${referencedAssets.length >= 2 ? '"targetImageIndex":1,' : ""}"reason":"一句话原因","confidence":"high|medium|low"}`,
+      `禁止让用户切换模型或宣称无法提供图片。Auto 应自行调用对应能力，mode 只能为 ${modes}。`,
       allowReferenceSearch
-        ? "只有当用户明确要求找参考图、素材、灵感、案例或样例时，才返回 reference_search，并提供 searchQuery 与 followUp。reference_search 会联网搜索公开图片素材，不使用站内本地灵感库；不要把普通生图提示词误判为 reference_search。"
+        ? "索要现成图片、找图、参考素材、灵感或案例返回 reference_search，包括『你能给我一些天空的图片吗？』；searchQuery 只写主题关键词。reference_search 会联网找公开图片，不使用站内灵感库。明确画/生成/改图则返回 image，不能以搜图替代创作。"
         : "",
       allowReferenceSearch
         ? "reference_search JSON 格式补充：{\"mode\":\"reference_search\",\"searchQuery\":\"用于抓参考图的关键词\",\"followUp\":\"让用户先选参考图再继续描述的引导语\"}"
@@ -759,7 +822,10 @@ async function routeCreativeIntentWithModel({
       "  『帮我分析这张海报的问题』→ text（要的是分析意见，不是新图）",
       "  『帮我画一张夏日促销海报』→ image（明确要求产出图片）",
       "  『把这张图的背景换成海边』→ image（明确要求改图）",
-      "凡是疑问句、征求意见、请教知识、要求解释或分析的，一律返回 text。",
+      "礼貌疑问句不等于知识问答：『能不能帮我生成天空图片？』→ image；不能仅凭问号、吗、能不能判成 text。咨询怎么生成、收费、解释、分析、翻译或否定出图才返回 text。",
+      "咨询句中，生成图片可能只是主语：询问是否付费、是否花积分、是否支持某种能力，或请求不生成，均返回 text；不要把咨询能力当成现在执行的授权。",
+      "『给我』只是受益者标记，真正动作要看后面的谓语：解释、分析、总结、对比图片都返回 text，而不是 reference_search。无法区分主题与动作时保守返回 text。",
+      "引用或讨论一段出图/搜图指令不代表执行它。混合任务按最终交付目标判断，并遵守不要生成/不要搜图等限制。",
       // ↓↓↓ 2026-09-13 补充：结构化视觉规格是"施工图"不是"阅读材料"。
       //     前面的 detectVisualSpecInput 只短路标准 JSON，YAML / 半结构化 /
       //     带前后缀说明的形态仍会落到这里，必须由提示词兜住。
@@ -773,8 +839,8 @@ async function routeCreativeIntentWithModel({
       "此时 imagePrompt 要把规格里所有字段摊平成一段连贯的画面描述，",
       "保留全部文案、数字、颜色与位置关系，并要求图中文字字形正确。",
       "【不确定时的默认行为】如果你无法确信用户想要图片，请返回 text。",
-      "错误地返回文字，用户再补一句『帮我画出来』即可；",
-      "而错误地生成图片会浪费用户的时间与费用，代价高得多。",
+      "确实缺少必要信息时用 text 简短澄清；用户已经明确索图或创作时直接执行，不再追问要不要图片。",
+      "不要将搜索失败伪装为生图成功，也不要对纯咨询触发生图费用。",
       // 多轮追改的关键：让模型知道历史里的图是可以被指代的。
       historyImages.length > 0
         ? `对话历史里有 ${historyImages.length} 张此前生成或选用过的图，已一并附在本次请求中（排在当前引用素材之后）。当用户说「这张」「上一张」「刚才那个」「再暗一点」「换个角度」时，指的就是历史里的图。此时请在**上一版提示词的基础上做增量修改**，而不是重新凭空写一段，否则会丢掉用户此前已经认可的所有细节。`
@@ -813,7 +879,11 @@ async function routeCreativeIntentWithModel({
     ].filter(Boolean).join("\n"),
   });
 
-  return inferCreativeIntentDecision(result.text, trimmedPrompt || "请基于当前上下文继续创作。");
+  const decision = inferCreativeIntentDecision(result.text, trimmedPrompt || "请基于当前上下文继续创作。");
+  if (decision.mode === "reference_search" && !allowReferenceSearch) {
+    return { mode: "text", reply: "当前入口不支持联网搜图，请在 Auto 助手中查找参考图，或上传参考图片。", reason: "当前入口未启用搜索能力" };
+  }
+  return decision;
 }
 
 export async function generateIntentImages({

@@ -1,7 +1,7 @@
 import {
   FALLBACK_TEXT_MODEL,
-  PRIMARY_TEXT_MODEL,
-  TEXT_MODEL_FALLBACK_CHAIN,
+  getTextModelDisplayName,
+  resolveTextModelFallbackChain,
 } from "../shared/text-models";
 
 type ChatRole = "system" | "user" | "assistant";
@@ -28,10 +28,11 @@ type TextGenerateInput = {
   prompt?: string;
   messages?: TextMessage[];
   images?: Array<{ src: string; title?: string }>;
-  /** 仅为兼容旧调用方保留；执行顺序固定为 Claude→Luna→DeepSeek，不接受调用方改序。 */
+  /** 仅搭配 modelSelection: "manual" 时，合法当前文本型号才优先执行。 */
   model?: string;
+  modelSelection?: "manual";
   module?: string;
-  /** 服务端业务调用方验证最终正文；不合格时尝试唯一备用，不降级成功标准。 */
+  /** 服务端业务调用方验证最终正文；不合格时尝试下一候选，不降级成功标准。 */
   validateOutput?: (text: string) => boolean;
 };
 
@@ -133,7 +134,28 @@ function tokenUsage(input?: {
   };
 }
 
-function buildMessages(input: TextGenerateInput): TextMessage[] {
+function latestUserText(input: TextGenerateInput): string {
+  if (input.messages?.length) {
+    const latest = [...input.messages].reverse().find(message => message.role === "user");
+    if (!latest) return "";
+    return typeof latest.content === "string"
+      ? latest.content
+      : latest.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+  }
+  return input.prompt || "";
+}
+
+/** 只收口直接身份问句，不把引用、翻译、写人物简介等业务请求截成模型名。 */
+function isDirectIdentityQuestion(input: TextGenerateInput): boolean {
+  if (input.validateOutput) return false;
+  const module = input.module || "general";
+  if (!/^(?:general|chat|.*-chat|chat-node|workspace-chat-generation|帮助与反馈|帮助弹窗)$/.test(module)) return false;
+  const text = latestUserText(input).trim().toLowerCase()
+    .replace(/[\s，,。.!！?？、:：]/g, "");
+  return /^(?:你好|您好|hi|hello)?(?:请|请问|麻烦)?(?:你能|你可以|能不能)?(?:你是谁|你到底是谁|你是什么(?:模型|大模型|大语言模型|语言模型|ai|智能体|助手)|你(?:叫|的名字是)什么|你的(?:模型名称|模型|名字|名称)(?:是什么|是啥)|你(?:用的|使用的)?是(?:什么|哪个|哪种)(?:模型|大模型|大语言模型)|你是(?:kiro|hero|claude|gpt|deepseek)(?:吗|么)|介绍(?:一下)?(?:你自己|自己)|自我介绍(?:一下)?|做(?:个|一个)?自我介绍|介绍一下你自己|whoareyou|whatisyourname|whatmodelareyou|introduceyourself)(?:一下|可以吗|好吗|吗|呢|呀|啊)?$/.test(text);
+}
+
+function buildMessages(input: TextGenerateInput, model: string): TextMessage[] {
   const userContent = input.images?.length
     ? [
         {
@@ -192,7 +214,10 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
     {
       role: "system",
       content: [
-        "你是 artx 视觉创作工具内置的大语言模型助手。",
+        "你在 artx 视觉创作工具中提供大语言模型能力。",
+        `本次实际执行的模型名称是：${getTextModelDisplayName(model)}。身份以此名称为准，不沿用上游服务或历史消息中的其他助手、智能体身份。`,
+        `当用户询问你是谁、模型名称或要求你自我介绍时，只回复“${getTextModelDisplayName(model)}”这一个名称，不加“我是”、能力说明、问候、厂商说明或其他文字。`,
+        "普通任务直接回答任务，不主动自我介绍；引用、翻译、OCR、人物介绍或结构化业务任务仍按其任务要求完成。",
         "用简洁、可执行的中文回复。",
         "当用户要求生成视觉内容时，优先给出可直接用于生图或画布操作的提示词、步骤和结构化建议。",
       ].join("\n"),
@@ -209,11 +234,12 @@ function buildMessages(input: TextGenerateInput): TextMessage[] {
 /**
  * 全站唯一的语言 / 多模态理解出口。
  *
- * 固定降级链：Claude Opus 5.5 → GPT Luna → DeepSeek V4 Flash。
+ * 默认降级链：Claude Opus 5.5 → GPT Luna → DeepSeek V4 Flash。
+ * 显式 manual + 当前合法文本型号仅调整本次请求首选，其余候选保持默认顺序。
  * Claude 与 Luna 共用文本 baseURL 和文本 key；DeepSeek 用独立 key、同 baseURL。
  * 当前及历史图片完整复用同一份 messages，不把视觉请求降成纯文本。
- * input.model / AI_TEXT_MODEL 不能改变顺序；每候选预算独立且最多三次请求。
- * 所有图片相关大语言模型能力都走此出口，故生效模型对全部能力天然一致。
+ * 单独 input.model / AI_TEXT_MODEL 不改序；每候选预算独立且最多三次请求。
+ * 返回本次实际成功的型号，不记忆跨请求的选择或降级结果。
  */
 export async function generateText(
   input: TextGenerateInput
@@ -225,14 +251,14 @@ export async function generateText(
     throw new Error("Missing prompt");
   }
 
-  const messages = buildMessages(input);
+  const identityQuestion = isDirectIdentityQuestion(input);
   const { apiKey, baseUrl } = getProviderConfig();
   // Claude 与 Luna 共用文本 key；DeepSeek 用独立 key。
   const keyForModel = (model: string) =>
     model === FALLBACK_TEXT_MODEL
       ? { apiKey: process.env.AI_DEEPSEEK_API_KEY, keyName: "AI_DEEPSEEK_API_KEY" }
       : { apiKey, keyName: "AI_TEXT_API_KEY" };
-  const candidates = TEXT_MODEL_FALLBACK_CHAIN.map(model => ({
+  const candidates = resolveTextModelFallbackChain(input.model, input.modelSelection).map(model => ({
     model,
     ...keyForModel(model),
   }));
@@ -241,10 +267,8 @@ export async function generateText(
   for (const candidate of candidates) {
     const { model, apiKey } = candidate;
     if (!apiKey) {
-      // 备用未配置时不借主模型 / 出图凭据，保留主通道的真实失败。
-      // Claude 与 Luna 共用 key，缺配置只记一次，避免错误里重复刷屏。
-      if (model === PRIMARY_TEXT_MODEL)
-        failures.push(`${model}: Missing ${candidate.keyName}`);
+      // 缺凭据也记录对应候选的失败，手动改序后仍可完整诊断；不借用其他通道凭据。
+      failures.push(`${model}: Missing ${candidate.keyName}`);
       continue;
     }
     try {
@@ -258,7 +282,7 @@ export async function generateText(
           },
           body: JSON.stringify({
             model,
-            messages,
+            messages: buildMessages(input, model),
             temperature: 0.7,
           }),
         });
@@ -283,7 +307,11 @@ export async function generateText(
         if (input.validateOutput && !input.validateOutput(output)) {
           throw new Error("文本模型返回内容未通过业务结构校验");
         }
-        return { text: output, model, usage: tokenUsage(data?.usage) };
+        return {
+          text: identityQuestion ? getTextModelDisplayName(model) : output,
+          model,
+          usage: tokenUsage(data?.usage),
+        };
       });
     } catch (error) {
       failures.push(`${model}: ${redactFailure(error)}`);

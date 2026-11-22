@@ -21,6 +21,8 @@ import {
 } from "../../lib/workspace-data";
 import { getAiModelEntitlements, listAiModelCatalog } from "../../lib/ai";
 import { getStorageOwnerId } from "../../lib/owner-storage";
+import { useAuth } from "@/contexts/AuthContext";
+import { textModelOptionsForAccess } from "../../lib/model-access";
 import { getModelBrandIconKind, ModelBrandIconMask } from "./model-brand-icons";
 import { modelPopoverTokens, type ModelPopoverTheme, type ModelPopoverTokens } from "./model-popover-tokens";
 import {
@@ -334,6 +336,8 @@ export function ModelSelector({
   enable3D?: boolean;
 }) {
   const entitledModels = useImageModelOptions();
+  const { user } = useAuth();
+  const textModels = textModelOptionsForAccess(TEXT_AI_MODELS, user?.allowedAiModels);
   const models = modelsProp ?? entitledModels;
   /**
    * 分类 tab 状态。2026-11-18 起 3D 全面下架,分类改为「生图 / 对话」两等分,
@@ -348,7 +352,7 @@ export function ModelSelector({
     setCategory(TEXT_AI_MODELS.some(m => m.id === model) ? "text" : "image");
   }, [model]);
   /** 当前 category 下可见的模型列表 */
-  const displayModels: AiModelOption[] = category === "text" ? TEXT_AI_MODELS : models;
+  const displayModels: AiModelOption[] = category === "text" ? textModels : models;
   /** 弹层高度上限（含 tab 行），交给公共浮层做滚动 */
   const TAB_ROW_HEIGHT = 40;
   /**

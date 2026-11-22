@@ -1,6 +1,7 @@
 import { brandKitToPrompt, getBrandKit } from "./brand-kit";
 import { editImageWithPrompt, eraseImageObjects, expandImageWithVodKling, generateImages, removeImageBackground } from "./image-generation";
 import { DEFAULT_IMAGE_EXPANSION_PROMPT } from "../shared/image-expansion";
+import { isSelectableTextModelId } from "../shared/text-models";
 import { generateText } from "./text-generation";
 import { getSkill, matchSkill } from "./skill-registry";
 import { resolveModelRoute, type AiCapability } from "./model-router";
@@ -11,6 +12,8 @@ export type OrchestrateRequest = {
   operation?: string;
   prompt?: string;
   model?: string;
+  /** 仅本次请求显式选择合法当前文本型号时启用优先执行。 */
+  modelSelection?: "manual";
   ratio?: string;
   count?: number;
   style?: string;
@@ -180,6 +183,10 @@ export class AIOrchestrator {
         prompt,
         messages: input.messages,
         model: route.model,
+        // 原始型号无效时不能把路由默认的 Luna 当成手动选择。
+        modelSelection: input.modelSelection === "manual" && isSelectableTextModelId(input.model)
+          ? "manual"
+          : undefined,
         module: capability,
         images,
       });

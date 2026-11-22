@@ -502,7 +502,7 @@ export function CenteredPromptPanel({
               onClick={onSend}
               size={44}
               iconSize={18}
-              aria-label="生成图片"
+              aria-label="发送"
             />
           </div>
         </div>

@@ -3,11 +3,9 @@ import { getModelBrandIconKind } from "./model-brand-icons";
 import { DEFAULT_TEXT_MODEL } from "../../../../shared/text-models";
 import { IMAGE_MODEL_PRIORITY_IDS } from "../../../../shared/image-models";
 
-describe("model brand icons after the claude text-model switch", () => {
-  it("gives the claude text model its own icon instead of falling through to openai", () => {
-    // 切换前 getModelBrandIconKind 的正则里没有 claude 分支，
-    // 文本模型会一路落到 `return icon ? "image" : "none"`，UI 上表现为图标缺失。
-    expect(getModelBrandIconKind(DEFAULT_TEXT_MODEL)).toBe("anthropic");
+describe("model brand icons after the Luna text-model switch", () => {
+  it("gives the locked Luna text model the openai icon and keeps historical claude resolvable", () => {
+    expect(getModelBrandIconKind(DEFAULT_TEXT_MODEL)).toBe("openai");
     expect(getModelBrandIconKind("claude-sonnet-5")).toBe("anthropic");
     expect(getModelBrandIconKind("anything", "anthropic")).toBe("anthropic");
   });
@@ -73,6 +71,13 @@ describe("model brand icons after the claude text-model switch", () => {
       "vod-og25-flare-low": "openai",
       "vod-og25-sunburst-high": "openai",
       "vod-og25-flare-high": "openai",
+      // OG image2.6（2026-10 接入）：裸 id 由 og26 分支识别为 openai。
+      "vod-og26-sunburst-medium": "openai",
+      "vod-og26-flare-medium": "openai",
+      "vod-og26-sunburst-low": "openai",
+      "vod-og26-flare-low": "openai",
+      "vod-og26-sunburst-high": "openai",
+      "vod-og26-flare-high": "openai",
     };
     // 先确保基线表没有漏掉新上线的图片模型，否则这条锁会形同虚设。
     expect(Object.keys(baseline).sort()).toEqual([...IMAGE_MODEL_PRIORITY_IDS].sort());

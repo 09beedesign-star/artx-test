@@ -97,7 +97,7 @@ describe("图文混排提示词的意图路由", () => {
 
     const payload = callLLM.mock.calls[0][0] as { model: string };
     expect(payload.model).toBe(DEFAULT_TEXT_MODEL);
-    expect(DEFAULT_TEXT_MODEL).toBe("claude-opus-5");
+    expect(DEFAULT_TEXT_MODEL).toBe("gpt-6-luna");
   });
 
   it("即便强制走大模型，明确的「找参考图」仍然优先走搜索", async () => {

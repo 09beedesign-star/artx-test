@@ -6,7 +6,7 @@ import {
   normalizeAllowedModels,
   resolveModelRoute,
 } from "./model-router";
-import { DEFAULT_TEXT_MODEL } from "../shared/text-models";
+import { DEFAULT_TEXT_MODEL, SELECTABLE_TEXT_MODEL_IDS } from "../shared/text-models";
 import { DEFAULT_IMAGE_MODEL_ID, IMAGE_MODEL_PRIORITY_IDS } from "../shared/image-models";
 
 /**
@@ -24,8 +24,8 @@ describe("selectable model catalog", () => {
   it("normalizes only models exposed in the frontend picker", () => {
     expect(listAvailableModels()).toEqual({
       image: expectedPriority,
-      // 可执行 / 可选文本模型已收敛为唯一的 gpt-6-luna。
-      text: [DEFAULT_TEXT_MODEL],
+      // 三级当前文本型号全部开放手动选择。
+      text: [...SELECTABLE_TEXT_MODEL_IDS],
     });
     expect(normalizeAllowedModels([
       DEFAULT_IMAGE_MODEL_ID,
@@ -45,7 +45,7 @@ describe("selectable model catalog", () => {
     // 历史文本模型只用于迁移识别，不再出现在可执行 / 可选清单里。
     expect(isSelectableModel("gpt-5.4-mini")).toBe(false);
     expect(isSelectableModel("claude-opus-5")).toBe(false);
-    expect(listSelectableModelIds()).toEqual([...expectedPriority, DEFAULT_TEXT_MODEL]);
+    expect(listSelectableModelIds()).toEqual([...expectedPriority, ...SELECTABLE_TEXT_MODEL_IDS]);
     expect(listSelectableModelIds()).not.toContain("gpt-image-2");
     expect(listSelectableModelIds()).not.toContain("gpt-4o");
     expect(listSelectableModelIds()).not.toContain("picwish-scale");
@@ -58,7 +58,7 @@ describe("selectable model catalog", () => {
     // 后续 user-model-access 的「新旧互认」根本拿不到旧 id，必然误判为无权限。
     expect(normalizeAllowedModels([DEFAULT_IMAGE_MODEL_ID, "gpt-5.4-mini"]))
       .toEqual([DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL]);
-    for (const legacy of ["gpt-5.4", "gpt-5.5", "gpt-4o", "claude-opus-5", "claude-sonnet-5", "deepseek-v4-flash"]) {
+    for (const legacy of ["gpt-5.4", "gpt-5.5", "gpt-4o", "claude-opus-5", "claude-sonnet-5"]) {
       expect(normalizeAllowedModels([legacy])).toEqual([DEFAULT_TEXT_MODEL]);
     }
     // 迁移只对已知模型生效：未知 id 与后端固定模型仍应被丢弃，不能凭空放大权限。
@@ -86,7 +86,28 @@ describe("selectable model catalog", () => {
     expect(isSelectableModel("og-image2-medium")).toBe(true);
   });
 
-  it("routes chat and brand-kit capabilities to the locked Luna text model", () => {
+  it.each(SELECTABLE_TEXT_MODEL_IDS)("当前型号 %s 保留在文本路由和白名单中", (model) => {
+    expect(isSelectableModel(model)).toBe(true);
+    expect(normalizeAllowedModels([` ${model} `, model])).toEqual([model]);
+    for (const capability of ["chat", "brand_kit_parse"] as const) {
+      expect(resolveModelRoute(capability, ` ${model} `)).toEqual({ capability, model, provider: "text" });
+    }
+  });
+
+  it("三级文本型号白名单去重后保持注册表顺序", () => {
+    expect(normalizeAllowedModels([...SELECTABLE_TEXT_MODEL_IDS].reverse().concat([...SELECTABLE_TEXT_MODEL_IDS])))
+      .toEqual([...SELECTABLE_TEXT_MODEL_IDS]);
+  });
+
+  it.each([undefined, "", "auto", " AUTO ", "unknown", "claude-opus-5", "gpt-4o", DEFAULT_IMAGE_MODEL_ID])(
+    "文本路由对自动、历史及无效型号 %s 默认 Luna", (model) => {
+      for (const capability of ["chat", "brand_kit_parse"] as const) {
+        expect(resolveModelRoute(capability, model)).toEqual({ capability, model: DEFAULT_TEXT_MODEL, provider: "text" });
+      }
+    },
+  );
+
+  it("品牌包理解与聊天默认走 Luna 文本路由而非图片路由", () => {
     // 回归防护：品牌包解析走的是多模态理解（读图），不是图片生成，
     // 必须落在文本模型上；若被误判成图片能力会直接把图片模型发给 /chat/completions。
     expect(resolveModelRoute("chat").model).toBe(DEFAULT_TEXT_MODEL);
@@ -97,6 +118,16 @@ describe("selectable model catalog", () => {
 });
 
 describe("model router image priority", () => {
+  it.each(SELECTABLE_TEXT_MODEL_IDS)("文本型号 %s 不进入图片能力路由", (model) => {
+    for (const capability of ["text_to_image", "image_edit", "image_expansion", "background_removal", "element_erasure"] as const) {
+      expect(resolveModelRoute(capability, model)).toEqual({ capability, model: DEFAULT_IMAGE_MODEL_ID, provider: "image" });
+    }
+  });
+
+  it.each(IMAGE_MODEL_PRIORITY_IDS)("合法图片型号 %s 在图片能力路由中仍保留", (model) => {
+    expect(resolveModelRoute("image_edit", model)).toEqual({ capability: "image_edit", model, provider: "image" });
+  });
+
   it("uses the VOD-direct image2.5 medium as the default image model", () => {
     // 2026-09-11 起默认模型 = vod-og25-sunburst-medium（腾讯 VOD 直连）。
     // 这三种入口（无参 / auto / 未知模型）都必须落到同一个默认值，

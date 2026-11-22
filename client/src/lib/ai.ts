@@ -572,6 +572,7 @@ export async function callLLM({
   messages,
   images,
   model,
+  modelSelection,
   module,
   skillId,
 }: {
@@ -579,6 +580,7 @@ export async function callLLM({
   messages?: LLMMessage[];
   images?: Array<{ src: string; title?: string }>;
   model?: string;
+  modelSelection?: "manual";
   module: string;
   skillId?: string;
 }) {
@@ -591,9 +593,14 @@ export async function callLLM({
     messages,
     images,
     model,
+    modelSelection,
     skillId,
   }, "AI 请求失败");
 
+  if (modelSelection === "manual" && result.model && result.model !== model) {
+    const { toast } = await import("sonner");
+    toast("所选模型暂不可用，已切换备用", { description: `本次实际使用：${result.model}` });
+  }
   return {
     text: result.text || "",
     model: result.model || model || "auto",
@@ -612,12 +619,16 @@ export async function searchReferenceImages({
   const endpoint = `${baseUrl}/api/references/search`;
   const result = await fetchAiJson<ApiErrorResponse & { images?: ReferenceImageResult[] }>(endpoint, { query, limit }, "参考图抓取失败");
 
-  return {
-    images: (result.images || []).map(image => ({
+  if (result.error) throw new Error(result.error);
+  const images = (Array.isArray(result.images) ? result.images : [])
+    .filter(image => image && typeof image.src === "string" && /^(?:https?:\/\/|\/api\/images\/proxy\?)/i.test(image.src))
+    .map(image => ({
       ...image,
-      src: image.src.startsWith("/") ? new URL(image.src, baseUrl).toString() : image.src,
-    })),
-  };
+      // 本地同源的 base 是空串，保留根相对地址交由浏览器解析。
+      src: image.src.startsWith("/") && baseUrl ? new URL(image.src, baseUrl).toString() : image.src,
+    }));
+  if (images.length === 0) throw new Error("暂未找到可用参考图，请换个关键词重试，或上传参考图片。");
+  return { images };
 }
 
 export async function generateImages({

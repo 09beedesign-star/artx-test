@@ -213,6 +213,35 @@ describe("画布会话的归一化", () => {
   });
 });
 
+describe("画布会话记忆的同步默认值", () => {
+  it("旧载荷缺少记忆字段时默认开启", () => {
+    const payload = normalizeWorkspaceSyncPayload({
+      conversations: [{ projectId: "p1", conversationId: "c1" }],
+    });
+    expect(payload.conversations[0].memoryEnabled).toBe(true);
+  });
+
+  it.each([null, "false", 0, {}, []])("记忆字段脏值 %j 安全默认开启", memoryEnabled => {
+    const payload = normalizeWorkspaceSyncPayload({
+      conversations: [{ projectId: "p1", conversationId: "c1", memoryEnabled }],
+    });
+    expect(payload.conversations[0].memoryEnabled).toBe(true);
+  });
+
+  it.each([true, false])("显式 %j 在归一化及合并往返后保留", memoryEnabled => {
+    const base = normalizeWorkspaceSyncPayload({
+      conversations: [conversation("p1", "c1", "2026-11-21T00:00:00.000Z", [], { memoryEnabled: !memoryEnabled })],
+    });
+    const incoming = normalizeWorkspaceSyncPayload({
+      conversations: [conversation("p1", "c1", "2026-11-22T00:00:00.000Z", [], { memoryEnabled })],
+    });
+    const merged = mergeWorkspaceSync(base, incoming);
+    const restored = normalizeWorkspaceSyncPayload(JSON.parse(JSON.stringify(merged)));
+    expect(incoming.conversations[0].memoryEnabled).toBe(memoryEnabled);
+    expect(restored.conversations[0].memoryEnabled).toBe(memoryEnabled);
+  });
+});
+
 describe("画布会话的合并语义", () => {
   it("同一条会话留 updatedAt 晚的那份", () => {
     const merged = mergeWorkspaceSync(

@@ -642,7 +642,7 @@ import { TOUR_ANCHORS } from "@shared/onboarding-steps";
 import {
   getAiImageModelCreditPolicy,
 } from "@shared/ai-credit-policy";
-import { filterAllowedAiModelOptions, resolveAllowedAiModelId } from "@/lib/model-access";
+import { filterAllowedAiModelOptions, resolveAllowedAiModelId, textModelOptionsForAccess } from "@/lib/model-access";
 import {
   SOCIAL_MEDIA_SIZE_PRESETS,
   SocialPlatformIcon,
@@ -13625,7 +13625,7 @@ function DraftImageNodeComponent({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const trimmed = prompt.trim();
     if (!trimmed) {
       toast("请输入图像生成提示词");
@@ -13633,6 +13633,24 @@ function DraftImageNodeComponent({
     }
     if (!requestAiAuth()) {
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
+    if (TEXT_AI_MODELS.some(option => option.id === model)) {
+      try {
+        const result = await callLLM({
+          module: "draft-node-chat",
+          model,
+          modelSelection: "manual",
+          prompt: trimmed,
+          images: uploadedRefs.map(ref => ({ src: ref.src, title: ref.title })),
+        });
+        window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+          detail: { role: "assistant", content: result.text },
+        }));
+        setPrompt("");
+      } catch (error) {
+        notifyAiFailure("节点对话失败", error instanceof Error ? error.message : "请稍后重试");
+      }
       return;
     }
     const generationId = `image-gen-${Date.now()}-${Math.random()
@@ -22114,14 +22132,8 @@ function CanvasAssistantPanel({
   const [isComposerImageDragOver, setIsComposerImageDragOver] = useState(false);
   /**
    * 上下文记忆开关（输入框右上角的大脑图标）。
-   *
-   * ⚠️ 默认 **false** —— 用户原话是「默认用户点击激活这个按钮之后就会开启上下文」，
-   *    即**点击后开启**，不是一上来就开着。记忆会把过去的偏好带进每次生成，
-   *    对结果有实质影响，必须由用户显式打开。
-   *
-   * ⚠️⚠️ 真值在**服务端**（/api/user/memory），这里只是镜像：
-   *    服务端据此决定是否注入上下文。只存前端的话服务端读不到，
-   *    开关就是个装饰品 —— 点了有动画、实际没生效，且零报错。
+   * 新对话默认开启，用户显式关闭后保留其选择。
+   * 真值来自当前会话元数据，并随每次 AI 请求传给服务端。
    */
   /*
    * 【2026-10-17】开关真值 = 当前对话元数据的 memoryEnabled（见 conversationIndex 下方
@@ -22258,8 +22270,10 @@ function CanvasAssistantPanel({
         CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION_KEY,
         CANVAS_ASSISTANT_AUTO_DEFAULT_VERSION
       );
-      writeOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, "1");
-      return true;
+      // 已有明确的手动选择不能被默认版本迁移覆盖（包括首页刚交接的选择）。
+      const manualSelection = readOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) === "0";
+      if (!manualSelection) writeOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY, "1");
+      return !manualSelection;
     }
     return readOwnedPreference(CANVAS_ASSISTANT_AUTO_MODE_STORAGE_KEY) !== "0";
   });
@@ -22299,9 +22313,7 @@ function CanvasAssistantPanel({
       : fallbackImageModelId;
   });
   const [assistantTextModelId, setAssistantTextModelId] = useState(() => {
-    // 注意：老用户 localStorage 里存的是 "gpt-5.4-mini"，
-    // 下面的 TEXT_AI_MODELS.some 会判定为非法值并回落到 DEFAULT_TEXT_MODEL，
-    // 这正是我们要的效果（自动迁移到 claude-opus-5），不要额外做兼容放行。
+    // 保留三个现役型号的手动偏好；历史型号回落到当前 UI 默认值。
     if (typeof window === "undefined") return DEFAULT_TEXT_MODEL;
     const stored = readOwnedPreference(
       CANVAS_ASSISTANT_TEXT_MODEL_STORAGE_KEY
@@ -22349,9 +22361,10 @@ function CanvasAssistantPanel({
     [allowedAiModels, assistantImageModelOptions]
   );
   const availableAssistantTextModels = useMemo(
-    () => filterAllowedAiModelOptions(TEXT_AI_MODELS, allowedAiModels),
+    () => textModelOptionsForAccess(TEXT_AI_MODELS, allowedAiModels),
     [allowedAiModels]
   );
+  const hasAvailableAssistantTextModel = availableAssistantTextModels.some(model => !model.disabled);
   useEffect(() => {
     const next = resolveAllowedAiModelId(assistantImageModelId, availableAssistantImageModels);
     if (next && next !== assistantImageModelId) setAssistantImageModelId(next);
@@ -22396,12 +22409,12 @@ function CanvasAssistantPanel({
     if (next && next !== assistantTextModelId) setAssistantTextModelId(next);
   }, [assistantTextModelId, availableAssistantTextModels]);
   useEffect(() => {
-    if (assistantModelTab === "image" && availableAssistantImageModels.length === 0 && availableAssistantTextModels.length > 0) {
+    if (assistantModelTab === "image" && availableAssistantImageModels.length === 0 && hasAvailableAssistantTextModel) {
       setAssistantModelTab("text");
-    } else if (assistantModelTab === "text" && availableAssistantTextModels.length === 0 && availableAssistantImageModels.length > 0) {
+    } else if (assistantModelTab === "text" && !hasAvailableAssistantTextModel && availableAssistantImageModels.length > 0) {
       setAssistantModelTab("image");
     }
-  }, [assistantModelTab, availableAssistantImageModels.length, availableAssistantTextModels.length]);
+  }, [assistantModelTab, availableAssistantImageModels.length, hasAvailableAssistantTextModel]);
   // 业务页签被外部改动（例如权益变化触发自动回退）时，展示分类跟着同步。
   useEffect(() => {
     setAssistantModelPanelCategory(assistantModelTab);
@@ -22749,8 +22762,8 @@ function CanvasAssistantPanel({
   /**
    * 【2026-10-17】对话记忆开关 —— 与对话窗口强制绑定。
    *
-   * 用户拍板：「对话的记忆与对话窗口强制绑定，对话框和对话框之间的记忆是相互独立的。
-   *   每新建一个对话，记忆默认是关闭的。」
+   * 对话记忆与对话窗口绑定，对话之间互相独立。
+   * 新对话默认开启，已保存的显式关闭状态继续生效。
    * 真值存在会话元数据 memoryEnabled 上（随索引落盘 + 云端同步），切换对话自动跟随。
    */
   const memoryContextEnabled = isConversationMemoryEnabled(
@@ -22813,7 +22826,7 @@ function CanvasAssistantPanel({
         if (next) {
           toast("您已开启上下文记忆，可以更好地帮助理解您的意图", {
             description:
-              "仅对当前对话生效：本对话的要求优先，与长期记忆不冲突的部分一起参考。新建的对话默认关闭。",
+              "仅对当前对话生效：本对话的要求优先，与长期记忆不冲突的部分一起参考。新建的对话默认开启，可随时关闭。",
           });
         } else {
           toast("已关闭当前对话的上下文记忆", {
@@ -24264,7 +24277,8 @@ function CanvasAssistantPanel({
     availableAssistantImageModels[0] ||
     IMAGE_AI_MODELS[0];
   const assistantTextModel =
-    availableAssistantTextModels.find(model => model.id === assistantTextModelId) ||
+    availableAssistantTextModels.find(model => model.id === assistantTextModelId && !model.disabled) ||
+    availableAssistantTextModels.find(model => !model.disabled) ||
     availableAssistantTextModels[0] ||
     TEXT_AI_MODELS[0];
   const assistant3DModel =
@@ -24303,6 +24317,10 @@ function CanvasAssistantPanel({
           ? {
               ...message,
               referenceOptions: message.referenceOptions?.filter(item => item.id !== referenceId),
+              ...(message.referenceOptions?.every(item => item.id === referenceId) ? {
+                content: "参考图片未能加载，请重新搜索或上传参考图。",
+                followUpPrompt: undefined,
+              } : {}),
             }
           : message
       )
@@ -25292,6 +25310,7 @@ function CanvasAssistantPanel({
             const result = await callLLM({
               module: "home-prompt-chat",
               model: homeSelectedTextModel.id,
+              modelSelection: "manual",
               images: importedReferences,
               messages: [{ role: "user", content: submittedText }],
             });
@@ -25321,6 +25340,7 @@ function CanvasAssistantPanel({
                   prompt: submittedText,
                   referencedAssets: importedReferences,
                   preferImageWhenReferences: true,
+                  allowReferenceSearch: payload.model === AUTO_AI_MODEL.id,
                   forceModelDecision: hasImportedReferences,
                 });
           const decision = homeSelectedImageModel
@@ -25335,6 +25355,20 @@ function CanvasAssistantPanel({
               }
             : routedDecision!;
           setSubmittingKind(decision.mode === "image" ? "image" : "text");
+          if (decision.mode === "reference_search") {
+            const searchQuery = decision.searchQuery?.trim() || submittedText;
+            const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+            setMessages(prev => [...prev, {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: `已找到 ${result.images.length} 张参考图，可以选用或拖入画布。`,
+              timestamp: new Date(),
+              referenceOptions: result.images,
+              referenceSearchQuery: searchQuery,
+              followUpPrompt: decision.followUp,
+            }]);
+            return;
+          }
           if (decision.mode === "image") {
             const imagePrompt = decision.imagePrompt?.trim() || submittedText;
             const generationId = `home-prompt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -25391,12 +25425,20 @@ function CanvasAssistantPanel({
             ]);
             return;
           }
+          const textReply = decision.reply?.trim() && decision.reply.trim() !== submittedText.trim()
+            ? decision.reply
+            : (await callLLM({
+                module: "home-prompt-chat",
+                model: DEFAULT_TEXT_MODEL,
+                images: importedReferences,
+                messages: [{ role: "user", content: submittedText }],
+              })).text;
           setMessages(prev => [
             ...prev,
             {
               id: `assistant-${Date.now()}`,
               role: "assistant",
-              content: decision.reply || submittedText,
+              content: textReply,
               timestamp: new Date(),
             },
           ]);
@@ -25484,7 +25526,7 @@ function CanvasAssistantPanel({
       toast("请输入画布想法或选择对象");
       return;
     }
-    if (assistantModelOptions.length === 0) {
+    if (!assistantModelOptions.some(model => !model.disabled)) {
       toast("当前账号没有可用的 AI 模型");
       return;
     }
@@ -25929,6 +25971,7 @@ function CanvasAssistantPanel({
         const result = await callLLM({
           module: "right-ai-assistant-chat",
           model: assistantTextModel.id,
+          modelSelection: assistantAutoMode ? undefined : "manual",
           images: assistantImages,
           messages: [
             ...buildAssistantContext(messages),
@@ -26255,6 +26298,7 @@ function CanvasAssistantPanel({
         const result = await callLLM({
           module: "right-ai-assistant-chat",
           model: assistantTextModel.id,
+          modelSelection: assistantAutoMode ? undefined : "manual",
           images: assistantImages,
           messages: [
             ...buildAssistantContext(messages),
@@ -27962,9 +28006,9 @@ function CanvasAssistantPanel({
                           style={agentMenuStyle || undefined}
                           activeCategory={(assistantModelPanelCategory === "3d" ? "3d" : assistantModelPanelCategory) as ModelPopoverCategory}
                           onCategoryChange={cat => {
+                            if (cat !== "image" && cat !== "text") return;
                             setAssistantModelPanelCategory(cat);
-                            // 3D 只是展示分类，不改变「对话 / 生图」的业务页签。
-                            if (cat !== "3d") setAssistantModelTab(cat);
+                            setAssistantModelTab(cat);
                           }}
                           models={assistantModelOptions}
                           selectedModelId={assistantModel.id}
@@ -27982,7 +28026,6 @@ function CanvasAssistantPanel({
                           tabs={[
                             { id: "image", label: "生图", visible: availableAssistantImageModels.length > 0 },
                             { id: "text", label: "对话", visible: availableAssistantTextModels.length > 0 },
-                            { id: "3d", label: "3D", visible: THREED_GENERATION_ON && THREED_AI_MODEL_OPTIONS.length > 0 },
                           ]}
                           showAuto
                           autoMode={assistantAutoMode}
@@ -38189,6 +38232,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           const result = await callLLM({
             module: "node-composer-chat",
             model: selectedTextModel.id,
+            modelSelection: "manual",
             images: [{ src, title: target.title }, ...payload.references],
             messages: [{ role: "user", content: payload.prompt.trim() || "请分析这张图片" }],
           });

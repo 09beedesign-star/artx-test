@@ -1,6 +1,6 @@
 import { isImageModel, isSelectableModel, isTextModel, type AiCapability } from "./model-router";
 import type { AiBillingCapability } from "../shared/ai-credit-policy";
-import { DEFAULT_TEXT_MODEL, HISTORICAL_TEXT_MODEL_IDS } from "../shared/text-models";
+import { DEFAULT_TEXT_MODEL, HISTORICAL_TEXT_MODEL_IDS, isSelectableTextModelId } from "../shared/text-models";
 import {
   DEFAULT_IMAGE_MODEL_ID,
   isRetiredRelayImageModelId,
@@ -67,6 +67,22 @@ function isFixedBackendModel(model?: string) {
     || normalized.startsWith("picwish-")
     || normalized.startsWith("bkeel")
   );
+}
+
+/** 仅选择本次鉴权型号，不改变 tracking、报价或用量记录。 */
+export function resolveRequestAccessModel(
+  request: unknown,
+  trackingModel?: string,
+  capability?: AiBillingCapability,
+): string | undefined {
+  const body = request && typeof request === "object" ? request as Record<string, unknown> : {};
+  if (capability === "text_generation"
+    && body.modelSelection === "manual"
+    && typeof body.model === "string"
+    && isSelectableTextModelId(body.model)) {
+    return body.model.trim();
+  }
+  return trackingModel;
 }
 
 export function assertUserCanUseSelectableModel(

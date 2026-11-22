@@ -78,7 +78,7 @@ import { sendOpsNotification, sendUserEmailNotification } from "./notifications"
 import { checkDailyLimit, checkRecipientCooldown, isSelfInvite, isAlreadyRegistered, buildInviteEmailHtml } from "./invite-email";
 import { classifyApplicationSecuritySignal, createSecurityEventDetector, validateSecurityEventIngest } from "./security-events";
 import { InMemoryRateLimiter, readRuleFromEnv, resolveClientIp } from "./ai-rate-limit";
-import { assertUserCanUseSelectableModel } from "./user-model-access";
+import { assertUserCanUseSelectableModel, resolveRequestAccessModel } from "./user-model-access";
 import { exportImageProviderFailureLog } from "./image-provider-failure-log";
 import { resolveImageResolutionTier, type AiBillingCapability } from "../shared/ai-credit-policy";
 import {
@@ -1109,7 +1109,7 @@ async function handleTrackedAiRequest<T>(
   try {
     user = await requireSessionUser(req, res);
     if (!user) return;
-    assertUserCanUseSelectableModel(user, tracking.model, tracking.capabilityKey);
+    assertUserCanUseSelectableModel(user, resolveRequestAccessModel(req.body, tracking.model, tracking.capabilityKey), tracking.capabilityKey);
     /*
      * ⚠️⚠️⚠️ 记忆注入收口在这里 —— 13 条 AI 路由共用这一个入口。
      *
@@ -2098,7 +2098,7 @@ async function startServer() {
       user = await requireSessionUser(req, res);
       if (!user) return;
       const preflightCapabilityKey = requestedOrchestratorCapability(req.body);
-      // 文本 / 品牌解析类能力实际固定走 gpt-6-luna；图片能力仍按请求路由。
+      // 文本预检沿用原 tracking 型号；手选权限另按本次型号校验，实际执行可有序降级。
       const preflightModel = preflightCapabilityKey === "text_generation"
         ? DEFAULT_TEXT_MODEL
         : getRouteModel(req.body, "auto");
@@ -2111,7 +2111,7 @@ async function startServer() {
         model: preflightModel,
         failureMessage: "AI orchestration failed",
       };
-      assertUserCanUseSelectableModel(user, preflightTracking.model, preflightTracking.capabilityKey);
+      assertUserCanUseSelectableModel(user, resolveRequestAccessModel(req.body, preflightTracking.model, preflightTracking.capabilityKey), preflightTracking.capabilityKey);
       /*
        * ⚠️⚠️⚠️ orchestrate **不走** handleTrackedAiRequest，所以这里必须
        * 单独注入一次记忆。漏了这一处的后果是「画布对话有记忆、编排链路没有」，

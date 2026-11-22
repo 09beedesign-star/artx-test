@@ -9,6 +9,7 @@ import {
   SELECTABLE_TEXT_MODEL_IDS,
   SUPPORTED_TEXT_MODEL_IDS,
   isKnownTextModelId,
+  resolveRequestedTextModel,
 } from "../shared/text-models";
 
 export type AiCapability =
@@ -32,7 +33,7 @@ const TEXT_MODELS = new Set<string>(SUPPORTED_TEXT_MODEL_IDS);
 
 const SELECTABLE_IMAGE_MODELS = new Set<string>(IMAGE_MODEL_PRIORITY_IDS);
 
-// 用户在 UI 上可见可选的文本模型：已收敛为唯一的 gpt-6-luna。
+// 当前三级文本型号均可手动选择；默认执行顺序由文本出口决定。
 const SELECTABLE_TEXT_MODELS = new Set<string>(SELECTABLE_TEXT_MODEL_IDS);
 
 function normalizeModelName(model?: string) {
@@ -116,7 +117,7 @@ export function resolveModelRoute(capability: AiCapability, requestedModel?: str
 
   return {
     capability,
-    model: DEFAULT_TEXT_MODEL,
+    model: resolveRequestedTextModel(model),
     provider: "text",
   };
 }

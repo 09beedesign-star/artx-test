@@ -973,7 +973,7 @@ describe("InfiniteCanvas prompt controls", () => {
   });
 
   it("uses the dynamic image model catalog in the bottom assistant selector", () => {
-    const source = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
+    const source = stripComments(readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"));
     const assistantBlock = source.match(
       /function CanvasAssistantPanel[\s\S]*?const activeSkillContext/
     )?.[0];
@@ -983,9 +983,13 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(assistantBlock).toContain("const assistantImageModelOptions = useMemo");
     expect(assistantBlock).toContain("filterAllowedAiModelOptions(assistantImageModelOptions, allowedAiModels)");
     expect(assistantBlock).toContain("availableAssistantImageModels.find(model => model.id === assistantImageModelId)");
-    expect(assistantBlock).toContain('assistantModelTab === "image" ? availableAssistantImageModels : availableAssistantTextModels');
+    // 只检查实际菜单数据声明，允许三元跨行，但生图和对话都必须用动态可用列表。
+    const menuOptions = assistantBlock!.match(/const assistantModelOptions\s*=[\s\S]*?;/)?.[0];
+    expect(menuOptions, "助手菜单数据声明必须存在").toBeTruthy();
+    expect(menuOptions).toMatch(/:\s*assistantModelTab\s*===\s*"image"\s*\?\s*availableAssistantImageModels\s*:\s*availableAssistantTextModels\s*;/);
+    expect(menuOptions).not.toMatch(/\b(?:IMAGE_AI_MODELS|TEXT_AI_MODELS)\b/);
     expect(assistantBlock).not.toContain("IMAGE_AI_MODELS.find(model => model.id === assistantImageModelId)");
-    expect(assistantBlock).not.toContain('assistantModelTab === "image" ? IMAGE_AI_MODELS : TEXT_AI_MODELS');
+    expect(assistantBlock).not.toMatch(/assistantModelTab\s*===\s*"image"\s*\?\s*IMAGE_AI_MODELS\s*:\s*TEXT_AI_MODELS/);
   });
 
   it("renders model brand icons aligned to the title row", () => {
@@ -1009,25 +1013,25 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(modelSelector).toContain('data-model-brand-icon={iconKind}');
     expect(modelSelector).toContain("marginTop: 2");
 
-    /**
-     * ⚠️ 对齐方式要分别锁两个渲染面，不能只锁一处。
-     *
-     * 原断言写的是精确 className `flex min-w-0 items-start gap-2.5` ——
-     * 那是 InfiniteCanvas.tsx:22852（画布节点里的模型行）的写法，
-     * 而 ModelSelector.tsx:295 用的是 `flex items-start gap-2`（间距本就不同）。
-     * 迁移后只把路径一换，这条必挂，因为它找的是**另一个面**的 className。
-     *
-     * 真正要守的约束是「图标与标题行**顶部**对齐」（items-start，
-     * 配合 marginTop: 2 做视觉微调）—— 若退回 items-center，
-     * 两行文案的模型会让图标浮到中间去。gap 是多少不属于这条断言的职责。
-     */
-    expect(modelSelector, "选择器下拉行必须顶部对齐").toMatch(
-      /className="flex items-start gap-2 /
-    );
+    // 两个渲染面已共用 AssistantModelPopover：锁真实图标父行，而非注释或其他行的同名类。
+    const selectorCode = stripComments(modelSelector);
+    const popover = selectorCode.match(/export function AssistantModelPopover\([\s\S]*$/)?.[0];
+    expect(popover, "共享模型浮层必须存在").toBeTruthy();
+    const iconRows = [...popover!.matchAll(/<div\s+className="([^"]+)"\s*>\s*<AssistantModelIcon\s+modelId=\{model\.id\}/g)];
+    expect(iconRows, "模型图标必须有唯一的标题父行").toHaveLength(1);
+    const rowClasses = iconRows[0][1].split(/\s+/);
+    expect(rowClasses, "选择器下拉行必须顶部对齐").toContain("items-start");
+    expect(rowClasses, "两行模型文案不能让图标垂直居中").not.toContain("items-center");
 
-    const infiniteCanvas = readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8");
-    expect(infiniteCanvas, "画布节点里的模型行必须顶部对齐").toContain(
-      'className="flex min-w-0 items-start gap-2.5"'
+    // 两端都必须复用该行，不能只验证共享组件却漏掉画布自己的渲染出口。
+    const selector = selectorCode.match(/export function ModelSelector\([\s\S]*?(?=export type ModelPopoverCategory)/)?.[0];
+    expect(selector, "通用选择器必须存在").toBeTruthy();
+    expect(selector).toMatch(/<AssistantModelPopover\b[\s\S]*?models=\{displayModels\}/);
+    const infiniteCanvas = stripComments(readFileSync(resolve(__dirname, "InfiniteCanvas.tsx"), "utf-8"));
+    const assistant = infiniteCanvas.match(/function CanvasAssistantPanel[\s\S]*$/)?.[0];
+    expect(assistant, "画布助手必须存在").toBeTruthy();
+    expect(assistant, "画布模型菜单必须复用顶部对齐的共享浮层").toMatch(
+      /<AssistantModelPopover\b[\s\S]*?models=\{assistantModelOptions\}/
     );
   });
 
@@ -1075,7 +1079,7 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(source).toContain('event.dataTransfer.setData("text/uri-list", item.src);');
     expect(source).toContain("handleReferenceOptionDoubleClick");
     expect(source).toContain("detail: { images: [item] }");
-    expect(intentSource).toContain("EXPLICIT_REFERENCE_SEARCH_PATTERN.test(trimmedPrompt)");
+    expect(intentSource).toContain("isExplicitReferenceRequest(trimmedPrompt)");
     expect(intentSource).toContain('mode: "reference_search"');
   });
 

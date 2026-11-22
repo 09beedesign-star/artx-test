@@ -85,7 +85,7 @@ function readHomeCreate() {
   return between(readHome(), "const createProjectFromPrompt =", "const handlePromptSend =");
 }
 
-function executeHomeModelSelection(model: string | null | undefined, routedMode: "image" | "text" = "image", withReference = false) {
+function executeHomeModelSelection(model: string | null | undefined, routedMode: "image" | "text" | "reference_search" = "image", withReference = false) {
   // 执行生产分支直到真实请求对象构造完成；只截断后续派发与网络调用。
   const branch = between(
     readHomeHandoffEffect(),
@@ -108,12 +108,14 @@ function executeHomeModelSelection(model: string | null | undefined, routedMode:
       setAssistantTextModelId, setAssistantModelTab, setAssistantModelPanelCategory,
       setAssistantAutoMode, setSubmittingKind, setMessages, callLLM, routeCreativeIntent,
       importedReferences, hasImportedReferences, submittedText, projectId,
-      DEFAULT_TEXT_MODEL, DEFAULT_AUTO_RATIO,
+      DEFAULT_TEXT_MODEL, DEFAULT_AUTO_RATIO, searchReferenceImages,
     } = context;
     return ${outputText}
   `) as (context: Record<string, unknown>) => Promise<{ model: string } | undefined>;
   const callLLM = vi.fn().mockResolvedValue({ text: "文本回复" });
   const routeCreativeIntent = vi.fn().mockResolvedValue({ mode: routedMode, imagePrompt: "路由后的图片提示词" });
+  const referenceImages = [{ id: "sky-reference", src: "https://images.example.test/sky.jpg", title: "天空" }];
+  const searchReferenceImages = vi.fn().mockResolvedValue({ images: referenceImages });
   const setMessages = vi.fn();
   const setSubmittingKind = vi.fn();
   const importedReferences = withReference ? [{ src: "data:image/png;base64,AA==", title: "参考图" }] : [];
@@ -126,9 +128,9 @@ function executeHomeModelSelection(model: string | null | undefined, routedMode:
       setSubmittingKind, setMessages, callLLM, routeCreativeIntent,
       importedReferences, hasImportedReferences: withReference,
       submittedText: "首页提示词", projectId: "home-model-regression",
-      DEFAULT_TEXT_MODEL: "路由文本模型", DEFAULT_AUTO_RATIO: "auto",
+      DEFAULT_TEXT_MODEL: "路由文本模型", DEFAULT_AUTO_RATIO: "auto", searchReferenceImages,
     }),
-    callLLM, routeCreativeIntent, setMessages, setSubmittingKind, importedReferences,
+    callLLM, routeCreativeIntent, setMessages, setSubmittingKind, importedReferences, searchReferenceImages, referenceImages,
   };
 }
 
@@ -142,6 +144,17 @@ describe("首页交接模型行为（执行生产源码，历史图片模型为 
       forceModelDecision: withReference,
     }));
     expect(execution.callLLM).not.toHaveBeenCalled();
+  });
+
+  it("auto 首页索图必须执行搜索并将真实图片写入气泡，不构造生图请求", async () => {
+    const execution = executeHomeModelSelection("auto", "reference_search");
+    expect(await execution.result).toBeUndefined();
+    expect(execution.routeCreativeIntent).toHaveBeenCalledWith(expect.objectContaining({ allowReferenceSearch: true }));
+    expect(execution.searchReferenceImages).toHaveBeenCalledWith({ query: "首页提示词", limit: 10 });
+    expect(execution.callLLM).not.toHaveBeenCalled();
+    expect(execution.setMessages).toHaveBeenCalledOnce();
+    const messages = execution.setMessages.mock.calls[0][0]([]);
+    expect(messages).toEqual([expect.objectContaining({ role: "assistant", referenceOptions: execution.referenceImages })]);
   });
 
   it("auto 的 intent 为 text 时不得强制构造图片请求", async () => {
