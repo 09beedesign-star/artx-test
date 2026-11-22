@@ -191,7 +191,11 @@ describe("InfiniteCanvas prompt controls", () => {
     expect(draftBlock).toContain("getSkillPreferredRatio(skill, \"\")");
 
     // 旧写法：写死 auto / 1:1 / 1 张，选了也白选。
-    expect(draftBlock).not.toContain('model: "auto"');
+    const generationStart = draftBlock.indexOf("dispatchImageGenerationTask(");
+    expect(generationStart).toBeGreaterThan(-1);
+    const generationPayload = draftBlock.slice(generationStart, draftBlock.indexOf("}, [", generationStart));
+    expect(generationPayload.length).toBeGreaterThan(100);
+    expect(generationPayload).not.toContain('model: "auto"');
     expect(draftBlock).not.toContain('ratio: "1:1"');
     expect(draftBlock).not.toContain('referencesEnabled: false');
   });

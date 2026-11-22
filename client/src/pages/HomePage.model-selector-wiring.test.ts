@@ -1,6 +1,7 @@
+import { getExplicitReferenceSearchDecision } from "../lib/ai-intent";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { ScriptTarget, transpileModule } from "typescript";
+import ts, { ScriptTarget, transpileModule } from "typescript";
 import { isSupportedImageModelId } from "../../../shared/image-models";
 import { assertStripKeptSource, stripSourceComments } from "../../../shared/strip-source-comments";
 import { AUTO_AI_MODEL, IMAGE_AI_MODELS, TEXT_AI_MODELS } from "../lib/workspace-data";
@@ -205,7 +206,7 @@ describe("首页模型选择器必须真正接上（2026-09-13 回归锁）", ()
   it("首页交接载荷不得把 model 硬编码成 auto", () => {
     const payload = between(readHomeCreate(), "writeHomePromptHandoff({", "\n    });");
     expect(payload).not.toMatch(/model:\s*["']auto["']/);
-    expect(payload).toMatch(/model:\s*homeImageModelId\s*,/);
+    expect(payload).toMatch(/model:\s*submittedModelId\s*,/);
     expect(payload).toMatch(/references:\s*homeReferences\.length\s*>\s*0\s*\?\s*homeReferences\s*:\s*undefined/);
   });
 
@@ -348,5 +349,91 @@ describe("显式文本模型必须直达 LLM，不进入语义路由或图像生
     expect(branch).toContain("assetEditInFlightRef.current.add(target.nodeId);");
     expect(branch).toMatch(/finally\s*\{\s*assetEditInFlightRef\.current\.delete\(target\.nodeId\);\s*\}\s*return;\s*\}\s*$/);
     expect(branch).not.toMatch(/routeCreativeIntent\s*\(|generateAiImages\s*\(|editImageWithPrompt\s*\(|dispatchImageGenerationTask\s*\(/);
+  });
+});
+
+function homeSubmitHarness(prompt: string, model: string, options: {
+  authenticated?: boolean;
+  aiAuth?: boolean;
+} = {}) {
+  const file = ts.createSourceFile("HomePage.tsx", readHome(), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const component = file.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === "HomePage") as ts.FunctionDeclaration;
+  expect(component?.body, "必须找到真实首页组件体").toBeTruthy();
+  const names = ["handleHomeImageModelChange", "createProjectFromPrompt", "handlePromptSend"];
+  const statements = component.body!.statements.filter(statement => ts.isVariableStatement(statement) &&
+    statement.declarationList.declarations.some(item => ts.isIdentifier(item.name) && names.includes(item.name.text)));
+  for (const name of names) {
+    expect(statements.filter(statement => (statement as ts.VariableStatement).declarationList.declarations.some(item =>
+      ts.isIdentifier(item.name) && item.name.text === name)), `生产回调必须唯一：${name}`).toHaveLength(1);
+  }
+  const context = {
+    prompt,
+    // 保留旧 render 的不可变模型值，setState 不同步改闭包，暴露同轮交接竞态。
+    homeImageModelId: model,
+    getExplicitReferenceSearchDecision,
+    setHomeImageModelId: vi.fn(), writePreferredAssistantModelId: vi.fn(),
+    homeReferences: [{ id: "home-ref", title: "参考", src: "data:image/png;base64,AA==" }],
+    homeActiveSkill: { id: "reference-skill", name: "参考技能" },
+    isAuthenticated: options.authenticated ?? true,
+    requestAiAuth: vi.fn(() => options.aiAuth ?? true),
+    setCenteredAuthMode: vi.fn(), setCenteredAuthOpen: vi.fn(),
+    createWorkspaceHistoryProject: vi.fn(() => ({ id: "reference-project", createdAt: "2026-11-22" })),
+    writeHomePromptHandoff: vi.fn((_payload: unknown) => ({ droppedReferences: false })),
+    toast: Object.assign(vi.fn(), { error: vi.fn() }), navigate: vi.fn(),
+  };
+  const { outputText } = transpileModule(`${statements.map(statement => statement.getText(file)).join("\n")}\nreturn handlePromptSend;`, {
+    compilerOptions: { target: ScriptTarget.ESNext, module: ts.ModuleKind.None },
+  });
+  const send = new Function(...Object.keys(context), outputText)(...Object.values(context)) as () => void;
+  return { ...context, send };
+}
+
+describe("首页显式参考搜索执行真实发送闭包", () => {
+  it.each(["vod-jimeng", TEXT_AI_MODELS[0].id, "auto"])("原选择 %s：实际选择器和本轮交接同时切到 auto", model => {
+    const prompt = "  帮我找一些天空的参考图片  ";
+    const home = homeSubmitHarness(prompt, model);
+    home.send();
+    if (model !== "auto") {
+      expect(home.setHomeImageModelId).toHaveBeenCalledOnce();
+      expect(home.setHomeImageModelId).toHaveBeenCalledWith("auto");
+      expect(home.writePreferredAssistantModelId).toHaveBeenCalledOnce();
+      expect(home.writePreferredAssistantModelId).toHaveBeenCalledWith("auto");
+      expect(home.setHomeImageModelId.mock.invocationCallOrder[0]).toBeLessThan(home.writeHomePromptHandoff.mock.invocationCallOrder[0]);
+    }
+    expect(home.homeImageModelId, "必须在旧 render 闭包仍持有原模型时验证交接").toBe(model);
+    expect(home.writeHomePromptHandoff).toHaveBeenCalledOnce();
+    expect(home.writeHomePromptHandoff).toHaveBeenCalledWith(expect.objectContaining({
+      model: "auto", prompt: prompt.trim(), shouldAutoRun: true,
+      references: home.homeReferences,
+      skill: { id: "reference-skill", name: "参考技能" },
+    }));
+    expect(home.navigate).toHaveBeenCalledWith("/project/reference-project");
+  });
+
+  it.each(["vod-jimeng", TEXT_AI_MODELS[0].id])("非搜图请求保持手选模型 %s", model => {
+    for (const prompt of ["帮我生成一张天空图片", "解释这些图片的构图"]) {
+      const home = homeSubmitHarness(prompt, model);
+      home.send();
+      expect(home.setHomeImageModelId).not.toHaveBeenCalled();
+      expect(home.writePreferredAssistantModelId).not.toHaveBeenCalled();
+      expect(home.writeHomePromptHandoff).toHaveBeenCalledWith(expect.objectContaining({ model }));
+    }
+  });
+
+
+
+  it.each([
+    { authenticated: false },
+    { aiAuth: false },
+  ])("鉴权未就绪时不切模型、不创建交接：%j", options => {
+    const home = homeSubmitHarness("帮我找一些天空的参考图片", "vod-jimeng", options);
+    home.send();
+    expect(home.setHomeImageModelId).not.toHaveBeenCalled();
+    expect(home.writePreferredAssistantModelId).not.toHaveBeenCalled();
+    expect(home.createWorkspaceHistoryProject).not.toHaveBeenCalled();
+    expect(home.writeHomePromptHandoff).not.toHaveBeenCalled();
+    expect(home.navigate).not.toHaveBeenCalled();
+    expect(home.setCenteredAuthMode).toHaveBeenCalledWith("login");
+    expect(home.setCenteredAuthOpen).toHaveBeenCalledWith(true);
   });
 });

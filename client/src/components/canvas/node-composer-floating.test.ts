@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import ts from "typescript";
+import { getExplicitReferenceSearchDecision } from "@/lib/ai-intent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { stripSourceComments } from "../../../../shared/strip-source-comments";
@@ -13,12 +15,113 @@ import { stripSourceComments } from "../../../../shared/strip-source-comments";
  *   4. 点生成 → 该图的生成内容**沉淀在右侧对话框**内
  *   5. 悬浮框比右下角提示词输入框**宽 80px**，两侧 icon 响应式重排
  *
- * ⚠️ 全部是源码文本断言，必须配合变异自证使用 —— 光跑绿说明不了任何问题。
- *    每条断言都在本目录的变异记录里逐条验过能挡下对应的破坏。
+ * 历史布局回归锁使用源码断言；参考搜索 Auto 使用 AST 提取并执行真实生产闭包。
+ * 两类测试均须配合隔离变异自证，不能仅凭正常样本通过判定覆盖有效。
  */
 
 const SOURCE_PATH = join(__dirname, "InfiniteCanvas.tsx");
 const source = readFileSync(SOURCE_PATH, "utf8");
+
+// 只抽取生产闭包本体，useCallback 依赖数组及组件渲染不属于本次执行范围。
+const canvasAst = ts.createSourceFile("InfiniteCanvas.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+function productionClosure(component: string, name: string, context: Record<string, unknown>) {
+  const owners: ts.FunctionDeclaration[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === component) owners.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(canvasAst);
+  expect(owners, `组件 ${component} 必须唯一`).toHaveLength(1);
+  const matches: ts.Node[] = [];
+  for (const statement of owners[0].body!.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) matches.push(statement);
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) {
+          const init = declaration.initializer;
+          matches.push(ts.isCallExpression(init) && init.expression.getText(canvasAst) === "useCallback" ? init.arguments[0] : init);
+        }
+      }
+    }
+    if (ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) && ["useEffect", "useLayoutEffect"].includes(statement.expression.expression.getText(canvasAst))) {
+      const effect = statement.expression.arguments[0];
+      let found = false;
+      const findCall = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) {
+          if (name === "homeHandoff" && node.expression.getText(canvasAst) === "peekHomePromptHandoff") found = true;
+          if (name === "referenceLifecycle" && node.expression.getText(canvasAst) === "resetReferenceSubmission") found = true;
+          if (name === "assetReferenceLifecycle" && node.expression.getText(canvasAst) === "window.addEventListener" && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === "canvas-reference-search-reset") found = true;
+          if (name === "externalMessage" && node.expression.getText(canvasAst) === "window.addEventListener" && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === "canvas-assistant-external-message") found = true;
+        }
+        ts.forEachChild(node, findCall);
+      };
+      findCall(effect);
+      if (found) matches.push(effect);
+    }
+  }
+  expect(matches, `生产闭包 ${component}.${name} 必须唯一`).toHaveLength(1);
+  const node = matches[0];
+  const code = ts.isFunctionDeclaration(node) ? `${node.getText(canvasAst)}; return ${name};` : `return (${node.getText(canvasAst)});`;
+  const { outputText } = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.None } });
+  return new Function(...Object.keys(context), outputText)(...Object.values(context));
+}
+
+const referencePrompt = "帮我找几张森林参考图";
+const referenceResults = [{ id: "forest-1", title: "森林", src: "data:image/png;base64,QQ==", width: 800, height: 600, source: "测试图片源" }];
+function referenceHarness(overrides: Record<string, unknown> = {}) {
+  let messages: Array<Record<string, unknown>> = [];
+  const listeners = new Map<string, (event: Event) => void>();
+  const timers: Array<() => Promise<void>> = [];
+  const context = {
+    useCallback: (fn: unknown) => fn,
+    getExplicitReferenceSearchDecision,
+    AUTO_AI_MODEL: { id: "auto" }, TEXT_AI_MODELS: [{ id: "manual-text" }],
+    searchReferenceImages: vi.fn(async () => ({ images: referenceResults })),
+    setMessages: vi.fn((update: (previous: typeof messages) => typeof messages) => { messages = update(messages); }),
+    setAssistantAutoMode: vi.fn(), setAssistantModelPanelCategory: vi.fn(),
+    setSubmittingKind: vi.fn(), setIsSubmitting: vi.fn(),
+    notifyAiFailure: vi.fn(), toast: vi.fn(),
+    callLLM: vi.fn(async () => { throw new Error("搜图不得进入手动文字链路"); }),
+    routeCreativeIntent: vi.fn(async () => { throw new Error("显式搜图不得进入通用路由"); }),
+    buildSkillAppliedImagePrompt: vi.fn(() => { throw new Error("搜图不得进入技能生图链路"); }),
+    dispatchImageGenerationTask: vi.fn(), generateAiImages: vi.fn(),
+    runCanvasThreeDGeneration: vi.fn(),
+    getVisibleAssetImageSource: vi.fn(async () => "data:image/png;base64,Qg=="),
+    buildAssistantContext: vi.fn(() => []), getCanvasAssistantRecentContext: vi.fn(() => []),
+    isSubmitting: false, isAuthenticated: true, onLoginRequest: vi.fn(),
+    hasPrompt: true, hasContext: false, hasActiveSkill: false,
+    assistantAutoMode: false, assistantModelTab: "image", assistantModelPanelCategory: "image",
+    assistantModelOptions: [{ id: "manual-image", disabled: false }],
+    assistantTextModel: { id: "manual-text" }, assistantImageModel: { id: "manual-image" },
+    composerPrompt: referencePrompt, composerText: referencePrompt, composerImages: [], composerAnnotations: [], composerSegments: [{ type: "text", text: referencePrompt }],
+    activeSkill: null, activeSkillContext: "技能要求必须生图", contextLabel: "",
+    getAssistantComposerVisualReferences: vi.fn(() => []), createAssistantTextSegment: (text: string) => ({ text }),
+    messages: [], setComposerSegments: vi.fn(), onMergeReferences: vi.fn(), onRemoveAnnotationReference: vi.fn(),
+    syncedReferenceIdsRef: { current: new Set() }, syncedAnnotationIdsRef: { current: new Set() },
+    referenceSubmitLockRef: { current: false }, referenceSubmissionEpochRef: { current: 0 }, assistantAbortRef: { current: null },
+    isAiAbortError: () => false, isAiCreditBlockedMessage: () => false,
+    projectId: "reference-project", collapsed: false, pendingHomePromptHandledRef: { current: false },
+    clearHomePromptHandoff: vi.fn(), readHandoffReferences: vi.fn(() => []),
+    peekHomePromptHandoff: vi.fn(() => ({ prompt: referencePrompt, model: "manual-image", shouldAutoRun: true })),
+    isSupportedImageModelId: (id: string) => id === "manual-image", onImportHomeReferences: vi.fn(async () => []),
+    editAsset: { nodeId: "asset-1", title: "原图", src: "data:image/png;base64,QQ==" },
+    nodesRef: { current: [{ id: "asset-1", type: "asset", data: {} }] as Array<{ id: string; type: string; data: Record<string, unknown>; position?: { x: number; y: number } }> }, requireAiAccess: vi.fn(() => true),
+    assetReferenceEpochRef: { current: 0 }, assetEditInFlightRef: { current: new Set<string>() }, assetReferenceInFlightRef: { current: new Set<string>() },
+    getAssetBusyState: vi.fn(() => ({ busy: false })),
+    window: {
+      addEventListener: vi.fn((name: string, callback: (event: Event) => void) => { listeners.set(name, callback); }),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn((event: Event) => { listeners.get(event.type)?.(event); return true; }),
+      setTimeout: vi.fn((callback: () => Promise<void>) => { timers.push(callback); }),
+    },
+    CustomEvent: class extends Event {
+      detail: unknown;
+      constructor(type: string, options: { detail: unknown }) { super(type); this.detail = options.detail; }
+    },
+    ...overrides,
+  };
+  return { context, timers, get messages() { return messages; } };
+}
 
 /** 锚点唯一性保障：切片前先确认锚只出现一次，否则 indexOf 切到的可能不是我想要的那段 */
 function countOf(needle: string): number {
@@ -39,6 +142,317 @@ function sliceBetween(startMarker: string, endMarker: string): string {
   if (end === -1) throw new Error(`终止锚点失效，找不到：${endMarker}`);
   return source.slice(start, end);
 }
+
+describe("参考搜索 Auto：执行实际画布生产闭包", () => {
+  it.each([
+    ["已选技能", { activeSkill: { id: "force-image", capability: "text_to_image" }, hasActiveSkill: true }],
+    ["手选图片模型", {}],
+    ["手选文字模型", { assistantModelTab: "text", assistantModelPanelCategory: "text" }],
+    ["3D 分类", { assistantModelPanelCategory: "3d" }],
+  ])("主助手在%s之前优先搜图并同步 Auto 状态", async (_label, overrides) => {
+    const harness = referenceHarness(overrides);
+    const { context } = harness;
+    const decision = getExplicitReferenceSearchDecision(referencePrompt)!;
+    expect(decision?.mode).toBe("reference_search");
+    await productionClosure("CanvasAssistantPanel", "handleSubmit", context)();
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(context.searchReferenceImages).toHaveBeenCalledWith({ query: decision.searchQuery, limit: 10 });
+    expect(context.setAssistantAutoMode).toHaveBeenLastCalledWith(true);
+    expect(context.setAssistantModelPanelCategory).toHaveBeenLastCalledWith("text");
+    expect(harness.messages).toHaveLength(2);
+    expect(harness.messages[0]).toMatchObject({ role: "user", content: referencePrompt });
+    expect(harness.messages[1]).toMatchObject({ role: "assistant", referenceOptions: referenceResults, referenceSearchQuery: decision.searchQuery, followUpPrompt: decision.followUp });
+    expect(context.callLLM).not.toHaveBeenCalled();
+    expect(context.routeCreativeIntent).not.toHaveBeenCalled();
+    expect(context.buildSkillAppliedImagePrompt).not.toHaveBeenCalled();
+    expect(context.dispatchImageGenerationTask).not.toHaveBeenCalled();
+    expect(context.generateAiImages).not.toHaveBeenCalled();
+    expect(context.runCanvasThreeDGeneration).not.toHaveBeenCalled();
+    expect(context.setSubmittingKind).toHaveBeenLastCalledWith("text");
+    expect(context.setIsSubmitting).toHaveBeenLastCalledWith(false);
+  });
+
+
+
+  it.each([
+    "我需要一些文字素材",
+    "我想要一些视频素材",
+    "我需要一些3D模型素材",
+    "我需要一些代码素材",
+  ])("非图片素材「%s」主助手保留手选文字模型，不切 Auto 或搜图", async prompt => {
+    const reply = "按你的素材需求继续文字回复";
+    const callLLM = vi.fn(async () => ({ text: reply }));
+    const harness = referenceHarness({
+      composerPrompt: prompt, composerText: prompt, composerSegments: [{ type: "text", text: prompt }],
+      assistantModelTab: "text", assistantModelPanelCategory: "text",
+      assistantModelOptions: [{ id: "manual-text", disabled: false }],
+      callLLM, isSameStyleGeneration: () => false, sameStyleReferenceIdsRef: { current: new Set() },
+    });
+    const { context } = harness;
+    await productionClosure("CanvasAssistantPanel", "handleSubmit", context)();
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(context.searchReferenceImages).not.toHaveBeenCalled();
+    expect(context.setAssistantAutoMode).not.toHaveBeenCalled();
+    expect(context.setAssistantModelPanelCategory).not.toHaveBeenCalled();
+    expect(callLLM).toHaveBeenCalledOnce();
+    expect(callLLM).toHaveBeenCalledWith({
+      module: "right-ai-assistant-chat", model: "manual-text", modelSelection: "manual",
+      images: [], messages: [{ role: "user", content: prompt }],
+    });
+    expect(harness.messages).toHaveLength(2);
+    expect(harness.messages[0]).toMatchObject({ role: "user", content: prompt });
+    expect(harness.messages[1]).toMatchObject({ role: "assistant", content: reply });
+    expect(context.routeCreativeIntent).not.toHaveBeenCalled();
+    expect(context.buildSkillAppliedImagePrompt).not.toHaveBeenCalled();
+    expect(context.dispatchImageGenerationTask).not.toHaveBeenCalled();
+    expect(context.generateAiImages).not.toHaveBeenCalled();
+    expect(context.runCanvasThreeDGeneration).not.toHaveBeenCalled();
+    expect(context.setSubmittingKind).toHaveBeenLastCalledWith("text");
+    expect(context.setIsSubmitting).toHaveBeenLastCalledWith(false);
+  });
+
+  it("主助手同一渲染周期连续发送索图只请求一次，失败后释放锁", async () => {
+    let rejectSearch!: (error: Error) => void;
+    const searchReferenceImages = vi.fn(() => new Promise((_resolve, reject) => { rejectSearch = reject; }));
+    const { context } = referenceHarness({ searchReferenceImages });
+    const submit = productionClosure("CanvasAssistantPanel", "handleSubmit", context);
+    const first = submit();
+    expect(context.referenceSubmitLockRef.current).toBe(true);
+    await submit();
+    expect(searchReferenceImages).toHaveBeenCalledTimes(1);
+    rejectSearch(new Error("搜索暂不可用"));
+    await first;
+    expect(context.notifyAiFailure).toHaveBeenCalledWith("AI 助手请求失败", "搜索暂不可用");
+    expect(context.referenceSubmitLockRef.current).toBe(false);
+    expect(context.setIsSubmitting).toHaveBeenLastCalledWith(false);
+    expect(context.generateAiImages).not.toHaveBeenCalled();
+  });
+
+  it("主助手切换会话后，旧索图错误不弹到新会话", async () => {
+    let rejectSearch!: (error: Error) => void;
+    const searchReferenceImages = vi.fn(() => new Promise((_resolve, reject) => { rejectSearch = reject; }));
+    const { context } = referenceHarness({ searchReferenceImages });
+    const first = productionClosure("CanvasAssistantPanel", "handleSubmit", context)();
+    context.referenceSubmissionEpochRef.current++;
+    rejectSearch(new Error("旧会话搜索失败"));
+    await first;
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+  });
+
+  it.each(["manual-image", "manual-text"])("首页交接忽略旧的 %s 手选模型，搜图后仍保持 Auto", async model => {
+    const harness = referenceHarness({ peekHomePromptHandoff: () => ({ prompt: referencePrompt, model, shouldAutoRun: true }) });
+    const { context } = harness;
+    productionClosure("CanvasAssistantPanel", "homeHandoff", context)();
+    expect(harness.timers).toHaveLength(1);
+    await harness.timers[0]();
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(context.searchReferenceImages).toHaveBeenCalledTimes(1);
+    expect(context.setAssistantAutoMode).toHaveBeenLastCalledWith(true);
+    expect(context.setAssistantModelPanelCategory).toHaveBeenLastCalledWith("text");
+    expect(harness.messages.at(-1)).toMatchObject({ referenceOptions: referenceResults, referenceSearchQuery: getExplicitReferenceSearchDecision(referencePrompt)!.searchQuery, followUpPrompt: getExplicitReferenceSearchDecision(referencePrompt)!.followUp });
+    expect(context.callLLM).not.toHaveBeenCalled();
+    expect(context.routeCreativeIntent).not.toHaveBeenCalled();
+    expect(context.dispatchImageGenerationTask).not.toHaveBeenCalled();
+    expect(context.setIsSubmitting).toHaveBeenLastCalledWith(false);
+  });
+
+  it.each([
+    [referencePrompt, "auto"],
+    ["把这张图片改成水彩风格", "manual-text"],
+  ])("节点提示栏提交「%s」时使用有效模型 %s，不依赖异步 state 更新", async (prompt, expectedModel) => {
+    const harness = referenceHarness();
+    const context = {
+      ...harness.context, prompt, model: "manual-text", canSendPrompt: true,
+      isTargetBusy: false, imageCount: 2, imageRatio: "4:3", uploadedRefs: referenceResults,
+      resolveImageCountFromPromptAndSelector: () => ({ count: 2 }),
+      setSending: vi.fn(), setModel: vi.fn(), onSubmit: vi.fn(async () => true),
+      setPrompt: vi.fn(), setUploadedRefs: vi.fn(), setImageCount: vi.fn(), setImageRatio: vi.fn(),
+      setRegionRef: vi.fn(), setRegionSelectMode: vi.fn(), regionRef: null,
+      anchor: { left: 10, top: 20, width: 400 }, onClose: vi.fn(),
+    };
+    await productionClosure("AssetEditPromptBar", "handleSend", context)();
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(context.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt, model: expectedModel, references: referenceResults, ratio: "4:3", count: 2 }));
+    if (expectedModel === "auto") expect(context.setModel).toHaveBeenCalledWith("auto");
+    else expect(context.setModel).not.toHaveBeenCalled();
+    expect(context.onClose).not.toHaveBeenCalled();
+
+  });
+
+  it("节点搜图提前返回，不读取原图、不调用文字/图片生成，实际事件消费者完整保留卡片及 Auto", async () => {
+    const harness = referenceHarness();
+    const { context } = harness;
+    productionClosure("CanvasAssistantPanel", "externalMessage", context)();
+    const submit = productionClosure("InnerCanvas", "handleAssetEditSubmit", context);
+    await expect(submit({ prompt: referencePrompt, model: "manual-text", references: [], ratio: "auto", count: 1, skill: null })).resolves.toBe(true);
+    expect(context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(context.searchReferenceImages).toHaveBeenCalledWith({ query: getExplicitReferenceSearchDecision(referencePrompt)!.searchQuery, limit: 10 });
+    expect(context.getVisibleAssetImageSource).not.toHaveBeenCalled();
+    expect(context.callLLM).not.toHaveBeenCalled();
+    expect(context.dispatchImageGenerationTask).not.toHaveBeenCalled();
+    expect(context.generateAiImages).not.toHaveBeenCalled();
+    expect(context.window.dispatchEvent.mock.calls.map(([event]) => (event as Event & { detail: unknown }).detail)).toEqual([
+      expect.objectContaining({ role: "user", model: "auto" }),
+      expect.objectContaining({ role: "assistant", model: "auto", referenceOptions: referenceResults }),
+    ]);
+    expect(harness.messages).toHaveLength(2);
+    expect(harness.messages[1]).toMatchObject({ role: "assistant", referenceOptions: referenceResults, referenceSearchQuery: getExplicitReferenceSearchDecision(referencePrompt)!.searchQuery, followUpPrompt: getExplicitReferenceSearchDecision(referencePrompt)!.followUp });
+    expect(context.setAssistantAutoMode).toHaveBeenLastCalledWith(true);
+    expect(context.setAssistantModelPanelCategory).toHaveBeenLastCalledWith("text");
+    expect(context.assetEditInFlightRef.current.size).toBe(0);
+  });
+
+  it("外部消息消费者遇到搜图 Auto 消息时既保留资料字段，也切换模型显示", () => {
+    const harness = referenceHarness();
+    const { context } = harness;
+    productionClosure("CanvasAssistantPanel", "externalMessage", context)();
+    const detail = { content: "  搜索结果  ", role: "assistant", referenceOptions: referenceResults, referenceSearchQuery: "森林", followUpPrompt: "选几张参考图", model: "auto" };
+    context.window.dispatchEvent(new context.CustomEvent("canvas-assistant-external-message", { detail }));
+    expect(harness.messages).toHaveLength(1);
+    expect(harness.messages[0]).toMatchObject({ content: "搜索结果", role: detail.role, referenceOptions: detail.referenceOptions, referenceSearchQuery: detail.referenceSearchQuery, followUpPrompt: detail.followUpPrompt });
+    expect(context.setAssistantAutoMode).toHaveBeenCalledWith(true);
+    expect(context.setAssistantModelPanelCategory).toHaveBeenCalledWith("text");
+  });
+});
+
+describe("索图专用生命周期：真实闭包旧请求隔离", () => {
+  function pendingSearch() {
+    let resolve!: (result: { images: typeof referenceResults }) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<{ images: typeof referenceResults }>((yes, no) => { resolve = yes; reject = no; });
+    return { resolve, reject, search: vi.fn(() => promise) };
+  }
+
+  it.each(["resolve", "reject"] as const)("主助手卸载或切会话后旧请求 %s 不回写、不污染新锁", async outcome => {
+    const pending = pendingSearch();
+    const h = referenceHarness({ searchReferenceImages: pending.search });
+    const reset = productionClosure("CanvasAssistantPanel", "resetReferenceSubmission", h.context);
+    const lifecycle = productionClosure("CanvasAssistantPanel", "referenceLifecycle", { ...h.context, resetReferenceSubmission: reset });
+    const cleanup = lifecycle();
+    const first = productionClosure("CanvasAssistantPanel", "handleSubmit", h.context)();
+    cleanup();
+    h.context.referenceSubmitLockRef.current = true;
+    h.context.setIsSubmitting.mockClear();
+    if (outcome === "resolve") pending.resolve({ images: referenceResults });
+    else pending.reject(new Error("旧索图错误"));
+    await first;
+    expect(h.messages).toHaveLength(1);
+    expect(h.context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(h.context.referenceSubmitLockRef.current).toBe(true);
+    expect(h.context.setIsSubmitting).not.toHaveBeenCalled();
+  });
+
+  it.each(["resolve", "reject"] as const)("首页 handoff 的旧请求 %s 不回写或清新会话输入", async outcome => {
+    const pending = pendingSearch();
+    const h = referenceHarness({ searchReferenceImages: pending.search });
+    productionClosure("CanvasAssistantPanel", "homeHandoff", h.context)();
+    const first = h.timers[0]();
+    h.context.referenceSubmissionEpochRef.current++;
+    h.context.referenceSubmitLockRef.current = true;
+    h.context.setComposerSegments.mockClear();
+    h.context.setIsSubmitting.mockClear();
+    if (outcome === "resolve") pending.resolve({ images: referenceResults });
+    else pending.reject(new Error("旧首页索图错误"));
+    await first;
+    expect(h.messages).toHaveLength(1);
+    expect(h.context.notifyAiFailure).not.toHaveBeenCalled();
+    expect(h.context.setComposerSegments).not.toHaveBeenCalled();
+    expect(h.context.setIsSubmitting).not.toHaveBeenCalled();
+    expect(h.context.referenceSubmitLockRef.current).toBe(true);
+  });
+
+  it.each(["已导入", "未能导入"])("首页 handoff 等待导入后会话已切换（%s）时不启动搜索或写状态", async imported => {
+    let finishImport!: (assets: typeof referenceResults) => void;
+    const onImportHomeReferences = vi.fn(() => new Promise<typeof referenceResults>(resolve => { finishImport = resolve; }));
+    const h = referenceHarness({ readHandoffReferences: () => referenceResults, onImportHomeReferences });
+    productionClosure("CanvasAssistantPanel", "homeHandoff", h.context)();
+    const first = h.timers[0]();
+    expect(onImportHomeReferences).toHaveBeenCalledWith(referenceResults);
+    h.context.referenceSubmissionEpochRef.current++;
+    h.context.referenceSubmitLockRef.current = true;
+    const stateWrites = [h.context.setMessages, h.context.setComposerSegments, h.context.setAssistantAutoMode,
+      h.context.setAssistantModelPanelCategory, h.context.setSubmittingKind, h.context.setIsSubmitting, h.context.onMergeReferences];
+    stateWrites.forEach(write => write.mockClear());
+    finishImport(imported === "已导入" ? referenceResults : []);
+    await first;
+    expect(h.context.searchReferenceImages).not.toHaveBeenCalled();
+    expect(h.context.toast).not.toHaveBeenCalled();
+    expect(h.context.notifyAiFailure).not.toHaveBeenCalled();
+    stateWrites.forEach(write => expect(write).not.toHaveBeenCalled());
+    expect(h.context.referenceSubmitLockRef.current).toBe(true);
+  });
+
+  it.each(["关闭快捷编辑", "拖动节点"])("节点搜图等待期间%s不会误丢参考卡片", async change => {
+    const pending = pendingSearch();
+    const h = referenceHarness({ searchReferenceImages: pending.search });
+    h.context.nodesRef.current[0].data = { assetId: "forest-original", localSrc: "原图", isEditing: true };
+    const first = productionClosure("InnerCanvas", "handleAssetEditSubmit", h.context)({
+      prompt: referencePrompt, model: "auto", references: [], ratio: "auto", count: 1, skill: null,
+    });
+    const node = h.context.nodesRef.current[0];
+    h.context.nodesRef.current = [change === "关闭快捷编辑"
+      ? { ...node, data: { ...node.data, isEditing: false } }
+      : { ...node, position: { x: 400, y: 300 } }];
+    pending.resolve({ images: referenceResults });
+    await expect(first).resolves.toBe(true);
+    expect(h.context.window.dispatchEvent).toHaveBeenCalledTimes(2);
+    const event = h.context.window.dispatchEvent.mock.calls[1][0] as Event & { detail: unknown };
+    expect(event.detail).toMatchObject({ role: "assistant", referenceOptions: referenceResults, model: "auto" });
+    expect(h.context.assetEditInFlightRef.current.size).toBe(0);
+  });
+
+  it.each(["删除", "localSrc 替换", "assetId 替换", "节点类型替换", "跨会话"])("节点搜图等待期间%s仍拒绝旧参考结果", async change => {
+    const pending = pendingSearch();
+    const h = referenceHarness({ searchReferenceImages: pending.search });
+    h.context.nodesRef.current[0].data = { assetId: "forest-original", localSrc: "原图" };
+    const first = productionClosure("InnerCanvas", "handleAssetEditSubmit", h.context)({
+      prompt: referencePrompt, model: "auto", references: [], ratio: "auto", count: 1, skill: null,
+    });
+    const node = h.context.nodesRef.current[0];
+    if (change === "删除") h.context.nodesRef.current = [];
+    else if (change === "跨会话") h.context.assetReferenceEpochRef.current++;
+    else if (change === "节点类型替换") h.context.nodesRef.current = [{ ...node, type: "text" }];
+    else h.context.nodesRef.current = [{ ...node, data: { ...node.data,
+      ...(change === "localSrc 替换" ? { localSrc: "新图" } : { assetId: "新素材" }),
+    } }];
+    pending.resolve({ images: referenceResults });
+    await expect(first).resolves.toBe(false);
+    expect(h.context.window.dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(h.context.notifyAiFailure).not.toHaveBeenCalled();
+  });
+
+  it("节点同轮双提交只搜一次，项目卸载清锁且旧 finally 不解新锁", async () => {
+    const pending = pendingSearch();
+    const h = referenceHarness({ searchReferenceImages: pending.search });
+    const cleanup = productionClosure("InnerCanvas", "assetReferenceLifecycle", h.context)();
+    const submit = productionClosure("InnerCanvas", "handleAssetEditSubmit", h.context);
+    const payload = { prompt: referencePrompt, model: "manual-image", references: [], ratio: "auto", count: 1, skill: null };
+    const first = submit(payload);
+    await expect(submit(payload)).resolves.toBe(false);
+    expect(pending.search).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(h.context.assetEditInFlightRef.current.size).toBe(0);
+    h.context.assetEditInFlightRef.current.add("asset-1");
+    pending.resolve({ images: referenceResults });
+    await expect(first).resolves.toBe(false);
+    expect(h.context.assetEditInFlightRef.current.has("asset-1")).toBe(true);
+    expect(h.context.window.dispatchEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("节点浮动入口索图不重复发送用户消息，原图读取与生成链路均不执行", async () => {
+    const h = referenceHarness();
+    h.context.nodesRef.current[0].data = { imageUrl: "原图" };
+    const shared = productionClosure("InnerCanvas", "handleAssetEditSubmit", h.context);
+    await productionClosure("InnerCanvas", "handleNodeComposerSubmit", { ...h.context, handleAssetEditSubmit: shared, getLatestAssetImageSource: vi.fn(() => "原图"), getAssetNodeDisplayTitle: () => "原图" })("asset-1", {
+      prompt: referencePrompt, model: "manual-image", references: [], ratio: "auto", count: 1, skill: null,
+    });
+    expect(h.context.searchReferenceImages).toHaveBeenCalledTimes(1);
+    const details = h.context.window.dispatchEvent.mock.calls.map(([event]) => (event as Event & { detail: { role: string } }).detail);
+    expect(details.filter(detail => detail.role === "user")).toHaveLength(1);
+    expect(h.context.getVisibleAssetImageSource).not.toHaveBeenCalled();
+    expect(h.context.generateAiImages).not.toHaveBeenCalled();
+  });
+});
 
 describe("悬浮输入框：锚点前置保障", () => {
   it.each([

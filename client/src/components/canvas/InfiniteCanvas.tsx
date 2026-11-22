@@ -718,7 +718,7 @@ import {
   isAnimatedGifSrc,
   type ImageDeliverableRequestDetail,
 } from "@/components/canvas/ImageDeliverableActions";
-import { buildAssistantContext, routeCreativeIntent } from "@/lib/ai-intent";
+import { buildAssistantContext, getExplicitReferenceSearchDecision, routeCreativeIntent } from "@/lib/ai-intent";
 import { selectEditedTextRegions } from "@/lib/text-replace";
 import {
   ensureCanvasStaggerOffset,
@@ -13553,6 +13553,23 @@ function DraftImageNodeComponent({
    *    React 树位置不变，useReactFlow / useTheme / deleteElements 照常可用。
    */
   const projectId = (data.projectId as string) || "p1";
+  const draftSubmitLockRef = useRef(false);
+  const draftSubmissionEpochRef = useRef(0);
+  const draftMountedRef = useRef(false);
+  useLayoutEffect(() => {
+    draftMountedRef.current = true;
+    const reset = () => {
+      draftSubmissionEpochRef.current++;
+      draftSubmitLockRef.current = false;
+    };
+    window.addEventListener("canvas-reference-search-reset", reset);
+    return () => {
+      draftMountedRef.current = false;
+      reset();
+      window.removeEventListener("canvas-reference-search-reset", reset);
+    };
+  }, [projectId, id]);
+
 
   // 与 ImageGeneratorPopover 同源的配色变量，保证「复用现成样式」。
   const border = isDark ? "#2e2e33" : "rgba(0,0,0,0.10)";
@@ -13626,6 +13643,7 @@ function DraftImageNodeComponent({
   }, []);
 
   const handleSubmit = useCallback(async () => {
+    if (!draftMountedRef.current || draftSubmitLockRef.current) return;
     const trimmed = prompt.trim();
     if (!trimmed) {
       toast("请输入图像生成提示词");
@@ -13633,6 +13651,39 @@ function DraftImageNodeComponent({
     }
     if (!requestAiAuth()) {
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
+      return;
+    }
+    const referenceDecision = getExplicitReferenceSearchDecision(trimmed);
+    if (referenceDecision) {
+      draftSubmitLockRef.current = true;
+      const submissionEpoch = draftSubmissionEpochRef.current;
+      const isCurrent = () => draftMountedRef.current && submissionEpoch === draftSubmissionEpochRef.current;
+      const searchQuery = referenceDecision.searchQuery?.trim() || trimmed;
+      setModel(AUTO_AI_MODEL.id);
+      window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+        detail: { role: "user", content: trimmed, model: "auto" },
+      }));
+      try {
+        const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+        if (!isCurrent()) return;
+        window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+          detail: {
+            role: "assistant",
+            content: `已找到 ${result.images.length} 张参考图，可以选用或拖入画布。`,
+            referenceOptions: result.images,
+            referenceSearchQuery: searchQuery,
+            followUpPrompt: referenceDecision.followUp,
+            model: "auto",
+          },
+        }));
+        setPrompt("");
+      } catch (error) {
+        if (isCurrent()) {
+          notifyAiFailure("参考图搜索失败", error instanceof Error ? error.message : "请稍后重试");
+        }
+      } finally {
+        if (isCurrent()) draftSubmitLockRef.current = false;
+      }
       return;
     }
     if (TEXT_AI_MODELS.some(option => option.id === model)) {
@@ -18356,9 +18407,12 @@ function AssetEditPromptBar({
         prompt,
         selectorCount: imageCount,
       }).count;
+      const referenceDecision = getExplicitReferenceSearchDecision(prompt.trim());
+      const submittedModel = referenceDecision ? AUTO_AI_MODEL.id : model;
+      if (referenceDecision) setModel(AUTO_AI_MODEL.id);
       onSubmit({
         prompt: prompt.trim(),
-        model,
+        model: submittedModel,
         references: uploadedRefs,
         ratio: imageRatio,
         // 提示词写了「N 张」→ 用提示词；没写 → 用本面板张数选择器（2026-11-15）。
@@ -22479,6 +22533,8 @@ function CanvasAssistantPanel({
    */
   const assistantAbortRef = useRef<AbortController | null>(null);
   const stopAssistantSubmission = useCallback(() => {
+    referenceSubmissionEpochRef.current++;
+    referenceSubmitLockRef.current = false;
     assistantAbortRef.current?.abort();
     assistantAbortRef.current = null;
     setIsSubmitting(false);
@@ -22524,6 +22580,18 @@ function CanvasAssistantPanel({
       )
     );
   const activeConversationId = conversationIndex.activeId;
+  const referenceSubmitLockRef = useRef(false);
+  const referenceSubmissionEpochRef = useRef(0);
+  const resetReferenceSubmission = useCallback(() => {
+    referenceSubmissionEpochRef.current++;
+    if (referenceSubmitLockRef.current) setIsSubmitting(false);
+    referenceSubmitLockRef.current = false;
+    window.dispatchEvent(new Event("canvas-reference-search-reset"));
+  }, []);
+  useLayoutEffect(() => {
+    resetReferenceSubmission();
+    return resetReferenceSubmission;
+  }, [projectId, activeConversationId, resetReferenceSubmission]);
   /**
    * 【2026-09-18 线上实测修复】记录「内存里这份 messages 属于哪条会话」。
    *
@@ -22862,6 +22930,7 @@ function CanvasAssistantPanel({
   );
 
   const handleCreateConversation = useCallback(() => {
+    resetReferenceSubmission();
     const fresh = createConversationMeta();
     persistConversationIndex({
       activeId: fresh.id,
@@ -22881,6 +22950,7 @@ function CanvasAssistantPanel({
       setConversationMenuOpen(false);
       setConversationQuery("");
       if (conversationId === conversationIndex.activeId) return;
+      resetReferenceSubmission();
       persistConversationIndex({
         ...conversationIndex,
         activeId: conversationId,
@@ -25114,16 +25184,28 @@ function CanvasAssistantPanel({
         event as CustomEvent<{
           content?: string;
           role?: CanvasAssistantMessage["role"];
+          referenceOptions?: CanvasAssistantMessage["referenceOptions"];
+          referenceSearchQuery?: string;
+          followUpPrompt?: string;
+          model?: "auto";
         }>
       ).detail;
       const content = detail?.content?.trim();
       if (!content) return;
+      if (detail.model === "auto") {
+        setAssistantAutoMode(true);
+        setAssistantModelPanelCategory("text");
+      }
+      if (detail.referenceOptions?.length && collapsed) onToggleCollapsed();
       setMessages(prev => [
         ...prev,
         {
           id: `external-assistant-${Date.now()}`,
           role: detail?.role === "user" ? "user" : "assistant",
           content,
+          referenceOptions: detail.referenceOptions,
+          referenceSearchQuery: detail.referenceSearchQuery,
+          followUpPrompt: detail.followUpPrompt,
           timestamp: new Date(),
         },
       ]);
@@ -25131,7 +25213,7 @@ function CanvasAssistantPanel({
     window.addEventListener("canvas-assistant-external-message", handler);
     return () =>
       window.removeEventListener("canvas-assistant-external-message", handler);
-  }, []);
+  }, [collapsed, onToggleCollapsed]);
 
   const handleImageBackupDoubleClick = (
     backup: NonNullable<CanvasAssistantMessage["imageBackup"]>
@@ -25267,7 +25349,11 @@ function CanvasAssistantPanel({
       );
       setIsSubmitting(true);
 
+      const homeReferenceEpoch = referenceSubmissionEpochRef.current;
+      const homeReferenceDecision = getExplicitReferenceSearchDecision(submittedText);
+      if (homeReferenceDecision) referenceSubmitLockRef.current = true;
       window.setTimeout(async () => {
+        if (homeReferenceDecision && homeReferenceEpoch !== referenceSubmissionEpochRef.current) return;
         // 同 handleSubmit 的 pendingImageTask：402 时要把占位框收掉，不能留「生成中」。
         let homePendingImageTask: ImageGeneratorPayload | null = null;
         try {
@@ -25287,6 +25373,7 @@ function CanvasAssistantPanel({
             handoffReferences.length > 0
               ? await onImportHomeReferences(handoffReferences)
               : [];
+          if (homeReferenceDecision && homeReferenceEpoch !== referenceSubmissionEpochRef.current) return;
           const hasImportedReferences = importedReferences.length > 0;
           if (handoffReferences.length > 0 && !hasImportedReferences) {
             toast("首页参考图未能载入", {
@@ -25300,6 +25387,24 @@ function CanvasAssistantPanel({
            * 图片模型"，对"要不要出图"毫无影响 —— 等于用户在首页选的图片模型
            * 被当成了纯装饰。提示词一旦被判成 text 就走下面的文字分支，永远拿不到图。
            */
+          if (homeReferenceDecision) {
+            setAssistantAutoMode(true);
+            setAssistantModelPanelCategory("text");
+            setSubmittingKind("text");
+            const searchQuery = homeReferenceDecision.searchQuery?.trim() || submittedText;
+            const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+            if (homeReferenceEpoch !== referenceSubmissionEpochRef.current) return;
+            setMessages(prev => [...prev, {
+              id: `assistant-reference-${Date.now()}`,
+              role: "assistant",
+              content: `已找到 ${result.images.length} 张参考图，可以选用或拖入画布。`,
+              timestamp: new Date(),
+              referenceOptions: result.images,
+              referenceSearchQuery: searchQuery,
+              followUpPrompt: homeReferenceDecision.followUp,
+            }]);
+            return;
+          }
           const homeSelectedTextModel = TEXT_AI_MODELS.find(model => model.id === payload.model);
           if (homeSelectedTextModel) {
             setAssistantTextModelId(homeSelectedTextModel.id);
@@ -25450,8 +25555,11 @@ function CanvasAssistantPanel({
               projectId
             );
           }
+          if (homeReferenceDecision && homeReferenceEpoch !== referenceSubmissionEpochRef.current) return;
           notifyAiFailure("首页提示词自动处理失败", message);
         } finally {
+          if (homeReferenceDecision && homeReferenceEpoch !== referenceSubmissionEpochRef.current) return;
+          if (homeReferenceDecision) referenceSubmitLockRef.current = false;
           setComposerSegments([createAssistantTextSegment("")]);
           /**
            * 与画布侧 handleSubmit（:20903）对齐：本轮用掉的引用必须清账。
@@ -25517,6 +25625,7 @@ function CanvasAssistantPanel({
   });
 
   async function handleSubmit() {
+    if (referenceSubmitLockRef.current) return;
     if (!isAuthenticated) {
       onLoginRequest();
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
@@ -25529,6 +25638,16 @@ function CanvasAssistantPanel({
     if (!assistantModelOptions.some(model => !model.disabled)) {
       toast("当前账号没有可用的 AI 模型");
       return;
+    }
+    const referenceRequestText = composerSegments
+      .map(segment => segment.type === "text" ? segment.text : "")
+      .join(" ").trim();
+    const explicitReferenceDecision = getExplicitReferenceSearchDecision(referenceRequestText);
+    const referenceEpoch = ++referenceSubmissionEpochRef.current;
+    if (explicitReferenceDecision) {
+      referenceSubmitLockRef.current = true;
+      setAssistantAutoMode(true);
+      setAssistantModelPanelCategory("text");
     }
     const rawSubmittedComposerPrompt =
       composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
@@ -25552,7 +25671,7 @@ function CanvasAssistantPanel({
      * ⚠️ 3D 模型单价 300~500 积分/次且各不相同，模型由用户在下拉里显式
      *    选定并带积分角标，这里不改动任何默认模型或计费口径。
      */
-    if (assistantModelPanelCategory === "3d") {
+    if (assistantModelPanelCategory === "3d" && !explicitReferenceDecision) {
       const threeDPrompt = submittedComposerPrompt.trim();
       const threeDModelId = assistant3DModelId;
       setMessages(prev => [
@@ -25663,6 +25782,22 @@ function CanvasAssistantPanel({
     const assistantImages: ImageGeneratorReferenceAsset[] =
       submittedVisualReferences;
     try {
+      if (explicitReferenceDecision) {
+        setSubmittingKind("text");
+        const searchQuery = explicitReferenceDecision.searchQuery?.trim() || rawSubmittedComposerPrompt;
+        const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+        if (referenceEpoch !== referenceSubmissionEpochRef.current || submissionSignal.aborted) return;
+        setMessages(prev => [...prev, {
+          id: `assistant-reference-${Date.now()}`,
+          role: "assistant",
+          content: `已找到 ${result.images.length} 张参考图，可以选用或拖入画布。`,
+          timestamp: new Date(),
+          referenceOptions: result.images,
+          referenceSearchQuery: searchQuery,
+          followUpPrompt: explicitReferenceDecision.followUp,
+        }]);
+        return;
+      }
       if (activeSkill) {
         const finalImagePrompt = buildSkillAppliedImagePrompt({
           activeSkill,
@@ -26340,11 +26475,15 @@ function CanvasAssistantPanel({
         );
       }
       pendingImageTask = null;
+      if (explicitReferenceDecision &&
+          (referenceEpoch !== referenceSubmissionEpochRef.current || submissionSignal.aborted)) return;
       notifyAiFailure("AI 助手请求失败", message);
     } finally {
       // ⚠️ 只清理「本轮」的状态。用户可能已经发起了新一轮提交，
       // 旧一轮的 finally 若无条件置 false，会把新一轮的 loading 态吃掉。
-      if (assistantAbortRef.current === submissionAbortController) {
+      if (explicitReferenceDecision && referenceEpoch === referenceSubmissionEpochRef.current) referenceSubmitLockRef.current = false;
+      if (assistantAbortRef.current === submissionAbortController &&
+          (!explicitReferenceDecision || referenceEpoch === referenceSubmissionEpochRef.current)) {
         assistantAbortRef.current = null;
         setIsSubmitting(false);
       }
@@ -38196,6 +38335,20 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
    */
   /** 正在提交中的图片节点 id（同步锁，防连点；见 handleAssetEditSubmit 内注释） */
   const assetEditInFlightRef = useRef<Set<string>>(new Set());
+  const assetReferenceEpochRef = useRef(0);
+  const assetReferenceInFlightRef = useRef<Set<string>>(new Set());
+  useLayoutEffect(() => {
+    const reset = () => {
+      assetReferenceEpochRef.current++;
+      assetReferenceInFlightRef.current.forEach(id => assetEditInFlightRef.current.delete(id));
+      assetReferenceInFlightRef.current.clear();
+    };
+    window.addEventListener("canvas-reference-search-reset", reset);
+    return () => {
+      reset();
+      window.removeEventListener("canvas-reference-search-reset", reset);
+    };
+  }, [projectId]);
   const handleAssetEditSubmit = useCallback(
     async (
       payload: {
@@ -38223,6 +38376,47 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
        * 抢同一个节点（generationId 被覆盖、撤销快照错乱），用户侧表现为 crash。
        * 判定与面板提示条同源：getAssetBusyState。
        */
+      const referenceEpoch = assetReferenceEpochRef.current;
+      const referenceDecision = getExplicitReferenceSearchDecision(payload.prompt);
+      if (referenceDecision) {
+        if (assetEditInFlightRef.current.has(target.nodeId)) return false;
+        assetEditInFlightRef.current.add(target.nodeId);
+        assetReferenceInFlightRef.current.add(target.nodeId);
+        const searchQuery = referenceDecision.searchQuery?.trim() || payload.prompt;
+        window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+          detail: { role: "user", content: payload.prompt, model: "auto" },
+        }));
+        try {
+          const result = await searchReferenceImages({ query: searchQuery, limit: 10 });
+          if (referenceEpoch !== assetReferenceEpochRef.current ||
+              !nodesRef.current.some(node =>
+                node.id === target.nodeId && node.type === sourceNode.type &&
+                node.data.assetId === sourceNode.data.assetId &&
+                node.data.localSrc === sourceNode.data.localSrc
+              )) return false;
+          window.dispatchEvent(new CustomEvent("canvas-assistant-external-message", {
+            detail: {
+              role: "assistant",
+              content: `已找到 ${result.images.length} 张参考图，可以选用或拖入画布。`,
+              referenceOptions: result.images,
+              referenceSearchQuery: searchQuery,
+              followUpPrompt: referenceDecision.followUp,
+              model: "auto",
+            },
+          }));
+          return true;
+        } catch (error) {
+          if (referenceEpoch === assetReferenceEpochRef.current) {
+            notifyAiFailure("参考图搜索失败", error instanceof Error ? error.message : "请稍后重试");
+          }
+          return false;
+        } finally {
+          if (referenceEpoch === assetReferenceEpochRef.current) {
+            assetReferenceInFlightRef.current.delete(target.nodeId);
+            assetEditInFlightRef.current.delete(target.nodeId);
+          }
+        }
+      }
       const selectedTextModel = TEXT_AI_MODELS.find(model => model.id === payload.model);
       if (selectedTextModel) {
         if (assetEditInFlightRef.current.has(target.nodeId)) return;
@@ -38603,7 +38797,7 @@ function InnerCanvas({ projectId = "p1" }: { projectId?: string }) {
           ? ` · 参考图 ${payload.references.length} 张`
           : "";
       const countText = payload.count > 1 ? ` · ${payload.count} 张` : "";
-      window.dispatchEvent(
+      if (!getExplicitReferenceSearchDecision(payload.prompt)) window.dispatchEvent(
         new CustomEvent("canvas-assistant-external-message", {
           detail: {
             role: "user",

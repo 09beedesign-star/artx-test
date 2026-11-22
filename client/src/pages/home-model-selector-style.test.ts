@@ -126,7 +126,8 @@ describe("首页模型选择器必须与上传图片 icon 同款", () => {
     expect(send).toContain("onClick={onSend}");
     const create = between(home, "const createProjectFromPrompt =", "const handlePromptSend =");
     const payload = between(create, "writeHomePromptHandoff({", "\n    });");
-    expect(payload).toMatch(/model:\s*homeImageModelId\s*,/);
+    expect(payload).toMatch(/model:\s*submittedModelId\s*,/);
+    expect(create).toContain('getExplicitReferenceSearchDecision(text) ? "auto" : homeImageModelId;');
     expect(payload).not.toMatch(/model:\s*["']auto["']/);
   });
 

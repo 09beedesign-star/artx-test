@@ -361,8 +361,36 @@ function getRequestSignals(prompt: string) {
 }
 
 function isExplicitReferenceRequest(prompt: string) {
-  const { action, hasTextSignal, hasImageSignal } = getRequestSignals(prompt);
-  return !hasTextSignal && !hasImageSignal && REFERENCE_REQUEST_ACTION_PATTERN.test(action);
+  const clauses = unwrapPoliteRequest(prompt).split(/[，,。.!！\n]+/).map(clause => clause.trim()).filter(Boolean);
+  // 仅忽略独立的否定生成指令；否定搜图、咨询和创作指令仍参与判定。
+  const requests = clauses.filter(clause => !/^(?:请)?(?:不要|不用|不需要|别)(?:再)?(?:生成|新画|画)(?:任何)?(?:新(?:的)?)?(?:图片|图像|照片|图)?(?:了)?$/.test(clause));
+  return requests.length > 0 && requests.every(clause => {
+    const referenceRequest = clause
+      .replace(/^(帮我|为我)去(?=找)/, "$1")
+      .replace(/^我想(?=找)/, "")
+      .replace(/吧$/, "")
+      // 只去掉肯定索图动作紧随的数量歧义，保留咨询谓语与否定信号。
+      .replace(/^((?:我)?(?:需要|想要)|(?:我)?(?:只)?(?:想|希望|需要|要)?(?:先)?(?:看看|看|浏览))几张/, "$1一些");
+    const { action, hasTextSignal, hasImageSignal } = getRequestSignals(referenceRequest);
+    if (hasTextSignal || hasImageSignal) return false;
+    return REFERENCE_REQUEST_ACTION_PATTERN.test(action) ||
+      /^(?:我)?(?:需要|想要)(?:一些|几张|一组|一张|些|点)?[^，,。.!！?？\n]{0,60}(?:参考图片|参考图|图片素材|照片素材|素材图|现成(?:的)?(?:照片|图片))$/.test(action) ||
+      /^(?:我)?(?:正在|在)?(?:搜集|收集)[^，,。.!！?？\n]{0,60}(?:视觉参考|参考图片|参考图|图片素材|照片素材)$/.test(action) ||
+      /^(?:我)?(?:只)?(?:想|希望|需要|要)?(?:先)?(?:看看|看|浏览)(?:一些|几张|一组|一张|些|点)?现成(?:的)?(?:照片|图片)(?:素材)?$/.test(action);
+  });
+}
+
+export function getExplicitReferenceSearchDecision(prompt: string): CreativeIntentDecision | null {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt || !isExplicitReferenceRequest(trimmedPrompt)) return null;
+  const searchQuery = buildReferenceSearchQuery(trimmedPrompt);
+  return {
+    mode: "reference_search",
+    searchQuery,
+    followUp: `我先帮你从网上抓取一组「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`,
+    reason: "命中明确参考图搜索表达",
+    confidence: "high",
+  };
 }
 
 /**
@@ -482,7 +510,8 @@ const MODEL_SWITCH_REPLY_PATTERN =
 
 function buildReferenceSearchQuery(prompt: string) {
   const cleaned = unwrapPoliteRequest(prompt)
-    .replace(/^(?:帮我|为我)?(?:给我|提供|发我|推荐|搜索|找|搜|抓取|抓|收集)(?:一些|几张|一组|一张|一下)?/i, "")
+    .replace(/吧$/, "")
+    .replace(/^(?:帮我|为我|我想)?(?:去找|给我|提供|发我|推荐|搜索|找|搜|抓取|抓|收集)(?:一些|几张|一组|一张|一下)?/i, "")
     .replace(/^(?:参考图|参考图片|素材|灵感|案例|样例|范例)\s*(?:关于|有关|围绕|针对)?\s*/i, "")
     .replace(/^(?:关于|有关|围绕|针对|参考)\s*/i, "")
     .replace(/[，,。.!！?？]+/g, " ")
@@ -585,15 +614,13 @@ export async function routeCreativeIntent({
 }: RouteCreativeIntentInput): Promise<CreativeIntentDecision> {
   const trimmedPrompt = prompt.trim();
   const hasReferences = referencedAssets.length > 0;
-  const wantsReferenceSearch =
-    allowReferenceSearch &&
-    trimmedPrompt.length > 0 &&
-    isExplicitReferenceRequest(trimmedPrompt) &&
-    !DIRECT_IMAGE_PATTERN.test(trimmedPrompt);
+  const referenceSearchDecision = allowReferenceSearch
+    ? getExplicitReferenceSearchDecision(trimmedPrompt)
+    : null;
 
   // 有引用图时，强制裁决必须连索图正则一起跳过，保留读图和底图判断。
   // 无引用图的明确索图仍沿用搜索短路；歧义表达始终交给模型。
-  if (forceModelDecision && (hasReferences || !wantsReferenceSearch)) {
+  if (forceModelDecision && (hasReferences || !referenceSearchDecision)) {
     return routeCreativeIntentWithModel({
       module,
       model,
@@ -604,15 +631,8 @@ export async function routeCreativeIntent({
     });
   }
 
-  if (wantsReferenceSearch) {
-    const searchQuery = buildReferenceSearchQuery(trimmedPrompt);
-    return {
-      mode: "reference_search",
-      searchQuery,
-      followUp: `我先帮你从网上抓取一组「${searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`,
-      reason: "命中明确参考图搜索表达",
-      confidence: "high",
-    };
+  if (referenceSearchDecision) {
+    return referenceSearchDecision;
   }
 
   /**

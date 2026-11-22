@@ -100,12 +100,15 @@ describe("图文混排提示词的意图路由", () => {
     expect(DEFAULT_TEXT_MODEL).toBe("gpt-6-luna");
   });
 
-  it("即便强制走大模型，明确的「找参考图」仍然优先走搜索", async () => {
-    // forceModelDecision 不能把 reference_search 也吃掉 ——
-    // 「帮我找参考图」和「理解图文混排后出图」是两件事。
+  it.each([
+    "帮我找一些赛博朋克海报参考图",
+    "我需要一些天空参考图",
+    "我在搜集天空主题的视觉参考，想看看现成照片，不要新画。",
+    "不要生成，只想看看现成照片",
+  ])("没有引用图时，强制模型判断仍允许明确搜图「%s」短路", async prompt => {
     const decision = await routeCreativeIntent({
       module: "test",
-      prompt: "帮我找一些赛博朋克海报参考图",
+      prompt,
       referencedAssets: [],
       allowReferenceSearch: true,
       forceModelDecision: true,
@@ -114,6 +117,22 @@ describe("图文混排提示词的意图路由", () => {
     expect(callLLM).not.toHaveBeenCalled();
     expect(decision.mode).toBe("reference_search");
   });
+
+  it.each([
+    "我需要一些天空参考图",
+    "不要生成，只想看看现成照片",
+  ])("有引用图时，明确素材诉求「%s」仍服从强制读图判断", async prompt => {
+    callLLM.mockResolvedValue({ text: JSON.stringify({ mode: "text", reply: "先确认当前引用图的用途" }) });
+    const decision = await routeCreativeIntent({
+      module: "test", prompt, referencedAssets: [REFERENCE],
+      allowReferenceSearch: true, forceModelDecision: true,
+    });
+    expect(callLLM).toHaveBeenCalledOnce();
+    expect(callLLM.mock.calls[0][0].images).toEqual([REFERENCE]);
+    expect(decision).toMatchObject({ mode: "text", reply: "先确认当前引用图的用途" });
+  });
+
+
 
   it("没有引用图时，提示词里不应混入图文混排的说明", async () => {
     callLLM.mockResolvedValue({

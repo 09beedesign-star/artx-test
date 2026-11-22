@@ -19,7 +19,7 @@ vi.mock("@/lib/ai", () => ({
   generateImages: vi.fn(),
 }));
 
-const { routeCreativeIntent, inferCreativeIntentDecision } = await import("./ai-intent");
+const { routeCreativeIntent, inferCreativeIntentDecision, getExplicitReferenceSearchDecision } = await import("./ai-intent");
 
 /** 走正则短路的场景不应该调用 LLM；这里统一给个安全兜底值。 */
 const mockLLMText = () => {
@@ -191,15 +191,139 @@ describe("Auto 按动作分流，而不是按问句形式分流", () => {
   });
 
   it.each([
+    "我需要一些天空参考图",
+    "帮我找一些参考图片",
+    "我需要一些天空照片素材",
+    "我需要一些现成照片",
     "我在搜集天空主题的视觉参考，想看看现成照片，不要新画。",
+    "不要生成，只想看看现成照片",
     "不要生成，只想看看现成的照片。",
-  ])("现成素材诉求「%s」不能被否定生图信号短路", async prompt => {
-    callLLM.mockResolvedValue({ text: JSON.stringify({ mode: "reference_search", searchQuery: "天空 照片", confidence: "high" }) });
-    const decision = await route(prompt, { allowReferenceSearch: true });
-    expect(callLLM).toHaveBeenCalledOnce();
-    expect(callLLM.mock.calls[0][0].prompt).toContain(prompt);
-    expect(decision.mode).toBe("reference_search");
-    expect(decision.searchQuery).toBe("天空 照片");
+  ])("明确素材诉求「%s」复用共享搜索决策且不调用模型", async prompt => {
+    const sharedDecision = getExplicitReferenceSearchDecision(prompt);
+    expect(sharedDecision).toMatchObject({ mode: "reference_search", confidence: "high" });
+    expect(sharedDecision?.searchQuery).toBeTruthy();
+    expect(sharedDecision?.followUp).toBe(`我先帮你从网上抓取一组「${sharedDecision?.searchQuery}」参考图，你先选几张最接近你想法的方向，我再继续追问或直接帮你生成。`);
+    expect(await route(prompt, { allowReferenceSearch: true })).toEqual(sharedDecision);
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "我需要几张森林参考图",
+    "我想要几张森林参考图",
+    "看看几张现成的照片",
+  ])("数量索图「%s」共享决策与真实 Auto 路由均直接搜图", async prompt => {
+    const decision = getExplicitReferenceSearchDecision(prompt);
+    expect(decision).toMatchObject({ mode: "reference_search", confidence: "high" });
+    for (const forceModelDecision of [false, true]) {
+      expect(await route(prompt, { allowReferenceSearch: true, forceModelDecision })).toEqual(decision);
+    }
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "我不需要几张森林参考图",
+    "我不想要几张森林参考图",
+    "不要看看几张现成的照片",
+    "我需要几张森林参考图，但不要搜索",
+    "我需要几张森林参考图的分析",
+    "我想要几张森林参考图如何授权？",
+    "看看几张现成的照片要收费吗？",
+    "森林参考图有几张",
+    "我需要几张森林参考图，然后生成新图",
+    "帮我画几张森林参考图",
+  ])("数量索图保护边界「%s」不得触发共享搜索", prompt => {
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "帮我去找一些天空参考图",
+    "帮我找一些天空参考图吧",
+    "我想找一些天空参考图",
+    "我需要一些天空的图片素材",
+    "帮我搜集一些天空照片素材",
+  ])("明确同义索图「%s」共享决策和 Auto 均直接搜图", async prompt => {
+    const decision = getExplicitReferenceSearchDecision(prompt);
+    expect(decision).toMatchObject({ mode: "reference_search", confidence: "high" });
+    expect(decision?.searchQuery).toContain("天空");
+    for (const forceModelDecision of [false, true]) {
+      expect(await route(prompt, { allowReferenceSearch: true, forceModelDecision })).toEqual(decision);
+    }
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "不要帮我去找一些天空参考图",
+    "不用帮我搜集一些天空照片素材",
+    "我不想找一些天空参考图",
+    "我需要一些天空的图片素材，但不要搜索",
+    "别找天空参考图，只分析图片素材",
+    "帮我分析一些天空的图片素材",
+    "我想找一些天空参考图的构图问题",
+    "我需要一些天空的图片素材的分析",
+    "帮我搜集一些天空照片素材的拍摄建议",
+    "帮我去找一些天空参考图的含义",
+    "解释一下‘帮我找一些天空参考图吧’是什么意思",
+    "用户说“我想找一些天空参考图”",
+    "“帮我去找一些天空参考图”",
+    "“帮我搜集一些天空照片素材”",
+    "如何搜集一些天空照片素材？",
+    "你有搜集天空照片素材的能力吗？",
+    "帮我找一些天空参考图要收费吗？",
+    "我需要一些天空的图片素材如何授权？",
+    "我想找一些天空参考图，然后生成新图",
+    "天空的图片素材",
+    "我在考虑天空的图片素材",
+  ])("同义索图边界「%s」不被共享决策抢跑", async prompt => {
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    expect((await route(prompt, { allowReferenceSearch: true })).mode).toBe("text");
+  });
+
+  it.each([
+    "我需要一些文字素材",
+    "我想要一些视频素材",
+    "我需要一些3D模型素材",
+    "我需要一些代码素材",
+  ])("非图片素材「%s」不被共享搜图决策抢跑", prompt => {
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "帮我生成一些天空的图片素材",
+    "帮我画一张新的天空参考图片",
+  ])("生成素材「%s」仍走生图而非搜图", async prompt => {
+    callLLM.mockResolvedValue({ text: JSON.stringify({ mode: "image", imagePrompt: prompt }) });
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    expect((await route(prompt, { allowReferenceSearch: true })).mode).toBe("image");
+  });
+
+  it("共享决策保留原有搜索词清理", () => {
+    for (const prompt of ["请帮我找一些天空参考图", "帮我去找一些天空参考图", "帮我找一些天空参考图吧", "我想找一些天空参考图"]) {
+      expect(getExplicitReferenceSearchDecision(prompt)?.searchQuery).toBe("天空参考图");
+    }
+    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "",
+    "参考",
+    "天空参考图",
+    "我在考虑天空主题的视觉参考",
+    "不要找参考图片",
+    "不用搜图，只解释参考图片的含义",
+    "不要找图，我只需要一些天空参考图的分析",
+    "我需要一些天空参考图，但不要搜索",
+    "不要生成，只想看看现成照片如何授权",
+    "给我分析一下这些天空图片",
+    "如何找天空参考图片？",
+    "帮我生成一张天空参考图片",
+    "参考这张图片的风格，生成一张天空图片",
+    "帮我找一些天空参考图，然后生成一张海报",
+    "解释一下‘帮我找一些参考图片’是什么意思",
+  ])("共享决策对否定、咨询或创作「%s」返回 null", prompt => {
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    expect(callLLM).not.toHaveBeenCalled();
   });
 
   it("现成素材仅交模型判断，模型裁决为咨询时仍返回文字", async () => {
@@ -208,10 +332,24 @@ describe("Auto 按动作分流，而不是按问句形式分流", () => {
     expect(decision.mode).toBe("text");
   });
 
-  it("不支持搜索时，现成照片诉求不打开额外路由", async () => {
-    const decision = await route("想看看现成照片，不要新画。", { allowReferenceSearch: false });
+  it.each([
+    "我需要一些天空参考图",
+    "帮我找一些参考图片",
+    "想看看现成照片，不要新画。",
+    "不要生成，只想看看现成照片",
+  ])("未启用搜索时，明确素材诉求「%s」也不能越过开关", async prompt => {
+    expect(getExplicitReferenceSearchDecision(prompt)?.mode).toBe("reference_search");
+    const decision = await route(prompt, { allowReferenceSearch: false });
     expect(decision.mode).toBe("text");
-    expect(callLLM).not.toHaveBeenCalled();
+  });
+
+  it("参考图片只是生成风格时，仍尊重模型的创作裁决", async () => {
+    const prompt = "参考这张图片的风格，生成一张天空图片";
+    callLLM.mockResolvedValue({ text: JSON.stringify({ mode: "image", imagePrompt: "按引用风格生成天空图片" }) });
+    expect(getExplicitReferenceSearchDecision(prompt)).toBeNull();
+    const decision = await route(prompt, { allowReferenceSearch: true });
+    expect(callLLM).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ mode: "image", imagePrompt: "按引用风格生成天空图片" });
   });
 
   it("有引用图且强制模型裁决时，明确搜图也必须先读图裁决", async () => {

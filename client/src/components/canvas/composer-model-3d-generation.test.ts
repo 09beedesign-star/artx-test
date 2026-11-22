@@ -33,7 +33,7 @@ const submitHead = readSubmitHead();
 /** 切出 3D 分支本身。 */
 function readThreeDBranch() {
   const start = submitHead.indexOf(
-    'if (assistantModelPanelCategory === "3d") {'
+    'if (assistantModelPanelCategory === "3d" && !explicitReferenceDecision) {'
   );
   expect(start, "提交函数里没有 3D 分支").toBeGreaterThan(-1);
   const end = submitHead.indexOf("    const userMessage = {", start);
@@ -47,10 +47,13 @@ const branch = readThreeDBranch();
 describe("右下角 composer 3D 生成链路", () => {
   it("提交函数在进入原有生图/对话流程前先按 3D 分类分叉，并锁 return", () => {
     const branchAt = submitHead.indexOf(
-      'if (assistantModelPanelCategory === "3d") {'
+      'if (assistantModelPanelCategory === "3d" && !explicitReferenceDecision) {'
     );
-    // setSubmittingKind 是原有生图/对话流程的起点，紧跟在 3D 分叉之后。
-    const originalFlowAt = submitHead.indexOf("setSubmittingKind(");
+    // 明确索图新增了更早的模型切换；原有图片/对话流程从 userMessage 开始。
+    const originalFlowAt = submitHead.indexOf("    const userMessage = {");
+    const originalFlow = submitHead.slice(originalFlowAt);
+    expect(originalFlow).toContain("setSubmittingKind(");
+    expect(originalFlow).not.toContain("runCanvasThreeDGeneration({");
     expect(branchAt, "找不到 3D 分叉").toBeGreaterThan(-1);
     expect(originalFlowAt, "切片里找不到原有流程起点，范围可能划错").toBeGreaterThan(-1);
     expect(branchAt, "3D 分叉必须早于原有生图/对话流程").toBeLessThan(originalFlowAt);

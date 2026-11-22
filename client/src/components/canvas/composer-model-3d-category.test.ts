@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 /**
  * 2026-11-22 用户要求：右下角模型菜单只留生图 / 对话，不再提供 3D 分类。
@@ -48,10 +49,66 @@ describe("右下角模型菜单移除 3D 分类", () => {
   });
 
   it("分类初值与其他状态写入不会从持久化恢复 3D", () => {
-    expect(canvasSource).toContain('type CanvasAssistantModelTab = "image" | "text";');
-    expect(canvasSource).toMatch(/const \[assistantModelPanelCategory, setAssistantModelPanelCategory\] =\s*useState<[^>]+>\(assistantModelTab\);/);
-    const writes = [...canvasSource.matchAll(/setAssistantModelPanelCategory\(([^)]*)\)/g)].map(match => match[1]);
-    expect(writes.sort()).toEqual(['"text"', "assistantModelTab", "cat"].sort());
+    const ast = ts.createSourceFile("InfiniteCanvas.tsx", canvasSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const declarations: ts.VariableDeclaration[] = [];
+    const writes: ts.CallExpression[] = [];
+    const tabTypes: ts.TypeAliasDeclaration[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isTypeAliasDeclaration(node) && node.name.text === "CanvasAssistantModelTab") tabTypes.push(node);
+      if (ts.isVariableDeclaration(node)) declarations.push(node);
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+        ["setAssistantModelPanelCategory", "setAssistantModelTab"].includes(node.expression.text)) {
+        writes.push(node);
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(ast);
+    expect(tabTypes, "业务分类类型必须存在且唯一").toHaveLength(1);
+    expect(ts.isUnionTypeNode(tabTypes[0].type)).toBe(true);
+    const tabValues = (tabTypes[0].type as ts.UnionTypeNode).types.map(type =>
+      ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal) ? type.literal.text : type.getText(ast));
+    expect(tabValues.sort()).toEqual(["image", "text"]);
+
+    function stateInitializer(name: string) {
+      const matches = declarations.filter(node => ts.isArrayBindingPattern(node.name) &&
+        node.name.elements.some(element => ts.isBindingElement(element) &&
+          ts.isIdentifier(element.name) && element.name.text === name));
+      expect(matches, `找不到唯一的 ${name} 状态声明，样本无效`).toHaveLength(1);
+      const initializer = matches[0].initializer;
+      expect(initializer && ts.isCallExpression(initializer), `${name} 必须由 useState 初始化`).toBe(true);
+      const call = initializer as ts.CallExpression;
+      expect(call.expression.getText(ast)).toBe("useState");
+      expect(call.arguments).toHaveLength(1);
+      return call.arguments[0];
+    }
+
+    expect(stateInitializer("assistantModelPanelCategory").getText(ast)).toBe("assistantModelTab");
+    const tabInitializer = stateInitializer("assistantModelTab");
+    expect(ts.isArrowFunction(tabInitializer), "业务页签必须先过滤持久化初值").toBe(true);
+    for (const stored of ["image", "text", "3d", "video", "", null]) {
+      const initialTab = new Function("window", "readOwnedPreference", "CANVAS_ASSISTANT_MODEL_TAB_STORAGE_KEY",
+        `return (${tabInitializer.getText(ast)})();`)({}, () => stored, "model-tab");
+      expect(initialTab, `持久化分类 ${stored} 不得恢复 3D`).toBe(stored === "text" ? "text" : "image");
+    }
+
+    const handlerStart = canvasSource.indexOf(categoryHandler!, popoverStart);
+    expect(handlerStart, "找不到已验证白名单的回调范围").toBeGreaterThan(popoverStart);
+    const handlerEnd = handlerStart + categoryHandler!.length;
+    for (const setter of ["setAssistantModelPanelCategory", "setAssistantModelTab"]) {
+      const setterWrites = writes.filter(call => call.expression.getText(ast) === setter);
+      expect(setterWrites.length, `${setter} 写入不存在，不能空集通过`).toBeGreaterThan(0);
+      for (const call of setterWrites) {
+        const location = ast.getLineAndCharacterOfPosition(call.getStart(ast)).line + 1;
+        expect(call.arguments, `${setter}:${location} 必须仅写入一个安全值`).toHaveLength(1);
+        const value = call.arguments[0];
+        const safeLiteral = ts.isStringLiteral(value) && ["text", "image"].includes(value.text);
+        const safeTab = ts.isIdentifier(value) && value.text === "assistantModelTab";
+        const guardedCategory = ts.isIdentifier(value) && value.text === "cat" &&
+          call.getStart(ast) >= handlerStart && call.end <= handlerEnd;
+        expect(safeLiteral || safeTab || guardedCategory,
+          `${setter}:${location} 禁止未过滤的分类写入：${value.getText(ast)}`).toBe(true);
+      }
+    }
   });
 
   it("保留其他位置的独立 3D 入口和唯一生成链路", () => {

@@ -42,6 +42,7 @@ import {
 import { setAnnouncementBlocking } from "@/components/announcement/announcement-gate";
 import { createWorkspaceHistoryProject } from "@/lib/project-history";
 import { requestAiAuth } from "@/lib/ai";
+import { getExplicitReferenceSearchDecision } from "@/lib/ai-intent";
 import {
   ModelSelector,
   useImageModelOptions,
@@ -474,12 +475,14 @@ export default function HomePage() {
       toast("请输入提示词");
       return;
     }
+    const submittedModelId = getExplicitReferenceSearchDecision(text) ? "auto" : homeImageModelId;
+    if (submittedModelId !== homeImageModelId) handleHomeImageModelChange(submittedModelId);
     const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
     const project = createWorkspaceHistoryProject(title || undefined, text);
     const handoffResult = writeHomePromptHandoff({
       projectId: project.id,
       prompt: text,
-      model: homeImageModelId,
+      model: submittedModelId,
       shouldAutoRun: true,
       createdAt: project.createdAt,
       references: homeReferences.length > 0 ? homeReferences : undefined,
