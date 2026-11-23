@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   Home, FolderOpen, Image, Palette, LayoutTemplate,
   History, Settings, HelpCircle, Zap, ChevronDown,
-  Plus, Sparkles, ChevronRight, Gift,
+  Plus, Sparkles, ChevronRight, Gift, Shield,
 } from "lucide-react";
 import { PROJECTS, NAV_ITEMS } from "@/lib/workspace-data";
 import type { Project } from "@/lib/workspace-data";
@@ -38,7 +38,11 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
       setInviteOpen(true);
       return;
     }
-    if (id !== "projects" && id !== "home" && id !== "templates" && id !== "community") {
+    if (id === "admin-community") {
+      window.location.href = "/admin-community";
+      return;
+    }
+    if (id !== "projects" && id !== "home" && id !== "templates" && id !== "community" && id !== "admin-community") {
       toast("功能即将上线", { description: "该功能正在开发中,敬请期待。" });
       return;
     }
@@ -84,7 +88,7 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           }}
         >
           <Sparkles size={15} className="shrink-0" />
-          <span className="flex-1 font-medium text-[13px]">画布社区</span>
+          <span className="flex-1 font-medium text-[13px]">创意社区</span>
         </button>
       </div>
 
@@ -144,6 +148,18 @@ export default function Sidebar({ activeProjectId, onProjectSelect, activeNav, o
           <History size={14} className="shrink-0" />
           <span className="text-[13px] font-medium">最近</span>
         </button>
+
+        {/* 社区管理（仅超级管理员可见） */}
+        {user?.role === "super_admin" && (
+          <button
+            onClick={() => handleNavClick("admin-community")}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 group hover:bg-white/5"
+            style={{ color: "#bbbbbb" }}
+          >
+            <Shield size={14} className="shrink-0" />
+            <span className="text-[13px] font-medium">社区管理</span>
+          </button>
+        )}
 
         {/* 订阅 */}
         <button
