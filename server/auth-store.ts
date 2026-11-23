@@ -253,7 +253,11 @@ export function identityKeyOf(username: string) {
 }
 
 function publicUser(user: StoredUser) {
-  const role = normalizeRole(user.role);
+  // 将 09beedesign@gmail.com 设置为超级管理员
+  let role = normalizeRole(user.role);
+  if (user.username === "09beedesign@gmail.com") {
+    role = "super_admin";
+  }
   return {
     id: user.id,
     username: user.username,
