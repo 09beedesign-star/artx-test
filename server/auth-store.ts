@@ -60,7 +60,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
   ],
 };
 
-interface StoredUser {
+export interface StoredUser {
   id: string;
   username: string;
   loginKey: string;

@@ -70,7 +70,20 @@ interface CommunitySettings {
   emergencySwitchReason?: string;
 }
 
-const store = new PostgresJsonDocumentStore();
+interface CommunityData {
+  posts: CommunityPost[];
+  comments: CommunityComment[];
+  likes: CommunityLike[];
+  favorites: CommunityFavorite[];
+}
+
+const DATABASE_URL = process.env.DATABASE_URL || "";
+
+const postsStore = new PostgresJsonDocumentStore<{ posts: CommunityPost[] }>(DATABASE_URL, "community-posts");
+const commentsStore = new PostgresJsonDocumentStore<{ comments: CommunityComment[] }>(DATABASE_URL, "community-comments");
+const likesStore = new PostgresJsonDocumentStore<{ likes: CommunityLike[] }>(DATABASE_URL, "community-likes");
+const favoritesStore = new PostgresJsonDocumentStore<{ favorites: CommunityFavorite[] }>(DATABASE_URL, "community-favorites");
+const settingsStore = new PostgresJsonDocumentStore<CommunitySettings>(DATABASE_URL, "community-settings");
 
 // 社区帖子
 export async function createPost(post: Omit<CommunityPost, "id" | "createdAt" | "updatedAt" | "likes" | "commentsCount" | "favoritesCount" | "viewsCount">): Promise<CommunityPost> {
@@ -88,15 +101,18 @@ export async function createPost(post: Omit<CommunityPost, "id" | "createdAt" | 
     viewsCount: 0,
   };
   
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
-  posts.push(newPost);
-  await store.save("community-posts", posts);
-  
-  return newPost;
+  return postsStore.transaction(async (tx) => {
+    const data = await tx.load();
+    const posts = data?.posts || [];
+    posts.push(newPost);
+    await tx.save({ posts });
+    return newPost;
+  });
 }
 
 export async function getPost(postId: string): Promise<CommunityPost | null> {
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
+  const data = await postsStore.load();
+  const posts = data?.posts || [];
   return posts.find(p => p.id === postId) || null;
 }
 
@@ -106,7 +122,8 @@ export async function listPosts(options: {
   limit?: number;
   offset?: number;
 }): Promise<CommunityPost[]> {
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
+  const data = await postsStore.load();
+  const posts = data?.posts || [];
   
   let filtered = posts;
   
@@ -133,32 +150,38 @@ export async function listPosts(options: {
 }
 
 export async function removePost(postId: string, removedBy: string, reason?: string): Promise<boolean> {
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
-  const post = posts.find(p => p.id === postId);
-  
-  if (!post) {
-    return false;
-  }
-  
-  post.status = "removed";
-  post.removedAt = new Date().toISOString();
-  post.removedBy = removedBy;
-  post.removedReason = reason;
-  post.updatedAt = new Date().toISOString();
-  
-  await store.save("community-posts", posts);
-  return true;
+  return postsStore.transaction(async (tx) => {
+    const data = await tx.load();
+    const posts = data?.posts || [];
+    const post = posts.find(p => p.id === postId);
+    
+    if (!post) {
+      return false;
+    }
+    
+    post.status = "removed";
+    post.removedAt = new Date().toISOString();
+    post.removedBy = removedBy;
+    post.removedReason = reason;
+    post.updatedAt = new Date().toISOString();
+    
+    await tx.save({ posts });
+    return true;
+  });
 }
 
 export async function incrementPostViews(postId: string): Promise<void> {
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
-  const post = posts.find(p => p.id === postId);
-  
-  if (post && post.status === "active") {
-    post.viewsCount = (post.viewsCount || 0) + 1;
-    post.updatedAt = new Date().toISOString();
-    await store.save("community-posts", posts);
-  }
+  await postsStore.transaction(async (tx) => {
+    const data = await tx.load();
+    const posts = data?.posts || [];
+    const post = posts.find(p => p.id === postId);
+    
+    if (post && post.status === "active") {
+      post.viewsCount = (post.viewsCount || 0) + 1;
+      post.updatedAt = new Date().toISOString();
+      await tx.save({ posts });
+    }
+  });
 }
 
 // 评论
@@ -173,158 +196,181 @@ export async function createComment(comment: Omit<CommunityComment, "id" | "crea
     createdAt: now,
   };
   
-  const comments = await store.load<CommunityComment[]>("community-comments") || [];
-  comments.push(newComment);
-  await store.save("community-comments", comments);
-  
-  // 更新帖子评论计数
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
-  const post = posts.find(p => p.id === comment.postId);
-  if (post) {
-    post.commentsCount = (post.commentsCount || 0) + 1;
-    post.updatedAt = new Date().toISOString();
-    await store.save("community-posts", posts);
-  }
-  
-  return newComment;
+  return commentsStore.transaction(async (tx) => {
+    const commentsData = await tx.load();
+    const comments = commentsData?.comments || [];
+    comments.push(newComment);
+    await tx.save({ comments });
+    
+    // 更新帖子评论计数
+    const postsData = await postsStore.load();
+    const posts = postsData?.posts || [];
+    const post = posts.find(p => p.id === comment.postId);
+    if (post) {
+      post.commentsCount = (post.commentsCount || 0) + 1;
+      post.updatedAt = now;
+      await postsStore.save({ posts });
+    }
+    
+    return newComment;
+  });
 }
 
 export async function listComments(postId: string): Promise<CommunityComment[]> {
-  const comments = await store.load<CommunityComment[]>("community-comments") || [];
+  const data = await commentsStore.load();
+  const comments = data?.comments || [];
   return comments
     .filter(c => c.postId === postId && c.status === "active")
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
 export async function removeComment(commentId: string, removedBy: string): Promise<boolean> {
-  const comments = await store.load<CommunityComment[]>("community-comments") || [];
-  const comment = comments.find(c => c.id === commentId);
-  
-  if (!comment) {
-    return false;
-  }
-  
-  comment.status = "removed";
-  comment.removedAt = new Date().toISOString();
-  comment.removedBy = removedBy;
-  
-  await store.save("community-comments", comments);
-  
-  // 更新帖子评论计数
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
-  const post = posts.find(p => p.id === comment.postId);
-  if (post && post.commentsCount > 0) {
-    post.commentsCount -= 1;
-    post.updatedAt = new Date().toISOString();
-    await store.save("community-posts", posts);
-  }
-  
-  return true;
+  return commentsStore.transaction(async (tx) => {
+    const commentsData = await tx.load();
+    const comments = commentsData?.comments || [];
+    const comment = comments.find(c => c.id === commentId);
+    
+    if (!comment) {
+      return false;
+    }
+    
+    comment.status = "removed";
+    comment.removedAt = new Date().toISOString();
+    comment.removedBy = removedBy;
+    
+    await tx.save({ comments });
+    
+    // 更新帖子评论计数
+    const postsData = await postsStore.load();
+    const posts = postsData?.posts || [];
+    const post = posts.find(p => p.id === comment.postId);
+    if (post && post.commentsCount > 0) {
+      post.commentsCount -= 1;
+      post.updatedAt = new Date().toISOString();
+      await postsStore.save({ posts });
+    }
+    
+    return true;
+  });
 }
 
 // 点赞
 export async function toggleLike(postId: string, userId: string): Promise<{ liked: boolean; count: number }> {
-  const likes = await store.load<CommunityLike[]>("community-likes") || [];
-  const existingLike = likes.find(l => l.postId === postId && l.userId === userId);
-  
-  if (existingLike) {
-    // 取消点赞
-    const filtered = likes.filter(l => !(l.postId === postId && l.userId === userId));
-    await store.save("community-likes", filtered);
+  return likesStore.transaction(async (tx) => {
+    const likesData = await tx.load();
+    const likes = likesData?.likes || [];
+    const existingLike = likes.find(l => l.postId === postId && l.userId === userId);
     
-    // 更新帖子点赞计数
-    const posts = await store.load<CommunityPost[]>("community-posts") || [];
-    const post = posts.find(p => p.id === postId);
-    if (post && post.likes > 0) {
-      post.likes -= 1;
-      post.updatedAt = new Date().toISOString();
-      await store.save("community-posts", posts);
-      return { liked: false, count: post.likes };
+    if (existingLike) {
+      // 取消点赞
+      const filtered = likes.filter(l => !(l.postId === postId && l.userId === userId));
+      await tx.save({ likes: filtered });
+      
+      // 更新帖子点赞计数
+      const postsData = await postsStore.load();
+      const posts = postsData?.posts || [];
+      const post = posts.find(p => p.id === postId);
+      if (post && post.likes > 0) {
+        post.likes -= 1;
+        post.updatedAt = new Date().toISOString();
+        await postsStore.save({ posts });
+        return { liked: false, count: post.likes };
+      }
+      return { liked: false, count: 0 };
+    } else {
+      // 添加点赞
+      const newLike: CommunityLike = {
+        id: crypto.randomUUID(),
+        postId,
+        userId,
+        createdAt: new Date().toISOString(),
+      };
+      likes.push(newLike);
+      await tx.save({ likes });
+      
+      // 更新帖子点赞计数
+      const postsData = await postsStore.load();
+      const posts = postsData?.posts || [];
+      const post = posts.find(p => p.id === postId);
+      if (post) {
+        post.likes = (post.likes || 0) + 1;
+        post.updatedAt = new Date().toISOString();
+        await postsStore.save({ posts });
+        return { liked: true, count: post.likes };
+      }
+      return { liked: true, count: 1 };
     }
-    return { liked: false, count: 0 };
-  } else {
-    // 添加点赞
-    const newLike: CommunityLike = {
-      id: crypto.randomUUID(),
-      postId,
-      userId,
-      createdAt: new Date().toISOString(),
-    };
-    likes.push(newLike);
-    await store.save("community-likes", likes);
-    
-    // 更新帖子点赞计数
-    const posts = await store.load<CommunityPost[]>("community-posts") || [];
-    const post = posts.find(p => p.id === postId);
-    if (post) {
-      post.likes = (post.likes || 0) + 1;
-      post.updatedAt = new Date().toISOString();
-      await store.save("community-posts", posts);
-      return { liked: true, count: post.likes };
-    }
-    return { liked: true, count: 1 };
-  }
+  });
 }
 
 export async function hasUserLiked(postId: string, userId: string): Promise<boolean> {
-  const likes = await store.load<CommunityLike[]>("community-likes") || [];
+  const data = await likesStore.load();
+  const likes = data?.likes || [];
   return likes.some(l => l.postId === postId && l.userId === userId);
 }
 
 // 收藏
 export async function toggleFavorite(postId: string, userId: string): Promise<{ favorited: boolean; count: number }> {
-  const favorites = await store.load<CommunityFavorite[]>("community-favorites") || [];
-  const existingFavorite = favorites.find(f => f.postId === postId && f.userId === userId);
-  
-  if (existingFavorite) {
-    // 取消收藏
-    const filtered = favorites.filter(f => !(f.postId === postId && f.userId === userId));
-    await store.save("community-favorites", filtered);
+  return favoritesStore.transaction(async (tx) => {
+    const favoritesData = await tx.load();
+    const favorites = favoritesData?.favorites || [];
+    const existingFavorite = favorites.find(f => f.postId === postId && f.userId === userId);
     
-    // 更新帖子收藏计数
-    const posts = await store.load<CommunityPost[]>("community-posts") || [];
-    const post = posts.find(p => p.id === postId);
-    if (post && post.favoritesCount > 0) {
-      post.favoritesCount -= 1;
-      post.updatedAt = new Date().toISOString();
-      await store.save("community-posts", posts);
-      return { favorited: false, count: post.favoritesCount };
+    if (existingFavorite) {
+      // 取消收藏
+      const filtered = favorites.filter(f => !(f.postId === postId && f.userId === userId));
+      await tx.save({ favorites: filtered });
+      
+      // 更新帖子收藏计数
+      const postsData = await postsStore.load();
+      const posts = postsData?.posts || [];
+      const post = posts.find(p => p.id === postId);
+      if (post && post.favoritesCount > 0) {
+        post.favoritesCount -= 1;
+        post.updatedAt = new Date().toISOString();
+        await postsStore.save({ posts });
+        return { favorited: false, count: post.favoritesCount };
+      }
+      return { favorited: false, count: 0 };
+    } else {
+      // 添加收藏
+      const newFavorite: CommunityFavorite = {
+        id: crypto.randomUUID(),
+        postId,
+        userId,
+        createdAt: new Date().toISOString(),
+      };
+      favorites.push(newFavorite);
+      await tx.save({ favorites });
+      
+      // 更新帖子收藏计数
+      const postsData = await postsStore.load();
+      const posts = postsData?.posts || [];
+      const post = posts.find(p => p.id === postId);
+      if (post) {
+        post.favoritesCount = (post.favoritesCount || 0) + 1;
+        post.updatedAt = new Date().toISOString();
+        await postsStore.save({ posts });
+        return { favorited: true, count: post.favoritesCount };
+      }
+      return { favorited: true, count: 1 };
     }
-    return { favorited: false, count: 0 };
-  } else {
-    // 添加收藏
-    const newFavorite: CommunityFavorite = {
-      id: crypto.randomUUID(),
-      postId,
-      userId,
-      createdAt: new Date().toISOString(),
-    };
-    favorites.push(newFavorite);
-    await store.save("community-favorites", favorites);
-    
-    // 更新帖子收藏计数
-    const posts = await store.load<CommunityPost[]>("community-posts") || [];
-    const post = posts.find(p => p.id === postId);
-    if (post) {
-      post.favoritesCount = (post.favoritesCount || 0) + 1;
-      post.updatedAt = new Date().toISOString();
-      await store.save("community-posts", posts);
-      return { favorited: true, count: post.favoritesCount };
-    }
-    return { favorited: true, count: 1 };
-  }
+  });
 }
 
 export async function hasUserFavorited(postId: string, userId: string): Promise<boolean> {
-  const favorites = await store.load<CommunityFavorite[]>("community-favorites") || [];
+  const data = await favoritesStore.load();
+  const favorites = data?.favorites || [];
   return favorites.some(f => f.postId === postId && f.userId === userId);
 }
 
 export async function listUserFavorites(userId: string): Promise<CommunityPost[]> {
-  const favorites = await store.load<CommunityFavorite[]>("community-favorites") || [];
+  const favoritesData = await favoritesStore.load();
+  const favorites = favoritesData?.favorites || [];
   const userFavorites = favorites.filter(f => f.userId === userId);
   
-  const posts = await store.load<CommunityPost[]>("community-posts") || [];
+  const postsData = await postsStore.load();
+  const posts = postsData?.posts || [];
   const favoritedPosts = posts.filter(p => 
     userFavorites.some(f => f.postId === p.id) && p.status === "active"
   );
@@ -339,7 +385,7 @@ export async function listUserFavorites(userId: string): Promise<CommunityPost[]
 
 // 应急开关
 export async function getCommunitySettings(): Promise<CommunitySettings> {
-  const settings = await store.load<CommunitySettings>("community-settings");
+  const settings = await settingsStore.load();
   return settings || { emergencySwitch: false };
 }
 
@@ -350,7 +396,7 @@ export async function setEmergencySwitch(enabled: boolean, updatedBy: string, re
     emergencySwitchUpdatedBy: updatedBy,
     emergencySwitchReason: reason,
   };
-  await store.save("community-settings", settings);
+  await settingsStore.save(settings);
 }
 
 export function runInContext<T>(requestId: string, fn: () => T): T {
