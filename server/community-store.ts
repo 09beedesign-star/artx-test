@@ -386,7 +386,10 @@ export async function listUserFavorites(userId: string): Promise<CommunityPost[]
 // 应急开关
 export async function getCommunitySettings(): Promise<CommunitySettings> {
   const settings = await settingsStore.load();
-  return settings || { emergencySwitch: false };
+  if (!settings || !settings.emergencySwitch) {
+    return { emergencySwitch: false };
+  }
+  return settings as CommunitySettings;
 }
 
 export async function setEmergencySwitch(enabled: boolean, updatedBy: string, reason?: string): Promise<void> {

@@ -2704,8 +2704,7 @@ async function startServer() {
   app.use("/api/community", async (req, res, next) => {
     const authResult = await getSessionUserFromAuthorization(req.headers.authorization);
     if (authResult.status === 200 && "user" in authResult.body) {
-      const db = await loadDatabase();
-      const fullUser = db.users.find(u => u.id === authResult.body.user.id);
+      const fullUser = await findUserById(authResult.body.user.id);
       if (fullUser) {
         (req as any).user = fullUser;
       }
