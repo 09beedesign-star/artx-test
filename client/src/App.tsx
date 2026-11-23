@@ -40,6 +40,7 @@ const LongTermMemoryPage = lazy(() => import("./pages/LongTermMemoryPage"));
 const AssetsPage = lazy(() => import("./pages/AssetsPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AdminPrototypePage = lazy(() => import("./pages/AdminPrototypePage"));
+const AdminCommunityPage = lazy(() => import("./pages/AdminCommunityPage"));
 const BillingPage = lazy(() => import("./pages/BillingPage"));
 const CreditsGuidePage = lazy(() => import("./pages/CreditsGuidePage"));
 const MindMapPage = lazy(() => import("./pages/MindMapPage"));
@@ -127,6 +128,13 @@ function ShellRoutes() {
             <Route path="/community">
               <RequireLogin>
                 <CommunityPage />
+              </RequireLogin>
+            </Route>
+
+            {/* 社区管理后台 */}
+            <Route path="/admin-community">
+              <RequireLogin>
+                <AdminCommunityPage />
               </RequireLogin>
             </Route>
 

@@ -53,6 +53,10 @@ const ROLE_PERMISSIONS: Record<AdminRole, string[]> = {
     "risk:write",
     "audit:read",
     "admins:manage",
+    "community:grant-artist",
+    "community:remove-post",
+    "community:freeze-account",
+    "community:emergency-switch",
   ],
 };
 
@@ -91,6 +95,14 @@ interface StoredUser {
   inviteAcceptDisabled?: boolean;
   /** 是否已完成首次付费（奖励发放的唯一触发条件）。 */
   hasPaid?: boolean;
+  /** 社区角色：艺术家身份，由 super_admin 授权 */
+  communityRole?: "artist";
+  /** 社区账号状态：冻结后禁止上传、发布、评论 */
+  communityStatus?: "active" | "frozen";
+  /** 艺术家权限授予时间 */
+  artistGrantedAt?: string;
+  /** 艺术家权限授予者（super_admin 的 user id） */
+  artistGrantedBy?: string;
 }
 
 export type PublicAuthUser = ReturnType<typeof publicUser>;
@@ -2004,5 +2016,25 @@ export function createAuthUserForAdmin(...args: Parameters<typeof createAuthUser
 
 export function updateAuthUserAdmin(...args: Parameters<typeof updateAuthUserAdminUnlocked>): ReturnType<typeof updateAuthUserAdminUnlocked> {
   return withAuthWriteLock(() => updateAuthUserAdminUnlocked(...args));
+}
+
+// ---- 社区功能辅助函数 ----
+export async function findUserById(userId: string): Promise<StoredUser | null> {
+  const db = await loadDatabase();
+  return db.users.find(u => u.id === userId) || null;
+}
+
+async function updateUserUnlocked(userId: string, updates: Partial<StoredUser>): Promise<void> {
+  const db = await loadDatabase();
+  const user = db.users.find(u => u.id === userId);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  Object.assign(user, updates);
+  await saveDatabase(db);
+}
+
+export function updateUser(userId: string, updates: Partial<StoredUser>): Promise<void> {
+  return withAuthWriteLock(() => updateUserUnlocked(userId, updates));
 }
 

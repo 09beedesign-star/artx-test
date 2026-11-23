@@ -72,6 +72,7 @@ import { finishVoiceSession, startVoiceSession } from "./voice-routes";
 import { generateText } from "./text-generation";
 import { recordCrossBorderCommerceGeneration } from "./cross-border-commerce-records";
 import { createApiKeyForAuthorization, getAdminSessionFromAuthorization, getApiKeyUserFromAuthorization, getDevAutoLoginSession, getInviteSummaryForUser, getSessionUserFromAuthorization, handleAuthAction, listApiKeysForAuthorization, listAuthUsers, setInviteAcceptDisabled } from "./auth-store";
+import communityRoutes from "./community-routes";
 import { acknowledgeCreditGiftNotification, AiBillingError, assertCanUseAiImageModel, assertUserCanAffordAiUsage, createBillingOrder, createCreditRechargeOrder, getAiModelEntitlementsForUser, getPlanIdForUser, getBillingOrderForPayment, getBillingSnapshotForUser, getCreditGiftNotificationsForUser, grantSignupInitialCredits, handleAdminApiRequest, markBillingOrderPaid, quoteAdminAiUsage, recordAiUsage, recordBillingPaymentCreated, recordBillingPaymentFailure, recordRiskEvent, releaseTestAccountAiUsage, reserveTestAccountAiUsage, submitUserFeedback, sendInviteEmail, getInviteEarnedCreditsForUser } from "./admin-store";
 import { getAllowedCorsOrigin } from "./cors";
 import { sendOpsNotification, sendUserEmailNotification } from "./notifications";
@@ -2698,6 +2699,19 @@ async function startServer() {
       res.status(500).json({ error: message });
     }
   });
+
+  // 社区路由
+  app.use("/api/community", async (req, res, next) => {
+    const authResult = await getSessionUserFromAuthorization(req.headers.authorization);
+    if (authResult.status === 200 && "user" in authResult.body) {
+      const db = await loadDatabase();
+      const fullUser = db.users.find(u => u.id === authResult.body.user.id);
+      if (fullUser) {
+        (req as any).user = fullUser;
+      }
+    }
+    next();
+  }, communityRoutes);
 
   app.post("/api/mcp", async (req, res) => {
     const request = req.body && typeof req.body === "object" ? req.body as McpJsonRpcRequest : {};
