@@ -7,7 +7,7 @@ export type PromptDocument = {
   structure: string;
 };
 
-export const DOCUMENT_ACCEPT = ".txt,.md,.csv,.tsv,.json,.pdf,.doc,.docx,.xls,.xlsx,.pptx";
+export const DOCUMENT_ACCEPT = ".txt,.md,.csv,.tsv,.json,.pdf,.doc,.docx,.wps,.xls,.xlsx,.et,.pptx,.dps";
 export const MAX_PROMPT_DOCUMENTS = 4;
 export const MAX_PROMPT_DOCUMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_PROMPT_DOCUMENT_TEXT = 60_000;
