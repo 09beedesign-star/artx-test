@@ -1,22 +1,13 @@
 /**
  * AdminCommunityPage — 创意社区管理后台
- * 超级管理员功能:授予艺术家权限、下架作品、冻结账号、应急开关
+ * 超级管理员功能: 艺术家授权邀请（异步三方确认）、下架作品、冻结账号、应急开关
  */
 import { useState, useEffect } from "react";
+import { communityAuthHeaders as authHeaders } from "@/lib/community-client";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Shield, Users, AlertCircle, CheckCircle2, Ban, Trash2, Power } from "lucide-react";
+import { Shield, Users, AlertCircle, CheckCircle2, Ban, Trash2, Power, Bell } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
-
-interface User {
-  id: string;
-  email: string;
-  username: string;
-  communityRole?: "artist";
-  communityStatus?: "active" | "frozen";
-  artistGrantedAt?: string;
-  artistGrantedBy?: string;
-}
 
 interface Post {
   id: string;
@@ -31,6 +22,28 @@ interface Post {
   removedReason?: string;
 }
 
+type InvitationStatus = "pending" | "accepted" | "granted" | "declined" | "revoked";
+
+interface ArtistInvitation {
+  id: string;
+  userId: string;
+  username: string;
+  invitedByUsername: string;
+  status: InvitationStatus;
+  note?: string;
+  createdAt: string;
+  acceptedAt?: string;
+  grantedAt?: string;
+}
+
+const INVITATION_LABEL: Record<InvitationStatus, string> = {
+  pending: "待艺术家接受",
+  accepted: "已接受 · 待你确认通过",
+  granted: "授权已生效",
+  declined: "艺术家已拒绝",
+  revoked: "已撤回",
+};
+
 export default function AdminCommunityPage() {
   const { resolvedTheme } = useTheme();
   const { user } = useAuth();
@@ -43,15 +56,17 @@ export default function AdminCommunityPage() {
   const inputBg = isDark ? "#2a2a2a" : "#f5f5f5";
 
   const [activeTab, setActiveTab] = useState<"users" | "posts" | "settings">("users");
-  const [users, setUsers] = useState<User[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [invitations, setInvitations] = useState<ArtistInvitation[]>([]);
   const [emergencySwitch, setEmergencySwitch] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Grant Artist Form
-  const [grantEmail, setGrantEmail] = useState("");
+  // 发起艺术家邀请
+  const [grantAccount, setGrantAccount] = useState("");
+  const [grantNote, setGrantNote] = useState("");
   const [grantLoading, setGrantLoading] = useState(false);
+  const [busyInvitationId, setBusyInvitationId] = useState("");
 
   // Remove Post Form
   const [removePostId, setRemovePostId] = useState("");
@@ -64,14 +79,22 @@ export default function AdminCommunityPage() {
   const [freezeLoading, setFreezeLoading] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!user?.id) return;
+    void loadData();
+    const refresh = () => { void loadData(); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [user?.id]);
 
   async function loadData() {
     try {
       // Load settings
       const settingsRes = await fetch("/api/community/settings", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: authHeaders(),
       });
       if (settingsRes.ok) {
         const data = await settingsRes.json();
@@ -80,11 +103,23 @@ export default function AdminCommunityPage() {
 
       // Load posts
       const postsRes = await fetch("/api/community/posts?includeRemoved=true", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: authHeaders(),
       });
       if (postsRes.ok) {
         const data = await postsRes.json();
-        setPosts(data.posts || []);
+        setPosts(Array.isArray(data) ? data : data.posts || []);
+      }
+
+      // 艺术家邀请列表：accepted 即「已接受、待我确认」的通过提醒
+      const invitationsRes = await fetch("/api/community/admin/artist-invitations", {
+        headers: authHeaders(),
+      });
+      if (invitationsRes.ok) {
+        const data = await invitationsRes.json();
+        setInvitations(Array.isArray(data.invitations) ? data.invitations : []);
+      } else {
+        const data = await invitationsRes.json();
+        setMessage({ type: "error", text: data.error || "读取邀请列表失败，请刷新重试" });
       }
     } catch (error) {
       console.error("Failed to load data:", error);
@@ -93,35 +128,79 @@ export default function AdminCommunityPage() {
     }
   }
 
-  async function handleGrantArtist() {
-    if (!grantEmail.trim()) {
-      showMessage("error", "请输入邮箱");
+  async function handleInviteArtist() {
+    if (!grantAccount.trim()) {
+      showMessage("error", "请输入艺术家的注册账号");
+      return;
+    }
+    if (!authHeaders().Authorization) {
+      showMessage("error", "登录状态已失效，请重新登录后再发送邀请");
       return;
     }
 
     setGrantLoading(true);
     try {
-      const response = await fetch("/api/community/admin/grant-artist", {
+      const response = await fetch("/api/community/admin/invite-artist", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
-        body: JSON.stringify({ email: grantEmail }),
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ account: grantAccount, note: grantNote }),
       });
-
+      const data = await response.json();
       if (response.ok) {
-        showMessage("success", "艺术家权限已授予");
-        setGrantEmail("");
-        loadData();
+        showMessage("success", data.message || "邀请已发送，等待艺术家在个人中心接受");
+        setGrantAccount("");
+        setGrantNote("");
+        await loadData();
       } else {
-        const data = await response.json();
-        showMessage("error", data.error || "授予失败");
+        showMessage("error", data.error || "发送邀请失败");
       }
-    } catch (error) {
-      showMessage("error", "授予失败,请重试");
+    } catch {
+      showMessage("error", "发送邀请失败，请重试");
     } finally {
       setGrantLoading(false);
+    }
+  }
+
+  /** 超管确认通过：这一步才让艺术家的上传权限真正生效。 */
+  async function handleConfirmInvitation(id: string) {
+    setBusyInvitationId(id);
+    try {
+      const response = await fetch(`/api/community/admin/artist-invitations/${id}/confirm`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showMessage("success", data.message || "授权已生效");
+        await loadData();
+      } else {
+        showMessage("error", data.error || "确认失败");
+      }
+    } catch {
+      showMessage("error", "确认失败，请重试");
+    } finally {
+      setBusyInvitationId("");
+    }
+  }
+
+  async function handleRevokeInvitation(id: string) {
+    setBusyInvitationId(id);
+    try {
+      const response = await fetch(`/api/community/admin/artist-invitations/${id}/revoke`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showMessage("success", "邀请已撤回");
+        await loadData();
+      } else {
+        showMessage("error", data.error || "撤回失败");
+      }
+    } catch {
+      showMessage("error", "撤回失败，请重试");
+    } finally {
+      setBusyInvitationId("");
     }
   }
 
@@ -135,10 +214,7 @@ export default function AdminCommunityPage() {
     try {
       const response = await fetch("/api/community/admin/remove-post", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ postId: removePostId, reason: removeReason }),
       });
 
@@ -168,10 +244,7 @@ export default function AdminCommunityPage() {
     try {
       const response = await fetch("/api/community/admin/freeze-account", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ userId: freezeUserId, reason: freezeReason }),
       });
 
@@ -197,11 +270,8 @@ export default function AdminCommunityPage() {
     try {
       const response = await fetch("/api/community/admin/emergency-switch", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-        },
-        body: JSON.stringify({ enable, reason }),
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ enabled: enable, reason }),
       });
 
       if (response.ok) {
@@ -220,6 +290,8 @@ export default function AdminCommunityPage() {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
   }
+
+  const pendingConfirm = invitations.filter(item => item.status === "accepted");
 
   if (loading) {
     return (
@@ -286,29 +358,99 @@ export default function AdminCommunityPage() {
       <div className="flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1, padding: "var(--space-lg)" }}>
         {activeTab === "users" && (
           <div style={{ maxWidth: "800px" }}>
+            {/* 通过提醒：艺术家已接受，等超管确认 */}
+            {pendingConfirm.length > 0 && (
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", marginBottom: "var(--space-lg)", padding: "var(--space-md)", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.35)", borderRadius: "var(--radius-md)", color: "#22c55e" }}
+              >
+                <Bell size={16} />
+                <span className="type-body">
+                  有 {pendingConfirm.length} 位艺术家已接受邀请，确认通过后上传权限才会生效
+                </span>
+              </div>
+            )}
+
             <div style={{ background: cardBg, borderRadius: "var(--radius-lg)", padding: "var(--space-lg)", border: `1px solid ${border}` }}>
-              <h2 className="type-headline" style={{ color: text, marginBottom: "var(--space-md)" }}>授予艺术家权限</h2>
+              <h2 className="type-headline" style={{ color: text, marginBottom: "var(--space-xs)" }}>邀请艺术家开通上传权限</h2>
+              <p className="type-caption" style={{ color: subText, marginBottom: "var(--space-md)" }}>
+                输入对方的注册账号发送邀请 → 对方在个人中心接受 → 你在这里确认通过，授权才最终生效。
+              </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
                 <div>
-                  <label className="type-body" style={{ color: text, display: "block", marginBottom: "var(--space-xs)" }}>用户邮箱</label>
+                  <label className="type-body" style={{ color: text, display: "block", marginBottom: "var(--space-xs)" }}>艺术家注册账号</label>
                   <input
-                    type="email"
-                    value={grantEmail}
-                    onChange={e => setGrantEmail(e.target.value)}
-                    placeholder="user@example.com"
+                    type="text"
+                    value={grantAccount}
+                    onChange={e => setGrantAccount(e.target.value)}
+                    placeholder="注册时使用的邮箱 / 手机号 / 用户名"
+                    className="type-body"
+                    style={{ width: "100%", padding: "var(--space-sm)", background: inputBg, border: `1px solid ${border}`, borderRadius: "var(--radius-md)", color: text }}
+                  />
+                </div>
+                <div>
+                  <label className="type-body" style={{ color: text, display: "block", marginBottom: "var(--space-xs)" }}>邀请备注（选填）</label>
+                  <input
+                    type="text"
+                    value={grantNote}
+                    onChange={e => setGrantNote(e.target.value)}
+                    placeholder="例如：邀请上传作品集"
                     className="type-body"
                     style={{ width: "100%", padding: "var(--space-sm)", background: inputBg, border: `1px solid ${border}`, borderRadius: "var(--radius-md)", color: text }}
                   />
                 </div>
                 <button
-                  onClick={handleGrantArtist}
+                  onClick={handleInviteArtist}
                   disabled={grantLoading}
                   className="type-body-strong"
                   style={{ padding: "var(--space-sm) var(--space-lg)", background: grantLoading ? "#555" : "#161616", color: "#fff", border: "none", borderRadius: "var(--radius-md)", cursor: grantLoading ? "not-allowed" : "pointer" }}
                 >
-                  {grantLoading ? "处理中..." : "授予权限"}
+                  {grantLoading ? "发送中..." : "发送邀请"}
                 </button>
               </div>
+            </div>
+
+            <div style={{ background: cardBg, borderRadius: "var(--radius-lg)", padding: "var(--space-lg)", border: `1px solid ${border}`, marginTop: "var(--space-lg)" }}>
+              <h2 className="type-headline" style={{ color: text, marginBottom: "var(--space-md)" }}>授权邀请记录</h2>
+              {invitations.length === 0 ? (
+                <p className="type-body" style={{ color: subText }}>暂无邀请</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+                  {invitations.map(item => (
+                    <div
+                      key={item.id}
+                      style={{ padding: "var(--space-sm)", border: `1px solid ${item.status === "accepted" ? "rgba(34,197,94,0.5)" : border}`, borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: "var(--space-md)", flexWrap: "wrap" }}
+                    >
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div className="type-body" style={{ color: text }}>{item.username}</div>
+                        <div className="type-caption" style={{ color: subText }}>
+                          {INVITATION_LABEL[item.status]} · {new Date(item.createdAt).toLocaleString("zh-CN")}
+                          {item.note ? ` · ${item.note}` : ""}
+                        </div>
+                      </div>
+                      {item.status === "accepted" && (
+                        <button
+                          onClick={() => handleConfirmInvitation(item.id)}
+                          disabled={busyInvitationId === item.id}
+                          className="type-body-strong"
+                          style={{ padding: "var(--space-xs) var(--space-md)", background: "#161616", color: "#fff", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer" }}
+                        >
+                          {busyInvitationId === item.id ? "处理中..." : "确认通过"}
+                        </button>
+                      )}
+                      {(item.status === "pending" || item.status === "accepted") && (
+                        <button
+                          onClick={() => handleRevokeInvitation(item.id)}
+                          disabled={busyInvitationId === item.id}
+                          className="type-caption"
+                          style={{ padding: "var(--space-xs) var(--space-sm)", background: "transparent", color: subText, border: `1px solid ${border}`, borderRadius: "var(--radius-md)", cursor: "pointer" }}
+                        >
+                          撤回
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

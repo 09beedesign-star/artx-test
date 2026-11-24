@@ -3,6 +3,7 @@
  * 包含 5 项必选声明 + 免责条款确认
  */
 import { useState, useRef } from "react";
+import { communityAuthHeaders } from "@/lib/community-client";
 import { useTheme } from "@/contexts/ThemeContext";
 import { X, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
 
@@ -84,7 +85,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
 
       const response = await fetch("/api/community/posts", {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: communityAuthHeaders(),
         body: formData,
       });
 

@@ -3,8 +3,8 @@
  * Presents the current user's public profile overview while preserving the artx visual language.
  */
 import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell } from "lucide-react";
 import { useLocation } from "wouter";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
@@ -15,6 +15,7 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { communityAuthHeaders, readCommunityToken } from "@/lib/community-client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,161 @@ const PROFILE_STORAGE_BASE_KEY = "artx:creator-profile";
 // 账号隔离：资料按 userId 分桶，见 @/lib/owner-storage。
 const profileStorageKey = () => ownerScopedKey(PROFILE_STORAGE_BASE_KEY);
 const DEFAULT_DESCRIPTION = "这是您的 ArtXStudio 创作者主页";
+
+/* ------------------------------------------------------------------ *
+ * 艺术家上传权限邀请（个人中心通知）
+ * 超管发邀请 -> 这里接受 -> 超管确认 -> 权限生效。只读自己的邀请，
+ * 取 token 必须用 artx-auth-session（与 AdminCommunityPage 同口径）。
+ * ------------------------------------------------------------------ */
+
+type ArtistInvitation = {
+  id: string;
+  username: string;
+  invitedByUsername: string;
+  status: "pending" | "accepted" | "granted" | "declined" | "revoked";
+  note?: string;
+  createdAt: string;
+};
+
+function ArtistInvitationNotice({
+  isDark, border, cardBg, textPrimary, textSecondary,
+}: {
+  isDark: boolean;
+  border: string;
+  cardBg: string;
+  textPrimary: string;
+  textSecondary: string;
+}) {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const [invitations, setInvitations] = useState<ArtistInvitation[]>([]);
+  const [busyId, setBusyId] = useState("");
+  const [loadError, setLoadError] = useState("");
+
+  const load = useCallback(async () => {
+    const token = readCommunityToken();
+    if (!token) return;
+    try {
+      const response = await fetch("/api/community/artist-invitations", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setInvitations(Array.isArray(data.invitations) ? data.invitations : []);
+        setLoadError("");
+      } else {
+        setLoadError("邀请通知暂时无法读取，请点击刷新重试");
+      }
+    } catch {
+      setLoadError("邀请通知暂时无法读取，请点击刷新重试");
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    setInvitations([]);
+    if (!user?.id) return;
+    void load();
+    const refresh = () => { void load(); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [load, user?.id]);
+
+  async function respond(id: string, action: "accept" | "decline") {
+    setBusyId(id);
+    try {
+      const response = await fetch(`/api/community/artist-invitations/${id}/${action}`, {
+        method: "POST",
+        headers: communityAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        toast.success(action === "accept"
+          ? "已接受邀请，等待管理员确认后上传权限生效"
+          : "已拒绝邀请");
+        await load();
+      } else {
+        toast.error(data.error || "操作失败");
+      }
+    } catch {
+      toast.error("操作失败，请重试");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  const visible = invitations.filter(item =>
+    item.status === "pending" || item.status === "accepted" || item.status === "granted"
+  );
+  if (visible.length === 0 && !loadError) return null;
+
+  return (
+    <section
+      className="mb-5 rounded-[var(--radius-lg)]"
+      style={{ background: cardBg, border: `1px solid ${border}`, padding: "var(--space-lg)" }}
+      aria-label="艺术家邀请通知"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <Bell size={16} style={{ color: isDark ? "#e5e5e5" : "#161616" }} />
+        <h2 className="type-headline" style={{ color: textPrimary }}>艺术家邀请</h2>
+        <button type="button" onClick={() => void load()} className="type-caption ml-auto" style={{ color: textSecondary }}>刷新通知</button>
+      </div>
+      {loadError && <p role="alert" className="type-caption mb-3" style={{ color: textSecondary }}>{loadError}</p>}
+      <div className="grid gap-3">
+        {visible.map(item => (
+          <div
+            key={item.id}
+            className="flex flex-wrap items-center gap-3 rounded-[var(--radius-md)]"
+            style={{ padding: "var(--space-sm)", background: isDark ? "#242424" : "#f7f7f7" }}
+          >
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <p className="type-body" style={{ color: textPrimary }}>
+                {item.status === "pending" && `${item.invitedByUsername} 邀请你开通创意社区的作品上传权限`}
+                {item.status === "accepted" && "你已接受邀请，正在等待管理员确认通过"}
+                {item.status === "granted" && "艺术家上传权限已生效，现在可以上传作品了"}
+              </p>
+              <p className="type-caption" style={{ color: textSecondary }}>
+                {new Date(item.createdAt).toLocaleString("zh-CN")}
+                {item.note ? ` · ${item.note}` : ""}
+              </p>
+            </div>
+            {item.status === "pending" && (
+              <>
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => void respond(item.id, "accept")}
+                  className="type-body-strong"
+                  style={{ padding: "var(--space-xs) var(--space-md)", background: "#161616", color: "#fff", border: "none", borderRadius: "var(--radius-md)", cursor: "pointer" }}
+                >
+                  {busyId === item.id ? "处理中..." : "接受邀请"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busyId === item.id}
+                  onClick={() => void respond(item.id, "decline")}
+                  className="type-caption"
+                  style={{ padding: "var(--space-xs) var(--space-sm)", background: "transparent", color: textSecondary, border: `1px solid ${border}`, borderRadius: "var(--radius-md)", cursor: "pointer" }}
+                >
+                  拒绝
+                </button>
+              </>
+            )}
+            {item.status === "accepted" && (
+              <span className="type-caption" style={{ color: "#22c55e" }}>待管理员确认</span>
+            )}
+            {item.status === "granted" && (
+              <button type="button" onClick={() => navigate("/community")} className="type-body-strong" style={{ padding: "var(--space-xs) var(--space-md)", background: "#161616", color: "#fff", borderRadius: "var(--radius-md)" }}>去上传作品</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function readStoredProfile(): Partial<ProfileDraft> {
   try {
@@ -279,6 +435,7 @@ export default function ProfilePage() {
       <main className="relative flex-1 overflow-y-auto px-8 py-8">
         <div className="pointer-events-none absolute inset-0 opacity-0" style={{ background: BG_GLOW }} />
         <div className="relative mx-auto max-w-5xl">
+          {user && <ArtistInvitationNotice key={user.id} isDark={isDark} border={border} cardBg={cardBg} textPrimary={textPrimary} textSecondary={textSecondary} />}
           <section
             className="relative overflow-hidden rounded-[var(--radius-xl-design)]"
             style={{

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import { PostgresJsonDocumentStore } from "./postgres-json-store";
+import { findUserById } from "./auth-store";
 
 const asyncLocalStorage = new AsyncLocalStorage<{ requestId: string }>();
 
@@ -408,4 +409,155 @@ export function runInContext<T>(requestId: string, fn: () => T): T {
 
 export function getRequestId(): string | undefined {
   return asyncLocalStorage.getStore()?.requestId;
+}
+
+/* ------------------------------------------------------------------ *
+ * 艺术家授权邀请（异步三段式）
+ *
+ * 超管发起 -> 艺术家在个人中心接受 -> 超管确认通过 -> 权限才真正生效。
+ * 独立文档 key，避免碰订单后台的 admin-data；所有写入走 transaction()
+ * 拿 pg_advisory_xact_lock，防止「load→改→save」互相覆盖。
+ * ------------------------------------------------------------------ */
+
+export type ArtistInvitationStatus =
+  | "pending"      // 已发出，等艺术家接受
+  | "accepted"     // 艺术家已接受，等超管确认
+  | "granted"      // 超管确认，权限已生效
+  | "declined"     // 艺术家拒绝
+  | "revoked";     // 超管撤回
+
+export type ArtistInvitation = {
+  id: string;
+  userId: string;
+  username: string;
+  invitedBy: string;
+  invitedByUsername: string;
+  status: ArtistInvitationStatus;
+  note?: string;
+  createdAt: string;
+  acceptedAt?: string;
+  grantedAt?: string;
+};
+
+type InvitationData = { invitations: ArtistInvitation[] };
+
+const invitationsStore = new PostgresJsonDocumentStore<InvitationData>(
+  DATABASE_URL,
+  "community-artist-invitations",
+);
+
+function invitationsOf(data: Partial<InvitationData> | null): ArtistInvitation[] {
+  return Array.isArray(data?.invitations) ? [...data.invitations] : [];
+}
+
+// 等待邀请锁的请求不先占连接，给锁内 auth-users 事务和读取留出 pool 空位。
+let invitationWriteChain: Promise<unknown> = Promise.resolve();
+function withInvitationWriteLock<R>(fn: Parameters<typeof invitationsStore.transaction<R>>[0]): Promise<R> {
+  const run = () => invitationsStore.transaction(fn);
+  const result = invitationWriteChain.then(run, run);
+  invitationWriteChain = result.catch(() => undefined);
+  return result;
+}
+
+function byNewest(a: ArtistInvitation, b: ArtistInvitation) {
+  return b.createdAt.localeCompare(a.createdAt);
+}
+
+export async function listArtistInvitationsForUser(userId: string): Promise<ArtistInvitation[]> {
+  return invitationsOf(await invitationsStore.load())
+    .filter(item => item.userId === userId)
+    .sort(byNewest);
+}
+
+export async function listAllArtistInvitations(): Promise<ArtistInvitation[]> {
+  return invitationsOf(await invitationsStore.load()).sort(byNewest);
+}
+
+export async function createArtistInvitation(input: {
+  userId: string;
+  username: string;
+  invitedBy: string;
+  invitedByUsername: string;
+  note?: string;
+}): Promise<ArtistInvitation> {
+  return withInvitationWriteLock(async tx => {
+    const list = invitationsOf(await tx.load());
+    if (list.some(item => item.userId === input.userId &&
+      (item.status === "pending" || item.status === "accepted"))) {
+      throw new Error("该账号已有待处理的艺术家邀请，请等待对方回应或先撤回");
+    }
+    const target = await findUserById(input.userId);
+    if (!target) throw new Error("被邀请的用户已不存在");
+    if (target.status === "disabled" || target.communityStatus === "frozen") {
+      throw new Error("账号已冻结或停用，不能邀请");
+    }
+    if (target.communityRole === "artist") {
+      throw new Error("该账号已经是艺术家，无需重复邀请");
+    }
+    const invitation: ArtistInvitation = {
+      id: crypto.randomUUID(),
+      ...input,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    await tx.save({ invitations: [...list, invitation] });
+    return invitation;
+  });
+}
+
+/** 只允许单步状态迁移；状态已被别人改过时明确报错，不静默覆盖。 */
+export async function advanceArtistInvitation(
+  id: string,
+  expected: ArtistInvitationStatus,
+  next: ArtistInvitationStatus,
+  patch: Pick<Partial<ArtistInvitation>, "acceptedAt"> = {},
+  actorUserId?: string,
+): Promise<ArtistInvitation> {
+  return withInvitationWriteLock(async tx => {
+    const list = invitationsOf(await tx.load());
+    const index = list.findIndex(item => item.id === id);
+    if (index < 0 || (actorUserId !== undefined && list[index].userId !== actorUserId)) {
+      throw new Error("邀请不存在");
+    }
+    const allowed = (expected === "pending" && ["accepted", "declined", "revoked"].includes(next)) ||
+      (expected === "accepted" && next === "revoked");
+    if (!allowed) throw new Error("邀请状态已变更：不允许该状态迁移");
+    if (list[index].status !== expected) {
+      throw new Error(`邀请状态已变更（当前：${list[index].status}），请刷新后重试`);
+    }
+    if (expected === "accepted") {
+      const target = await findUserById(list[index].userId);
+      if (target?.communityRole === "artist" && target.artistGrantInvitationId === id) {
+        throw new Error("权限已写入，请重试确认授权或撤销艺术家权限");
+      }
+    }
+    list[index] = {
+      ...list[index],
+      ...(next === "accepted" ? { acceptedAt: patch.acceptedAt || new Date().toISOString() } : {}),
+      status: next,
+    };
+    await tx.save({ invitations: list });
+    return list[index];
+  });
+}
+
+/** 邀请锁始终先于 auth 锁；权限提交成功后才标完成，不做易失效的补偿写入。 */
+export async function confirmArtistInvitation(
+  id: string,
+  grant: (invitation: ArtistInvitation & { status: "accepted" | "granted" }) => Promise<{ grantedAt: string }>,
+): Promise<ArtistInvitation> {
+  return withInvitationWriteLock(async tx => {
+    const list = invitationsOf(await tx.load());
+    const index = list.findIndex(item => item.id === id);
+    if (index < 0) throw new Error("邀请不存在");
+    const invitation = list[index];
+    if (invitation.status !== "accepted" && invitation.status !== "granted") {
+      throw new Error(`邀请状态已变更（当前：${invitation.status}），须先由本人接受`);
+    }
+    const { grantedAt } = await grant({ ...invitation, status: invitation.status });
+    if (invitation.status === "granted") return invitation;
+    list[index] = { ...invitation, status: "granted", grantedAt };
+    await tx.save({ invitations: list });
+    return list[index];
+  });
 }

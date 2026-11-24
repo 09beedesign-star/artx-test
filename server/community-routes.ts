@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
+import { getUploadsRoot } from "./local-image-storage";
 import {
   createPost,
   getPost,
@@ -19,15 +20,22 @@ import {
   listUserFavorites,
   getCommunitySettings,
   setEmergencySwitch,
+  createArtistInvitation,
+  listAllArtistInvitations,
+  listArtistInvitationsForUser,
+  advanceArtistInvitation,
+  confirmArtistInvitation,
 } from "./community-store";
-import { findUserById, updateUser, type StoredUser } from "./auth-store";
+import {
+  findUserById, findUserByAccount, updateUser, effectiveUserRole, grantArtistFromInvitation, type StoredUser,
+} from "./auth-store";
 
 const router = express.Router();
 
 // 配置图片上传
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
-    const uploadDir = path.join(process.cwd(), "uploads", "community");
+    const uploadDir = path.join(getUploadsRoot(), "community");
     await fs.mkdir(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
@@ -78,8 +86,8 @@ function requireArtist(req: express.Request, res: express.Response, next: expres
     }
     
     // 检查账号状态
-    if (user.communityStatus === "frozen") {
-      return res.status(403).json({ error: "您的账号已被冻结,无法发布内容" });
+    if (user.status === "disabled" || user.communityStatus === "frozen") {
+      return res.status(403).json({ error: "您的账号已被冻结或停用,无法发布内容" });
     }
     
     next();
@@ -89,17 +97,26 @@ function requireArtist(req: express.Request, res: express.Response, next: expres
   });
 }
 
+/** 只要求登录（艺术家查看/回应自己的邀请）。 */
+function requireLogin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = (req as any).user as StoredUser;
+  if (!user) return res.status(401).json({ error: "未登录" });
+  if (user.status === "disabled") return res.status(403).json({ error: "账号已停用" });
+  next();
+}
+
 function requireSuperAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const user = (req as any).user as StoredUser;
-  
+
   if (!user) {
     return res.status(401).json({ error: "未登录" });
   }
-  
-  if (user.role !== "super_admin") {
+
+  // 与 publicUser 同口径：不能只看库里原始 role，否则前端显示超管、后端却 403。
+  if (user.status === "disabled" || effectiveUserRole(user) !== "super_admin") {
     return res.status(403).json({ error: "需要超级管理员权限" });
   }
-  
+
   next();
 }
 
@@ -107,7 +124,8 @@ function requireSuperAdmin(req: express.Request, res: express.Response, next: ex
 router.get("/settings", async (req, res) => {
   try {
     const settings = await getCommunitySettings();
-    res.json(settings);
+    const user = (req as any).user as StoredUser | undefined;
+    res.json({ ...settings, isArtist: user?.communityRole === "artist" && user.status !== "disabled" && user.communityStatus !== "frozen" });
   } catch (err) {
     console.error("获取社区设置失败:", err);
     res.status(500).json({ error: "服务器错误" });
@@ -340,33 +358,139 @@ router.get("/posts/:id/comments", async (req, res) => {
 
 // ========== 管理接口 ==========
 
-// 授予艺术家权限
+// ========== 艺术家授权：异步邀请流程 ==========
+//
+// 超管发起邀请 -> 艺术家在个人中心接受 -> 超管确认通过 -> 才写 communityRole。
+// ⚠️ 旧 grant-artist 保留为**同一套逻辑**的兼容别名：缓存中的旧页面点「授权」
+// 也只会发出邀请，不会绕过确认直接放行（不能留一个能直接授权的旁路）。
+
+function isBusinessError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return /已有待处理|已经是艺术家|状态已变更|已冻结或停用|权限已撤销|权限已写入/.test(message);
+}
+
+function invitationError(res: express.Response, error: unknown, fallback: string) {
+  console.error(fallback, error);
+  if (error instanceof Error && /^(邀请不存在|被邀请的用户已不存在)$/.test(error.message)) {
+    return res.status(404).json({ error: error.message });
+  }
+  if (isBusinessError(error)) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : fallback });
+  }
+  return res.status(500).json({ error: fallback });
+}
+
+async function handleInviteArtist(req: express.Request, res: express.Response, account: unknown) {
+  const admin = (req as any).user as StoredUser;
+  const key = typeof account === "string" ? account.trim() : "";
+  if (!key) return res.status(400).json({ error: "请输入艺术家的注册账号" });
+
+  // 兼容旧前端：它可能传 email / username，也可能传 userId。
+  const target = await findUserByAccount(key) || await findUserById(key);
+  if (!target) return res.status(404).json({ error: "该注册账号不存在，请确认对方已注册" });
+  if (target.id === admin.id) return res.status(400).json({ error: "不能向自己发送艺术家邀请" });
+
+  const note = typeof req.body?.note === "string" ? req.body.note.trim().slice(0, 200) : "";
+  const invitation = await createArtistInvitation({
+    userId: target.id,
+    username: target.username,
+    invitedBy: admin.id,
+    invitedByUsername: admin.username,
+    ...(note ? { note } : {}),
+  });
+  return res.json({
+    success: true,
+    message: `邀请已发送给 ${target.username}，等待对方在个人中心接受`,
+    invitation,
+  });
+}
+
+router.post("/admin/invite-artist", requireSuperAdmin, async (req, res) => {
+  try {
+    await handleInviteArtist(req, res, req.body?.account ?? req.body?.email ?? req.body?.username);
+  } catch (err) {
+    invitationError(res, err, "发送邀请失败");
+  }
+});
+
+// 兼容旧页面：语义已改为「发邀请」，不再直接授予权限。
 router.post("/admin/grant-artist", requireSuperAdmin, async (req, res) => {
   try {
-    const { userId } = req.body;
-    const admin = (req as any).user as StoredUser;
-    
-    if (!userId) {
-      return res.status(400).json({ error: "请提供用户 ID" });
-    }
-    
-    const targetUser = await findUserById(userId);
-    
-    if (!targetUser) {
-      return res.status(404).json({ error: "用户不存在" });
-    }
-    
-    await updateUser(userId, {
-      communityRole: "artist",
-      communityStatus: "active",
-      artistGrantedAt: new Date().toISOString(),
-      artistGrantedBy: admin.id,
-    });
-    
-    res.json({ success: true, message: "艺术家权限授予成功" });
+    await handleInviteArtist(req, res, req.body?.account ?? req.body?.email ?? req.body?.username ?? req.body?.userId);
   } catch (err) {
-    console.error("授予艺术家权限失败:", err);
-    res.status(500).json({ error: "服务器错误" });
+    invitationError(res, err, "发送邀请失败");
+  }
+});
+
+/** 超管：邀请列表，accepted 状态即「艺术家已接受、待你确认」的通过提醒。 */
+router.get("/admin/artist-invitations", requireSuperAdmin, async (_req, res) => {
+  try {
+    res.json({ invitations: await listAllArtistInvitations() });
+  } catch (err) {
+    invitationError(res, err, "读取邀请列表失败");
+  }
+});
+
+/** 超管：确认通过 —— 这一步才真正写入艺术家权限。 */
+router.post("/admin/artist-invitations/:id/confirm", requireSuperAdmin, async (req, res) => {
+  try {
+    const admin = (req as any).user as StoredUser;
+    const invitation = await confirmArtistInvitation(req.params.id, item =>
+      grantArtistFromInvitation(item, admin.id)
+    );
+    res.json({ success: true, message: `${invitation.username} 的艺术家上传权限已生效`, invitation });
+  } catch (err) {
+    invitationError(res, err, "确认授权失败");
+  }
+});
+
+/** 超管：撤回尚未生效的邀请。 */
+router.post("/admin/artist-invitations/:id/revoke", requireSuperAdmin, async (req, res) => {
+  try {
+    const all = await listAllArtistInvitations();
+    const invitation = all.find(item => item.id === req.params.id);
+    if (!invitation) return res.status(404).json({ error: "邀请不存在" });
+    if (invitation.status !== "pending" && invitation.status !== "accepted") {
+      return res.status(400).json({ error: "该邀请已结束，无需撤回" });
+    }
+    const updated = await advanceArtistInvitation(invitation.id, invitation.status, "revoked");
+    res.json({ success: true, invitation: updated });
+  } catch (err) {
+    invitationError(res, err, "撤回邀请失败");
+  }
+});
+
+/** 艺术家：个人中心里的邀请提醒。 */
+router.get("/artist-invitations", requireLogin, async (req, res) => {
+  try {
+    const user = (req as any).user as StoredUser;
+    res.json({ invitations: await listArtistInvitationsForUser(user.id) });
+  } catch (err) {
+    invitationError(res, err, "读取邀请失败");
+  }
+});
+
+/** 艺术家：接受邀请（之后等超管确认）。 */
+router.post("/artist-invitations/:id/accept", requireLogin, async (req, res) => {
+  try {
+    const user = (req as any).user as StoredUser;
+    const invitation = await advanceArtistInvitation(req.params.id, "pending", "accepted", {
+      acceptedAt: new Date().toISOString(),
+    }, user.id);
+    res.json({ success: true, message: "已接受邀请，等待管理员确认后权限生效", invitation });
+  } catch (err) {
+    invitationError(res, err, "接受邀请失败");
+  }
+});
+
+/** 艺术家：拒绝邀请。 */
+router.post("/artist-invitations/:id/decline", requireLogin, async (req, res) => {
+  try {
+    const user = (req as any).user as StoredUser;
+    const invitation = await advanceArtistInvitation(req.params.id, "pending", "declined", {}, user.id);
+    res.json({ success: true, invitation });
+  } catch (err) {
+    invitationError(res, err, "拒绝邀请失败");
   }
 });
 
@@ -381,7 +505,6 @@ router.post("/admin/revoke-artist", requireSuperAdmin, async (req, res) => {
     
     await updateUser(userId, {
       communityRole: undefined,
-      communityStatus: undefined,
       artistGrantedAt: undefined,
       artistGrantedBy: undefined,
     });

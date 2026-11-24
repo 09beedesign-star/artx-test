@@ -2,6 +2,7 @@
  * CommunityPage — 创意社区
  */
 import { useState, useEffect } from "react";
+import { communityAuthHeaders } from "@/lib/community-client";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Users, Upload, Heart, MessageCircle, Star, AlertCircle } from "lucide-react";
@@ -46,18 +47,25 @@ export default function CommunityPage() {
   const [isArtist, setIsArtist] = useState(false);
 
   useEffect(() => {
-    loadPosts();
-    checkArtistStatus();
-  }, []);
+    void loadPosts();
+    void checkArtistStatus();
+    const refresh = () => { void checkArtistStatus(); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [user?.id]);
 
   async function loadPosts() {
     try {
       const response = await fetch("/api/community/posts", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: communityAuthHeaders(),
       });
       if (response.ok) {
         const data = await response.json();
-        setPosts(data.posts || []);
+        setPosts((Array.isArray(data) ? data : data.posts || []).map((post: CommunityPost & { isLiked?: boolean; isFavorited?: boolean }) => ({ ...post, hasLiked: post.isLiked ?? post.hasLiked, hasFavorited: post.isFavorited ?? post.hasFavorited })));
       }
     } catch (error) {
       console.error("Failed to load posts:", error);
@@ -69,7 +77,7 @@ export default function CommunityPage() {
   async function checkArtistStatus() {
     try {
       const response = await fetch("/api/community/settings", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: communityAuthHeaders(),
       });
       if (response.ok) {
         const data = await response.json();
@@ -85,11 +93,11 @@ export default function CommunityPage() {
     try {
       const response = await fetch(`/api/community/posts/${postId}/like`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: communityAuthHeaders(),
       });
       if (response.ok) {
         const data = await response.json();
-        setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: data.likes, hasLiked: data.liked } : p));
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes: data.count, hasLiked: data.liked } : p));
       }
     } catch (error) {
       console.error("Failed to toggle like:", error);
@@ -100,11 +108,11 @@ export default function CommunityPage() {
     try {
       const response = await fetch(`/api/community/posts/${postId}/favorite`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+        headers: communityAuthHeaders(),
       });
       if (response.ok) {
         const data = await response.json();
-        setPosts(prev => prev.map(p => p.id === postId ? { ...p, favoritesCount: data.favoritesCount, hasFavorited: data.favorited } : p));
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, favoritesCount: data.count, hasFavorited: data.favorited } : p));
       }
     } catch (error) {
       console.error("Failed to toggle favorite:", error);

@@ -103,6 +103,8 @@ export interface StoredUser {
   artistGrantedAt?: string;
   /** 艺术家权限授予者（super_admin 的 user id） */
   artistGrantedBy?: string;
+  /** 授权来源邀请；撤权后保留，用于阻止旧确认请求重新授权。 */
+  artistGrantInvitationId?: string;
 }
 
 export type PublicAuthUser = ReturnType<typeof publicUser>;
@@ -252,18 +254,26 @@ export function identityKeyOf(username: string) {
   return `${local}@${domain}`;
 }
 
+/**
+ * 用户「实际生效」的后台角色 —— 全站唯一事实源。
+ * ⚠️ 前端展示（publicUser）和后端接口鉴权（requireSuperAdmin 等）必须用同一个函数，
+ * 否则会出现「侧边栏看得见入口、点下去 403 需要超级管理员权限」的静默错位。
+ */
+export function effectiveUserRole(user: Pick<StoredUser, "role" | "username">): AdminRole {
+  if (user.username === "09beedesign@gmail.com") return "super_admin";
+  return normalizeRole(user.role);
+}
+
 function publicUser(user: StoredUser) {
-  // 将 09beedesign@gmail.com 设置为超级管理员
-  let role = normalizeRole(user.role);
-  if (user.username === "09beedesign@gmail.com") {
-    role = "super_admin";
-  }
+  const role = effectiveUserRole(user);
   return {
     id: user.id,
     username: user.username,
     createdAt: user.createdAt,
     role,
     status: user.status === "disabled" ? "disabled" : "active",
+    communityRole: user.communityRole,
+    communityStatus: user.communityStatus,
     permissions: getUserPermissions({ ...user, role }),
     allowedAiModels: effectiveAllowedAiModels(user),
     isAdmin: canAccessAdmin({ ...user, role }),
@@ -2028,6 +2038,16 @@ export async function findUserById(userId: string): Promise<StoredUser | null> {
   return db.users.find(u => u.id === userId) || null;
 }
 
+/** 按注册账号（邮箱 / 手机号 / 用户名，大小写不敏感）找用户，供邀请艺术家时使用。 */
+export async function findUserByAccount(account: string): Promise<StoredUser | null> {
+  const key = loginKey(normalizeUsername(account));
+  if (!key) return null;
+  const db = await loadDatabase();
+  return db.users.find(user =>
+    user.loginKey === key || user.username.toLowerCase() === key
+  ) || null;
+}
+
 async function updateUserUnlocked(userId: string, updates: Partial<StoredUser>): Promise<void> {
   const db = await loadDatabase();
   const user = db.users.find(u => u.id === userId);
@@ -2040,5 +2060,40 @@ async function updateUserUnlocked(userId: string, updates: Partial<StoredUser>):
 
 export function updateUser(userId: string, updates: Partial<StoredUser>): Promise<void> {
   return withAuthWriteLock(() => updateUserUnlocked(userId, updates));
+}
+
+/** 只从邀请锁内调用；禁止在 auth 写锁内反向等待邀请锁。 */
+export async function grantArtistFromInvitation(invitation: {
+  id: string;
+  userId: string;
+  status: "accepted" | "granted";
+}, adminId: string): Promise<{ grantedAt: string }> {
+  return withAuthWriteLock(async () => {
+    const db = await loadDatabase();
+    const user = db.users.find(item => item.id === invitation.userId);
+    if (!user) throw new Error("被邀请的用户已不存在");
+    if (user.status === "disabled" || user.communityStatus === "frozen") {
+      throw new Error("账号已冻结或停用，不能确认授权");
+    }
+    if (user.artistGrantInvitationId === invitation.id) {
+      // 权限落库后邀请保存失败可恢复；撤权后旧确认不得复活权限。
+      if (user.communityRole !== "artist") throw new Error("该邀请对应的艺术家权限已撤销，请重新邀请");
+      return { grantedAt: user.artistGrantedAt || new Date().toISOString() };
+    }
+    if (invitation.status === "granted") {
+      throw new Error("该邀请对应的艺术家权限已撤销，请重新邀请");
+    }
+    if (user.communityRole === "artist") throw new Error("该账号已经是艺术家，无需重复授权");
+    const grantedAt = new Date().toISOString();
+    Object.assign(user, {
+      communityRole: "artist",
+      communityStatus: "active",
+      artistGrantedAt: grantedAt,
+      artistGrantedBy: adminId,
+      artistGrantInvitationId: invitation.id,
+    });
+    await saveDatabase(db);
+    return { grantedAt };
+  });
 }
 
