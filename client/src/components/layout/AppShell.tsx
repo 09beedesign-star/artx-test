@@ -26,7 +26,7 @@ import {
   Home, Sparkles, Library, FolderOpen,
   CreditCard, HelpCircle, ImagePlus, Send, X, KeyRound, Copy, Loader2, QrCode, Gift, Compass,
   Store, Brain, Plus, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
-  Users, LayoutGrid, Layers, FileText, Zap, UserRound, LogOut, History, Network,
+  Users, LayoutGrid, Layers, FileText, Zap, UserRound, LogOut, History, Network, Shield,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -103,6 +103,13 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   const search = useSearch();
   const { resolvedTheme } = useTheme();
   const { isAuthenticated, user, openLoginModal, logout } = useAuth();
+  /*
+   * 社区管理入口的唯一判据。
+   * 后端 auth-store 已把 09beedesign@gmail.com 提升为 super_admin，/api/auth/me 会返回该角色；
+   * 但会话首次渲染读的是 localStorage 里的旧快照（role 可能仍是升级前的 viewer），
+   * 因此用户名作为同口径兜底，避免「重新登录前入口一直不出现」。
+   */
+  const isCommunityAdmin = user?.role === "super_admin" || user?.username === "09beedesign@gmail.com";
   const { openBilling } = useBillingDialog();
   const onboarding = useOnboarding();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1048,6 +1055,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
         <IconRailBtn icon={Sparkles}   label="灵感模板"  path="/inspiration"        tourId={TOUR_ANCHORS.navInspiration} />
         <IconRailBtn icon={Network}    label="思维导图"  path="/mindmap"             />
         <IconRailBtn icon={Users}      label="画布社区"   path="/community"          />
+        {isCommunityAdmin && <IconRailBtn icon={Shield} label="社区管理" path="/admin-community" />}
         <IconRailBtn icon={History}    label="创作历史"   path="/creation-history"   />
         <IconRailBtn icon={FolderOpen} label="工作台"    path="/workspace"           tourId={TOUR_ANCHORS.navWorkspace} />
         <IconRailBtn icon={Store}      label="电商画布"  path="/ecommerce-canvas"    />
@@ -1127,6 +1135,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             <PanelNavItem icon={Sparkles}   label="灵感模板"  path="/inspiration"   tourId={TOUR_ANCHORS.navInspiration} />
             <PanelNavItem icon={Network}    label="思维导图"  path="/mindmap"        />
             <PanelNavItem icon={Users}      label="画布社区"  path="/community"     />
+            {isCommunityAdmin && <PanelNavItem icon={Shield} label="社区管理" path="/admin-community" />}
             <PanelNavItem icon={History}    label="创作历史"  path="/creation-history" />
           </div>
 

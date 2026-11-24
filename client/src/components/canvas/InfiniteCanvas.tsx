@@ -306,6 +306,10 @@ import {
   canvasMemoryScopeId,
   type MemoryScopePayload,
 } from "@shared/user-memory";
+import { DOCUMENT_ACCEPT, type PromptDocument } from "@shared/prompt-documents";
+import { isPromptDocumentFile, formatDocumentsForPrompt } from "@/lib/prompt-documents";
+import { usePromptDocuments } from "@/hooks/usePromptDocuments";
+import { PromptDocumentAttachments } from "@/components/ui/prompt-document-attachments";
 
 // 「井号 + 方框」图标 — 创建画板专用
 function CreateCanvasIcon({ size = 17 }: { size?: number }) {
@@ -22171,6 +22175,8 @@ function CanvasAssistantPanel({
   helpPromptNonce: number;
 }) {
   const [, navigate] = useLocation();
+  // 画布提示词框的参考文档附件，与首页共用同一套解析/校验实现。
+  const promptDocuments = usePromptDocuments();
   const [inputFocused, setInputFocused] = useState(false);
   const [composerSegments, setComposerSegments] = useState<
     AssistantComposerSegment[]
@@ -24530,13 +24536,18 @@ function CanvasAssistantPanel({
       input.value = "";
       if (files.length === 0) return;
 
-      const imageFiles = files.filter(fileLooksLikeImage);
-      const rejectedCount = files.length - imageFiles.length;
+      const documentFiles = files.filter(isPromptDocumentFile);
+      const imageFiles = files.filter(file =>
+        !isPromptDocumentFile(file) && fileLooksLikeImage(file)
+      );
+      const rejectedCount = files.length - imageFiles.length - documentFiles.length;
       if (rejectedCount > 0) {
-        toast("已跳过非图片文件", {
-          description: `${rejectedCount} 个文件不是图片格式，未加入引用`,
+        toast("已跳过不支持的文件", {
+          description: `${rejectedCount} 个文件既不是图片也不是可读取的文档格式`,
         });
       }
+      // 文档同步登记，避免解析完成前点发送时静默漏带参考材料。
+      if (documentFiles.length > 0) void promptDocuments.addFiles(documentFiles);
       if (imageFiles.length === 0) return;
 
       // 单张上限 10MB。base64 会比原文件再大约 33%，
@@ -24586,7 +24597,7 @@ function CanvasAssistantPanel({
         });
       }
     },
-    [insertComposerToken]
+    [insertComposerToken, promptDocuments]
   );
 
   /**
@@ -25631,7 +25642,14 @@ function CanvasAssistantPanel({
       toast("请先登录", { description: "登录后即可使用 AI 能力" });
       return;
     }
-    if (!hasPrompt && !hasContext && !hasActiveSkill) {
+    let submittedDocuments: PromptDocument[];
+    try {
+      submittedDocuments = promptDocuments.assertReady();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件尚未就绪");
+      return;
+    }
+    if (!hasPrompt && !hasContext && !hasActiveSkill && submittedDocuments.length === 0) {
       toast("请输入画布想法或选择对象");
       return;
     }
@@ -25649,8 +25667,14 @@ function CanvasAssistantPanel({
       setAssistantAutoMode(true);
       setAssistantModelPanelCategory("text");
     }
+    /*
+     * 文档正文只拼进「本次提交给 AI 的提示词」，不写回 composer segments：
+     * 用户看到的仍是自己敲的那句话，意图判断也只基于那句话，
+     * 但大模型确实读得到上传的 Word / PDF / Excel 内容。
+     */
     const rawSubmittedComposerPrompt =
-      composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`;
+      (composerPrompt || `请基于${contextLabel || "当前画布"}继续处理。`) +
+      formatDocumentsForPrompt(submittedDocuments);
     const submittedComposerPrompt = activeSkill
       ? `${activeSkillContext}\n\n用户请求：${rawSubmittedComposerPrompt}`
       : rawSubmittedComposerPrompt;
@@ -28001,6 +28025,15 @@ function CanvasAssistantPanel({
                   );
                 })()}
               </div>
+              {/* 参考文档附件（Word / PDF / Excel），解析状态与移除入口 */}
+              {promptDocuments.entries.length > 0 && (
+                <div className="nodrag nopan flex flex-wrap gap-1.5 pt-2">
+                  <PromptDocumentAttachments
+                    entries={promptDocuments.entries}
+                    onRemove={promptDocuments.remove}
+                  />
+                </div>
+              )}
               <div
                 className="flex min-w-0 items-center justify-between pt-2"
                 style={{ gap: 6 }}
@@ -28020,15 +28053,15 @@ function CanvasAssistantPanel({
                     <input
                       ref={composerUploadInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={`image/*,${DOCUMENT_ACCEPT}`}
                       multiple
                       style={{ display: "none" }}
                       onChange={handleComposerUploadChange}
                     />
                     <button
                       type="button"
-                      title="上传图片"
-                      aria-label="上传图片"
+                      title="上传图片或 Word / PDF / Excel 参考文档"
+                      aria-label="上传图片或文档"
                       className="flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-md-design)] px-2 transition-colors active:scale-95"
                       style={{
                         width: compactAssistantControls ? 32 : undefined,

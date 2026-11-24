@@ -8,6 +8,9 @@ import { SendActionButton } from "@/components/ui/send-action-button";
 import type { AiModelOption } from "@/lib/workspace-data";
 import type { HomePromptReference } from "@/lib/home-prompt-handoff";
 import type { PendingSkillLoad } from "@/lib/skill-store";
+import { DOCUMENT_ACCEPT } from "@shared/prompt-documents";
+import { PromptDocumentAttachments } from "@/components/ui/prompt-document-attachments";
+import type { PromptDocumentEntry } from "@/hooks/usePromptDocuments";
 
 interface CenteredPromptPanelProps {
   prompt: string;
@@ -19,6 +22,11 @@ interface CenteredPromptPanelProps {
   references: HomePromptReference[];
   onReferenceFiles: (files: File[]) => void;
   onRemoveReference: (id: string) => void;
+  /** 已上传的 Word / PDF / Excel 参考文档（含解析中 / 失败状态）。 */
+  documents?: PromptDocumentEntry[];
+  onRemoveDocument?: (id: string) => void;
+  attachmentsDisabled?: boolean;
+  attachmentsBusy?: boolean;
   activeSkill: PendingSkillLoad | null;
   onSkillChange: (skill: PendingSkillLoad | null) => void;
   isDark: boolean;
@@ -79,6 +87,10 @@ export function CenteredPromptPanel({
   references,
   onReferenceFiles,
   onRemoveReference,
+  documents = [],
+  onRemoveDocument = () => {},
+  attachmentsDisabled = false,
+  attachmentsBusy = false,
   activeSkill,
   onSkillChange,
   isDark,
@@ -364,6 +376,11 @@ export function CenteredPromptPanel({
             }}
           />
         
+        {/* 参考文档附件：Word / PDF / Excel 解析状态与移除入口 */}
+        <div className="mb-2">
+          <PromptDocumentAttachments entries={documents} onRemove={onRemoveDocument} />
+        </div>
+
         {references.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
             {references.map((reference) => (
@@ -435,7 +452,7 @@ export function CenteredPromptPanel({
             <input
               ref={referenceInputRef}
               type="file"
-              accept="image/*"
+              accept={`image/*,${DOCUMENT_ACCEPT}`}
               multiple
               className="hidden"
               onChange={(event) => {
@@ -447,13 +464,15 @@ export function CenteredPromptPanel({
             <button
               type="button"
               onClick={() => referenceInputRef.current?.click()}
-              className="flex h-9 items-center gap-2 rounded-md px-3 text-sm transition-colors"
+              disabled={attachmentsDisabled}
+              title="可添加图片，或 Word / PDF / Excel 等参考文档"
+              className="flex h-9 items-center gap-2 rounded-md px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               style={{ color: textMuted }}
               onMouseEnter={(e) => (e.currentTarget.style.color = textPrimary)}
               onMouseLeave={(e) => (e.currentTarget.style.color = textMuted)}
             >
               <ImagePlus size={16} />
-              添加参考图
+              {attachmentsBusy ? "读取附件中…" : "添加图片 / 文档"}
             </button>
             <span
               className="h-5 w-px"
@@ -503,6 +522,7 @@ export function CenteredPromptPanel({
               size={44}
               iconSize={18}
               aria-label="发送"
+              loading={attachmentsBusy}
             />
           </div>
         </div>

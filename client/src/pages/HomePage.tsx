@@ -62,6 +62,8 @@ import { ThemeModeSwitcher } from "@/components/theme/ThemeModeSwitcher";
 import { useTheme } from "@/contexts/ThemeContext";
 import { CenteredAuthDialog } from "@/components/auth/CenteredAuthDialog";
 import { CenteredPromptPanel } from "@/components/home/CenteredPromptPanel";
+import { usePromptDocuments } from "@/hooks/usePromptDocuments";
+import { isPromptDocumentFile, formatDocumentsForPrompt } from "@/lib/prompt-documents";
 
 // 记住账号功能的 Cookie 名称和过期时间
 const REMEMBERED_LOGIN_COOKIE = "artx_remembered_login";
@@ -232,6 +234,11 @@ export default function HomePage() {
   const [homeImageModelId, setHomeImageModelId] = useState(readPreferredAssistantModelId);
   const homeImageModelOptions = useImageModelOptions();
   const [homeReferences, setHomeReferences] = useState<HomePromptReference[]>([]);
+  // 提示词附带的 Word / PDF / Excel 等参考文档，解析后随提示词一并交给 AI。
+  const promptDocuments = usePromptDocuments();
+  const [homeImagesBusy, setHomeImagesBusy] = useState(false);
+  /** 同步计数：图片还在 FileReader 里时，不能靠下一次 render 才拦住发送。 */
+  const homeImageReadsRef = useRef(0);
   const [homeActiveSkill, setHomeActiveSkill] = useState<PendingSkillLoad | null>(null);
   const [activeTab, setActiveTab] = useState<LandingTab>("home");
   const [homeInspirationItems, setHomeInspirationItems] = useState(
@@ -410,59 +417,74 @@ export default function HomePage() {
   };
 
   const handleHomeReferenceFiles = async (files: File[]) => {
+    /*
+     * 同一个「+」入口同时接图片和文档。
+     * 文档必须**同步**登记进 hook（内部立即置 parsing），否则用户在解析完成前
+     * 点发送会拿到一个还没有附件的提示词，静默丢掉整份参考材料。
+     */
+    const documentFiles = files.filter(isPromptDocumentFile);
     const imageFiles = files.filter(file =>
-      file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(file.name)
+      !isPromptDocumentFile(file) &&
+      (file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(file.name))
     );
-    const rejectedCount = files.length - imageFiles.length;
+    const rejectedCount = files.length - imageFiles.length - documentFiles.length;
     if (rejectedCount > 0) {
-      toast("已跳过非图片文件", {
-        description: `${rejectedCount} 个文件不是图片格式，未加入参考图`,
+      toast("已跳过不支持的文件", {
+        description: `${rejectedCount} 个文件既不是图片也不是可读取的文档格式`,
       });
     }
+    if (documentFiles.length > 0) void promptDocuments.addFiles(documentFiles);
     if (imageFiles.length === 0) return;
 
-    const readAsDataUrl = (file: File) =>
-      new Promise<string | null>(resolve => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result;
-          resolve(typeof result === "string" ? result : null);
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-      });
+    homeImageReadsRef.current += 1;
+    setHomeImagesBusy(true);
+    try {
+      const readAsDataUrl = (file: File) =>
+        new Promise<string | null>(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            resolve(typeof result === "string" ? result : null);
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+        });
 
-    const loaded: HomePromptReference[] = [];
-    let failedCount = 0;
-    for (const file of imageFiles) {
-      const dataUrl = await readAsDataUrl(file);
-      if (!dataUrl) {
-        failedCount += 1;
-        continue;
+      const loaded: HomePromptReference[] = [];
+      let failedCount = 0;
+      for (const file of imageFiles) {
+        const dataUrl = await readAsDataUrl(file);
+        if (!dataUrl) {
+          failedCount += 1;
+          continue;
+        }
+        loaded.push({
+          id: `home-reference-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          title: file.name.replace(/\.[^.]+$/, "") || "参考图",
+          src: dataUrl,
+        });
       }
-      loaded.push({
-        id: `home-reference-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        title: file.name.replace(/\.[^.]+$/, "") || "参考图",
-        src: dataUrl,
-      });
-    }
-    if (failedCount > 0) {
-      toast("部分图片读取失败", {
-        description: `${failedCount} 张图片无法读取，请重试`,
-      });
-    }
-    if (loaded.length === 0) return;
+      if (failedCount > 0) {
+        toast("部分图片读取失败", {
+          description: `${failedCount} 张图片无法读取，请重试`,
+        });
+      }
+      if (loaded.length === 0) return;
 
-    const { accepted, droppedCount } = fitReferencesToBudget([
-      ...homeReferences,
-      ...loaded,
-    ]);
-    if (droppedCount > 0) {
-      toast("部分参考图未能添加", {
-        description: `${droppedCount} 张图片超出体积或数量上限，已跳过`,
-      });
+      const { accepted, droppedCount } = fitReferencesToBudget([
+        ...homeReferences,
+        ...loaded,
+      ]);
+      if (droppedCount > 0) {
+        toast("部分参考图未能添加", {
+          description: `${droppedCount} 张图片超出体积或数量上限，已跳过`,
+        });
+      }
+      setHomeReferences(accepted);
+    } finally {
+      homeImageReadsRef.current -= 1;
+      if (homeImageReadsRef.current === 0) setHomeImagesBusy(false);
     }
-    setHomeReferences(accepted);
   };
 
   const handleRemoveHomeReference = (id: string) => {
@@ -471,17 +493,35 @@ export default function HomePage() {
 
   const createProjectFromPrompt = () => {
     const text = prompt.trim();
-    if (!text) {
-      toast("请输入提示词");
+    let documents;
+    try {
+      documents = promptDocuments.assertReady();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件尚未就绪");
+      return;
+    }
+    if (homeImageReadsRef.current > 0) {
+      toast.error("参考图仍在读取，请稍候再发送");
+      return;
+    }
+    if (!text && documents.length === 0) {
+      toast("请输入提示词或添加文档");
       return;
     }
     const submittedModelId = getExplicitReferenceSearchDecision(text) ? "auto" : homeImageModelId;
     if (submittedModelId !== homeImageModelId) handleHomeImageModelChange(submittedModelId);
-    const title = text.length > 18 ? `${text.slice(0, 18)}...` : text;
+    const titleSource = text || documents[0]?.name || "参考文档";
+    const title = titleSource.length > 18 ? `${titleSource.slice(0, 18)}...` : titleSource;
     const project = createWorkspaceHistoryProject(title || undefined, text);
+    /*
+     * 文档正文只注入「交接给画布的提示词」，不写回用户可见的输入框：
+     * 意图判断、项目标题、toast 摘要都继续用用户自己写的那句话。
+     * 这样 AI 读得到参考材料，用户却不用在输入框里看到几万字正文。
+     */
+    const submittedPrompt = text + formatDocumentsForPrompt(documents);
     const handoffResult = writeHomePromptHandoff({
       projectId: project.id,
-      prompt: text,
+      prompt: submittedPrompt,
       model: submittedModelId,
       shouldAutoRun: true,
       createdAt: project.createdAt,
@@ -498,7 +538,8 @@ export default function HomePage() {
         description: "进入画布后可以重新添加这张图",
       });
     }
-    toast("已创建新画布", { description: text.slice(0, 80) });
+    toast("已创建新画布", { description: text.slice(0, 80) || documents[0]?.name || "参考文档" });
+    promptDocuments.clear();
     navigate(`/project/${project.id}`);
   };
 
@@ -699,6 +740,10 @@ export default function HomePage() {
           references={homeReferences}
           onReferenceFiles={handleHomeReferenceFiles}
           onRemoveReference={handleRemoveHomeReference}
+          documents={promptDocuments.entries}
+          onRemoveDocument={promptDocuments.remove}
+          attachmentsDisabled={promptDocuments.busy || promptDocuments.hasErrors || homeImagesBusy}
+          attachmentsBusy={promptDocuments.busy || homeImagesBusy}
           activeSkill={homeActiveSkill}
           onSkillChange={setHomeActiveSkill}
           isDark={isDark}
