@@ -4,7 +4,7 @@
  */
 import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell } from "lucide-react";
+import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell, Image } from "lucide-react";
 import { useLocation } from "wouter";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
@@ -274,14 +274,14 @@ export default function ProfilePage() {
     target: "profile" | "draft";
   } | null>(null);
   /**
-   * 「我赞过的 / 我的收藏」两个 tab。
+   * 「我赞过的 / 我的收藏 / 我的作品」三个 tab。
    *
    * ⚠️ 数据来自与首页、专题页**同一份唯一事实源**（`useInspirationReactions`），
    * 用户在专题页取消点赞后，这里必须同步消失 —— 靠 hook 内的事件订阅实现，
    * 📌 若这里自己读一次 localStorage 就完事，取消后本页不会重渲染，
    *    表现就是用户说的「取消了它还在」。
    */
-  const [reactionTab, setReactionTab] = useState<"like" | "favorite">("like");
+  const [reactionTab, setReactionTab] = useState<"like" | "favorite" | "myPosts">("like");
   const inspirationReactions = useInspirationReactions();
   const reactionItems = useMemo(
     () =>
@@ -290,11 +290,61 @@ export default function ProfilePage() {
         : inspirationReactions.favoriteItems
       )
         .slice()
-        // 最近操作的排前面，符合「沉淀」的直觉。
+        // 最近操作的排前面,符合「沉淀」的直觉。
         .sort((a, b) => b.reactedAt - a.reactedAt),
     [reactionTab, inspirationReactions.likedItems, inspirationReactions.favoriteItems]
   );
   const [hoveredReactionId, setHoveredReactionId] = useState<string | null>(null);
+
+  /**
+   * 「我的作品」- 用户自己上传的社区作品列表
+   */
+  interface CommunityPost {
+    id: string;
+    userId: string;
+    username: string;
+    imageUrl: string;
+    title?: string;
+    description?: string;
+    likes: number;
+    commentsCount: number;
+    favoritesCount: number;
+    viewsCount: number;
+    createdAt: string;
+  }
+  const [myPosts, setMyPosts] = useState<CommunityPost[]>([]);
+  const [myPostsLoading, setMyPostsLoading] = useState(false);
+  const [myPostsError, setMyPostsError] = useState("");
+
+  const loadMyPosts = useCallback(async () => {
+    if (!user?.id) return;
+    const token = readCommunityToken();
+    if (!token) return;
+    
+    setMyPostsLoading(true);
+    setMyPostsError("");
+    try {
+      const response = await fetch(`/api/community/posts?userId=${user.id}&status=active`, {
+        headers: communityAuthHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMyPosts(Array.isArray(data) ? data : []);
+      } else {
+        setMyPostsError("作品列表暂时无法读取,请稍后重试");
+      }
+    } catch {
+      setMyPostsError("作品列表暂时无法读取,请稍后重试");
+    } finally {
+      setMyPostsLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (reactionTab === "myPosts" && user?.id) {
+      void loadMyPosts();
+    }
+  }, [reactionTab, user?.id, loadMyPosts]);
 
   // 卡片配色与灵感推荐专题页保持同源，确保「所有信息保持一致」。
   const inspirationCardBg = isDark ? "#161616" : "#ffffff";
@@ -570,7 +620,7 @@ export default function ProfilePage() {
           </section>
 
           {/*
-            需求 2：「我赞过的 / 我的收藏」两个 tab。
+            需求 2：「我赞过的 / 我的收藏 / 我的作品」三个 tab。
             卡片直接复用专题页的 `InspirationCard`（含右上角「一键同款」），
             ⚠️ 不复制一份 JSX 过来 —— 否则专题页改样式这里不会跟着改。
           */}
@@ -579,6 +629,7 @@ export default function ProfilePage() {
               {([
                 { key: "like" as const, label: "我赞过的", Icon: Heart, count: inspirationReactions.likedItems.length },
                 { key: "favorite" as const, label: "我的收藏", Icon: Star, count: inspirationReactions.favoriteItems.length },
+                { key: "myPosts" as const, label: "我的作品", Icon: Image, count: myPosts.length },
               ]).map(tab => {
                 const isActive = reactionTab === tab.key;
                 return (
@@ -607,7 +658,93 @@ export default function ProfilePage() {
               })}
             </div>
 
-            {reactionItems.length === 0 ? (
+            {reactionTab === "myPosts" ? (
+              // 我的作品标签页
+              myPostsLoading ? (
+                <div
+                  className="rounded-[var(--radius-lg-design)] p-10 text-center"
+                  style={{ background: cardBg, border: `1px solid ${border}` }}
+                >
+                  <p className="type-body-sm" style={{ color: textSecondary }}>加载中...</p>
+                </div>
+              ) : myPostsError ? (
+                <div
+                  className="rounded-[var(--radius-lg-design)] p-10 text-center"
+                  style={{ background: cardBg, border: `1px solid ${border}` }}
+                >
+                  <p className="type-body-sm" style={{ color: textPrimary, fontWeight: 620 }}>{myPostsError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadMyPosts()}
+                    className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                    style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}
+                  >
+                    重试
+                  </button>
+                </div>
+              ) : myPosts.length === 0 ? (
+                <div
+                  className="rounded-[var(--radius-lg-design)] p-10 text-center"
+                  data-testid="profile-my-posts-empty"
+                  style={{ background: cardBg, border: `1px solid ${border}` }}
+                >
+                  <p className="type-body-sm" style={{ color: textPrimary, fontWeight: 620 }}>还没有上传过作品</p>
+                  <p className="type-caption mt-2" style={{ color: textSecondary, letterSpacing: 0, textTransform: "none" }}>
+                    去创意社区上传你的第一个作品吧
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/community")}
+                    className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                    style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}
+                  >
+                    去上传作品
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {myPosts.map(post => (
+                    <div
+                      key={post.id}
+                      className="rounded-[var(--radius-lg-design)] overflow-hidden"
+                      style={{ background: cardBg, border: `1px solid ${border}` }}
+                    >
+                      <div className="relative aspect-[4/3] overflow-hidden">
+                        <img 
+                          src={post.imageUrl} 
+                          alt={post.title || "作品"} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="p-4">
+                        {post.title && (
+                          <h3 className="type-body-sm mb-2" style={{ color: textPrimary, fontWeight: 560 }}>
+                            {post.title}
+                          </h3>
+                        )}
+                        {post.description && (
+                          <p className="type-caption mb-3 line-clamp-2" style={{ color: textSecondary }}>
+                            {post.description}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-4 type-caption" style={{ color: textMuted }}>
+                          <span className="flex items-center gap-1">
+                            <Heart size={14} /> {post.likes}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Star size={14} /> {post.favoritesCount}
+                          </span>
+                          <span>{post.viewsCount} 浏览</span>
+                        </div>
+                        <div className="mt-2 type-caption" style={{ color: textMuted }}>
+                          {new Date(post.createdAt).toLocaleDateString("zh-CN")}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : reactionItems.length === 0 ? (
               <div
                 className="rounded-[var(--radius-lg-design)] p-10 text-center"
                 data-testid="profile-reaction-empty"
@@ -1016,7 +1153,7 @@ function AvatarCropDialog({
   };
 
   useEffect(() => {
-    const image = new Image();
+    const image = new window.Image();
     image.onload = () => {
       const width = image.naturalWidth || 1;
       const height = image.naturalHeight || 1;
