@@ -421,18 +421,17 @@ function RouteLoadingGate({ children }: { children: ReactNode }) {
 }
 
 function RequireLogin({ children }: { children: ReactNode }) {
-  const { isAuthenticated, closeLoginModal } = useAuth();
-  const [, navigate] = useLocation();
+  const { isAuthenticated, openLoginModal } = useAuth();
 
   useEffect(() => {
     if (isAuthenticated) return;
-    closeLoginModal();
-    sessionStorage.setItem(homeAuthPanelStorageKey, "login");
-    navigate("/");
-  }, [closeLoginModal, isAuthenticated, navigate]);
+    // 触发登录框,但不跳转,让用户停留在当前页面
+    openLoginModal();
+  }, [openLoginModal, isAuthenticated]);
 
   if (isAuthenticated) return <>{children}</>;
 
+  // 未登录时显示空白页面,等待用户登录
   return null;
 }
 
