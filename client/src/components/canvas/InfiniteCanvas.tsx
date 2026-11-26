@@ -18231,6 +18231,28 @@ function AssetEditPromptBar({
     thumbnail: string;
   } | null>(null);
 
+  /**
+   * 动态调整 textarea 高度（2026-11-26）
+   * 
+   * 与 CanvasAssistantPromptBar 的 resizePromptTextarea 逻辑一致：
+   * - 最小高度 26px
+   * - 最大高度 250px
+   * - 内容超过最大高度时显示滚动条
+   */
+  const resizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(250, Math.max(26, textarea.scrollHeight));
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 250 ? "auto" : "hidden";
+  }, []);
+
+  // 内容变化时自动调整高度
+  useEffect(() => {
+    resizeTextarea();
+  }, [prompt, resizeTextarea]);
+
   // Fade-in after mount
   useEffect(() => {
     const t = requestAnimationFrame(() => setVisible(true));
@@ -18796,12 +18818,10 @@ function AssetEditPromptBar({
               handleSend();
             }
           }}
-          rows={2}
           className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
           style={{ 
             color: text,
-            overflowY: "auto",
-            maxHeight: "250px"
+            minHeight: "26px"
           }}
           placeholder="描述你希望如何优化这张图片，例如：更换背景为星空、加强光效、调整配色、提升画质..."
         />
