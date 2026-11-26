@@ -1,0 +1,174 @@
+{
+  "task": "首页 handoff 图片请求保留显式 auto",
+  "status": "passed",
+  "projectRoot": "/Users/ericbi/WorkBuddy/artx/artx-test-main",
+  "branch": "main",
+  "nodeVersion": "v22.22.2",
+  "referencesRead": [
+    "/Users/ericbi/WorkBuddy/2026-09-07-21-55-56/.workbuddy/memory/REF-testing.md",
+    "/Users/ericbi/.workbuddy/skills/default-value-inversion-and-e2e-proof/SKILL.md"
+  ],
+  "changes": {
+    "production": {
+      "path": "client/src/components/canvas/InfiniteCanvas.tsx",
+      "line": 25344,
+      "before": "model: homeSelectedImageModel || assistantImageModel.id,",
+      "after": "model: payload.model === AUTO_AI_MODEL.id ? AUTO_AI_MODEL.id : homeSelectedImageModel || assistantImageModel.id,",
+      "exactlyOneLineReplacementAgainstTaskStart": true,
+      "homeSelectedImageModelUnchanged": true,
+      "sha256": "198ef1748ccd6347719249e583150f9fa101e5d370c4c28b20eef6e8fcb72420"
+    },
+    "tests": {
+      "path": "client/src/pages/HomePage.model-selector-wiring.test.ts",
+      "executionHelperLine": 88,
+      "behaviorTestsLine": 135,
+      "updatedSourceAssertionsLine": 250,
+      "originalTests": 13,
+      "newBehaviorTests": 12,
+      "totalTests": 25,
+      "sha256": "291cc9d3150f49d164f8d42140e569f6aa2fbf2cd0cd1af063b38f4eb825c92f",
+      "method": "读取并剥离生产 InfiniteCanvas.tsx 注释，使用唯一且有序的边界从 home handoff effect 提取 const homeSelectedTextModel 起至 imagePayload 对象末尾的真实分支。transpileModule 仅转译 TypeScript 语法，再执行提取的生产分支。依赖替身仅用于状态更新、callLLM、routeCreativeIntent；真实导入模型表和 isSupportedImageModelId。返回生产构造的 imagePayload，不复制手写 model 选择实现，不执行实际派发或出图网络请求。",
+      "coverage": [
+        "auto + 历史 vod-mj，无参考图：请求 model=auto，intent 调用一次",
+        "auto + 历史 vod-mj，有参考图：请求 model=auto，intent 带真实参考图和 forceModelDecision=true",
+        "auto 的 intent 返回 text：不构造图片请求，不强制图片",
+        "具体 vod-jimeng、vod-mj：保留显式选择，无参考图时跳过 intent",
+        "具体 vod-jimeng 带参考图：intent 返回 text 仍钳制图片并保留所选模型",
+        "undefined、null、空字符串、invalid-model、AUTO：回落历史 vod-mj，仍调用 intent",
+        "TEXT_AI_MODELS 中的文本模型：调用 home-prompt-chat、带参考图并早退，不执行 intent 或图片表达式",
+        "源码断言匹配显式 auto 三元并禁止旧的直接历史模型回落表达式"
+      ]
+    }
+  },
+  "runs": {
+    "baselineTargeted": {
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts --reporter=json",
+      "exitCode": 0,
+      "passed": 13,
+      "failed": 0,
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/baseline-targeted.json"
+    },
+    "baselineTsc": {
+      "command": "node_modules/.bin/tsc --noEmit --pretty false",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/baseline-tsc.json"
+    },
+    "fixedTargeted": {
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts client/src/lib/assistant-model-preference.test.ts client/src/lib/home-prompt-handoff.test.ts client/src/pages/home-model-selector-style.test.ts --reporter=json",
+      "exitCode": 0,
+      "passed": 88,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        { "path": "client/src/pages/HomePage.model-selector-wiring.test.ts", "passed": 25 },
+        { "path": "client/src/lib/assistant-model-preference.test.ts", "passed": 33 },
+        { "path": "client/src/lib/home-prompt-handoff.test.ts", "passed": 20 },
+        { "path": "client/src/pages/home-model-selector-style.test.ts", "passed": 10 }
+      ],
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/fixed-targeted.json"
+    },
+    "isolatedFixed": {
+      "cwd": "/tmp/home-auto-preserve-2z9pj4d6/isolated",
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts --reporter=json",
+      "exitCode": 0,
+      "passed": 25,
+      "failed": 0,
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/isolated-fixed.json"
+    },
+    "mutationOldExpression": {
+      "cwd": "/tmp/home-auto-preserve-2z9pj4d6/isolated",
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts --reporter=json --testNamePattern 首页交接模型行为",
+      "mutation": "仅在隔离副本将请求 model 字段退回 homeSelectedImageModel || assistantImageModel.id",
+      "anchorMatches": 1,
+      "behaviorOnly": true,
+      "exitCode": 1,
+      "passed": 10,
+      "failed": 2,
+      "skipped": 13,
+      "expectedFailureObserved": true,
+      "failures": [
+        {
+          "test": "auto 在参考图=false 时仍传 auto，并且必须经过 intent",
+          "message": "首页 auto 不得被历史 vod-mj 覆盖: expected 'vod-mj' to be 'auto'"
+        },
+        {
+          "test": "auto 在参考图=true 时仍传 auto，并且必须经过 intent",
+          "message": "首页 auto 不得被历史 vod-mj 覆盖: expected 'vod-mj' to be 'auto'"
+        }
+      ],
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/mutation-old-expression.json"
+    },
+    "mutationAutoForcesImage": {
+      "cwd": "/tmp/home-auto-preserve-2z9pj4d6/isolated",
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts --reporter=json --testNamePattern 首页交接模型行为",
+      "mutation": "仅在隔离副本将 homeSelectedImageModel 判断改成 payload.model === AUTO_AI_MODEL.id || isSupportedImageModelId(payload.model)",
+      "anchorMatches": 1,
+      "behaviorOnly": true,
+      "exitCode": 1,
+      "passed": 10,
+      "failed": 2,
+      "skipped": 13,
+      "expectedFailureObserved": true,
+      "failures": [
+        {
+          "test": "auto 在参考图=false 时仍传 auto，并且必须经过 intent",
+          "message": "expected spy to be called once, but got 0 times"
+        },
+        {
+          "test": "auto 的 intent 为 text 时不得强制构造图片请求",
+          "message": "expected imagePayload to be undefined"
+        }
+      ],
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/mutation-auto-forces-image.json"
+    },
+    "isolatedRestored": {
+      "cwd": "/tmp/home-auto-preserve-2z9pj4d6/isolated",
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts --reporter=json",
+      "exitCode": 0,
+      "passed": 25,
+      "failed": 0,
+      "restoredCanvasSha256MatchesFixed": true,
+      "isolatedCanvasAndTestByteEqualToWorkspace": true,
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/isolated-restored.json"
+    },
+    "fixedTsc": {
+      "command": "node_modules/.bin/tsc --noEmit --pretty false",
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/fixed-tsc.json"
+    },
+    "finalTargeted": {
+      "command": "node_modules/.bin/vitest run client/src/pages/HomePage.model-selector-wiring.test.ts client/src/lib/assistant-model-preference.test.ts client/src/lib/home-prompt-handoff.test.ts client/src/pages/home-model-selector-style.test.ts --reporter=json",
+      "exitCode": 0,
+      "passed": 88,
+      "failed": 0,
+      "skipped": 0,
+      "rawLog": "/tmp/home-auto-preserve-2z9pj4d6/final-targeted.json"
+    }
+  },
+  "scopeVerification": {
+    "snapshot": "/tmp/home-auto-preserve-2z9pj4d6/snapshot.json",
+    "otherPreexistingDirtyFilesChecked": 15,
+    "otherPreexistingDirtyFilesAllSha256Unchanged": true,
+    "gitStatusOnlyAddsRequestedEvidenceFile": true,
+    "evidenceFileIgnoredByGit": false,
+    "gitDiffCheckExitCode": 0,
+    "repositoryFilesWritten": [
+      "client/src/components/canvas/InfiniteCanvas.tsx",
+      "client/src/pages/HomePage.model-selector-wiring.test.ts",
+      "outputs/home-auto-preserve-validation.json"
+    ],
+    "mutationsRestrictedToTemporaryCopy": true,
+    "committed": false,
+    "pushed": false,
+    "deployed": false
+  },
+  "limits": [
+    "本次验证为生产源码提取执行的分支级行为测试，不是浏览器端到端测试或真实供应商调用。",
+    "未运行全量 Vitest；按用户范围运行四个定向测试文件。",
+    "项目 tsc 配置排除 .test.ts；定向 Vitest 实际收集并执行了新增行为用例。"
+  ]
+}

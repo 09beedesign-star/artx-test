@@ -18798,7 +18798,11 @@ function AssetEditPromptBar({
           }}
           rows={2}
           className="w-full bg-transparent type-caption leading-relaxed resize-none outline-none"
-          style={{ color: text }}
+          style={{ 
+            color: text,
+            overflowY: "auto",
+            maxHeight: "250px"
+          }}
           placeholder="描述你希望如何优化这张图片，例如：更换背景为星空、加强光效、调整配色、提升画质..."
         />
         {/*
