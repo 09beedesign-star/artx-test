@@ -686,7 +686,10 @@ export async function createVodImageTask(input: VodImageGenerationInput): Promis
     throw new Error(`Failed to create VOD AIGC image task: ${JSON.stringify(result)}`);
   }
 
-  return { taskId: result.Response.TaskId };
+  const taskId = result.Response.TaskId;
+  console.log("[vod-aigc] task created, taskId:", taskId);
+
+  return { taskId };
 }
 
 export async function getVodTaskDetail(taskId: string): Promise<TaskDetail> {
@@ -725,16 +728,18 @@ export async function pollVodTask(taskId: string, maxAttempts = 120, intervalMs 
         }
 
         if (imageTask?.ErrCode && imageTask.ErrCode !== 0) {
+          console.error("[vod-aigc] task finished with error, taskId:", taskId, "errCode:", imageTask.ErrCode, "message:", imageTask.Message);
           return { status: "failed", error: imageTask.Message || `Error code: ${imageTask.ErrCode}` };
         }
       }
 
       if (task.Status === "FAIL") {
         const imageTask = task.AigcImageTask;
+        console.error("[vod-aigc] task failed, taskId:", taskId, "message:", imageTask?.Message);
         return { status: "failed", error: imageTask?.Message || "Task failed" };
       }
     } catch (error) {
-      console.warn("[tencent-vod-aigc] Poll error:", error);
+      console.warn("[vod-aigc] poll error, taskId:", taskId, "attempt:", attempt + 1, "error:", error);
       if (attempt === maxAttempts - 1) {
         return { status: "failed", error: String(error) };
       }
@@ -743,6 +748,7 @@ export async function pollVodTask(taskId: string, maxAttempts = 120, intervalMs 
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
+  console.error("[vod-aigc] polling timeout, taskId:", taskId);
   return { status: "failed", error: "Polling timeout" };
 }
 
@@ -752,11 +758,13 @@ export async function generateImageWithVod(input: VodImageGenerationInput): Prom
   const result = await pollVodTask(taskId);
 
   if (result.status === "failed") {
-    throw new Error(`VOD AIGC image generation failed: ${result.error}`);
+    console.error("[vod-aigc] generation failed, taskId:", taskId, "error:", result.error);
+    throw new Error(`VOD AIGC image generation failed: ${result.error} (taskId: ${taskId})`);
   }
 
   if (result.status !== "success" || !result.images?.length) {
-    throw new Error("VOD AIGC image generation did not return valid images");
+    console.error("[vod-aigc] no valid images returned, taskId:", taskId, "status:", result.status);
+    throw new Error(`VOD AIGC image generation did not return valid images (taskId: ${taskId})`);
   }
 
   return {
