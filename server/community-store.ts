@@ -13,6 +13,7 @@ interface CommunityPost {
   prompt?: string;
   title?: string;
   description?: string;
+  tags?: string[];
   
   // 5项必选声明
   isAiGenerated: boolean;
@@ -71,6 +72,21 @@ interface CommunitySettings {
   emergencySwitchReason?: string;
 }
 
+export interface SiteAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  status: "active" | "archived";
+  createdAt: string;
+  createdBy: string;
+  createdByUsername: string;
+  updatedAt: string;
+}
+
+interface AnnouncementData {
+  announcements: SiteAnnouncement[];
+}
+
 interface CommunityData {
   posts: CommunityPost[];
   comments: CommunityComment[];
@@ -85,6 +101,7 @@ const commentsStore = new PostgresJsonDocumentStore<{ comments: CommunityComment
 const likesStore = new PostgresJsonDocumentStore<{ likes: CommunityLike[] }>(DATABASE_URL, "community-likes");
 const favoritesStore = new PostgresJsonDocumentStore<{ favorites: CommunityFavorite[] }>(DATABASE_URL, "community-favorites");
 const settingsStore = new PostgresJsonDocumentStore<CommunitySettings>(DATABASE_URL, "community-settings");
+const announcementsStore = new PostgresJsonDocumentStore<AnnouncementData>(DATABASE_URL, "community-announcements");
 
 // 社区帖子
 export async function createPost(post: Omit<CommunityPost, "id" | "createdAt" | "updatedAt" | "likes" | "commentsCount" | "favoritesCount" | "viewsCount">): Promise<CommunityPost> {
@@ -402,6 +419,69 @@ export async function setEmergencySwitch(enabled: boolean, updatedBy: string, re
   };
   await settingsStore.save(settings);
 }
+
+// 站内公告
+export async function createAnnouncement(
+  announcement: Omit<SiteAnnouncement, "id" | "createdAt" | "updatedAt">
+): Promise<SiteAnnouncement> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const newAnnouncement: SiteAnnouncement = {
+    ...announcement,
+    id,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  return announcementsStore.transaction(async (tx) => {
+    const data = await tx.load();
+    const announcements = data?.announcements || [];
+    announcements.push(newAnnouncement);
+    await tx.save({ announcements });
+    return newAnnouncement;
+  });
+}
+
+export async function listAnnouncements(options?: {
+  status?: "active" | "archived";
+  limit?: number;
+}): Promise<SiteAnnouncement[]> {
+  const data = await announcementsStore.load();
+  let announcements = data?.announcements || [];
+
+  if (options?.status) {
+    announcements = announcements.filter((a) => a.status === options.status);
+  }
+
+  // 按创建时间倒序，最新的在前
+  announcements.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  if (options?.limit) {
+    announcements = announcements.slice(0, options.limit);
+  }
+
+  return announcements;
+}
+
+export async function archiveAnnouncement(announcementId: string): Promise<boolean> {
+  return announcementsStore.transaction(async (tx) => {
+    const data = await tx.load();
+    const announcements = data?.announcements || [];
+    const announcement = announcements.find((a) => a.id === announcementId);
+
+    if (!announcement) {
+      return false;
+    }
+
+    announcement.status = "archived";
+    announcement.updatedAt = new Date().toISOString();
+    await tx.save({ announcements });
+    return true;
+  });
+}
+
 
 export function runInContext<T>(requestId: string, fn: () => T): T {
   return asyncLocalStorage.run({ requestId }, fn);

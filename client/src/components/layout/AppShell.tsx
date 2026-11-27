@@ -36,6 +36,8 @@ import {
 import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
 import { useBillingDialog } from "@/components/billing/BillingDialogProvider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import MessageBoard from "@/components/messaging/MessageBoard";
+import MessageDialog from "@/components/messaging/MessageDialog";
 
 
 interface AppShellProps {
@@ -121,6 +123,8 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
   /** 个人中心入口的小菜单（个人中心页 / 退出登录）与退出二次确认。 */
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<{ id: string; title: string; content: string; status: "active" | "archived"; createdAt: string; createdByUsername: string } | null>(null);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   /**
    * 🔒 2026-11-14 用户要求：在画布里点侧边栏「项目 / 最近」任意一项，先弹
    * 「是否跳到指定画布？」（是 / 否，2026-11-15 改文案），点「是」才跳转。
@@ -1267,7 +1271,7 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
           )}
 
           {/*
-            底部只留「个人中心 + 积分」两块。
+            底部只留「站内消息 + 个人中心 + 积分」三块。
 
             ⚠️ 电商画布 / 技能商店 / 长期记忆 / 充值与订阅 这四项已从这里移除，
                但入口没有消失 —— 它们仍在最左侧 icon 栏上一一对应，
@@ -1277,6 +1281,12 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
             className="mt-auto pt-2 flex flex-col gap-2"
             style={{ borderTop: `1px solid ${isDark ? "rgba(255,255,255,0.07)" : "rgba(22,22,22,0.08)"}` }}
           >
+            {/* 站内消息板块 */}
+            <MessageBoard onOpenDialog={(announcement) => {
+              setSelectedMessage(announcement);
+              setMessageDialogOpen(true);
+            }} />
+
             {/*
               个人中心入口：已登录 → 弹白色小菜单（个人中心页 / 退出登录）；未登录 → 直接弹登录。
               ⚠️ 退出必须经二次确认（AlertDialog），不能在菜单里一点就退。
@@ -1399,6 +1409,13 @@ export default function AppShell({ children, hideSidebar = false }: AppShellProp
       {helpDialog}
       {apiKeyDialog}
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      
+      {/* 站内消息大型弹窗 */}
+      <MessageDialog 
+        open={messageDialogOpen} 
+        announcement={selectedMessage} 
+        onOpenChange={setMessageDialogOpen}
+      />
 
       {/* 退出登录二次确认（与 TopBar 同款文案与红色确认键） */}
       <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>

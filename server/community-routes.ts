@@ -20,6 +20,9 @@ import {
   listUserFavorites,
   getCommunitySettings,
   setEmergencySwitch,
+  createAnnouncement,
+  listAnnouncements,
+  archiveAnnouncement,
   createArtistInvitation,
   listAllArtistInvitations,
   listArtistInvitationsForUser,
@@ -29,6 +32,7 @@ import {
 import {
   findUserById, findUserByAccount, updateUser, effectiveUserRole, grantArtistFromInvitation, type StoredUser,
 } from "./auth-store";
+import { getBillingSnapshotForUser } from "./admin-store";
 
 const router = express.Router();
 
@@ -145,6 +149,7 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       title,
       prompt,
       description,
+      tags,
       isAiGenerated,
       isOriginal,
       isOpenSource,
@@ -163,6 +168,21 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       return res.status(400).json({ error: "请完成所有必选声明" });
     }
     
+    // 验证标签
+    let parsedTags: string[] = [];
+    if (tags) {
+      try {
+        parsedTags = typeof tags === "string" ? JSON.parse(tags) : tags;
+        if (!Array.isArray(parsedTags) || parsedTags.length === 0) {
+          return res.status(400).json({ error: "请至少选择一个标签" });
+        }
+      } catch (err) {
+        return res.status(400).json({ error: "标签格式不正确" });
+      }
+    } else {
+      return res.status(400).json({ error: "请至少选择一个标签" });
+    }
+    
     const imageUrl = `/uploads/community/${req.file.filename}`;
     
     const post = await createPost({
@@ -172,6 +192,7 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       title,
       prompt,
       description,
+      tags: parsedTags,
       isAiGenerated: isAiGenerated === "true" || isAiGenerated === true,
       isOriginal: isOriginal === "true" || isOriginal === true,
       isOpenSource: isOpenSource === "true" || isOpenSource === true,
@@ -298,6 +319,50 @@ router.get("/favorites", async (req, res) => {
     res.json(favorites);
   } catch (err) {
     console.error("获取收藏列表失败:", err);
+    res.status(500).json({ error: "服务器错误" });
+  }
+});
+
+// 一键同款：复制帖子
+router.post("/posts/:id/duplicate", requireLogin, async (req, res) => {
+  try {
+    const user = (req as any).user as StoredUser;
+    const sourcePost = await getPost(req.params.id);
+    
+    if (!sourcePost) {
+      return res.status(404).json({ error: "帖子不存在" });
+    }
+    
+    if (sourcePost.status !== "active") {
+      return res.status(400).json({ error: "帖子已下架,无法同款" });
+    }
+    
+    // 验证共享权限
+    if (!sourcePost.allowCommercialUse || !sourcePost.isOpenSource) {
+      return res.status(403).json({ error: "该帖子未开放共享权限,无法一键同款" });
+    }
+    
+    // 创建新帖子
+    const duplicatedPost = await createPost({
+      userId: user.id,
+      username: user.username,
+      imageUrl: sourcePost.imageUrl,
+      title: sourcePost.title ? `${sourcePost.title}（同款）` : undefined,
+      prompt: sourcePost.prompt,
+      description: sourcePost.description,
+      tags: sourcePost.tags,
+      isAiGenerated: sourcePost.isAiGenerated,
+      isOriginal: false, // 同款不再是原创
+      isOpenSource: sourcePost.isOpenSource,
+      allowCommercialUse: sourcePost.allowCommercialUse,
+      disclaimerAccepted: true,
+      disclaimerAcceptedAt: new Date().toISOString(),
+      status: "active",
+    });
+    
+    res.json(duplicatedPost);
+  } catch (err) {
+    console.error("复制帖子失败:", err);
     res.status(500).json({ error: "服务器错误" });
   }
 });
@@ -614,6 +679,58 @@ router.delete("/admin/comments/:id", requireSuperAdmin, async (req, res) => {
     res.json({ success: true, message: "评论已删除" });
   } catch (err) {
     console.error("删除评论失败:", err);
+    res.status(500).json({ error: "服务器错误" });
+  }
+});
+
+// ── 站内公告
+// 获取活跃的站内公告（公开，无需认证）
+router.get("/announcements", async (req, res) => {
+  try {
+    const announcements = await listAnnouncements({ status: "active", limit: 10 });
+    res.json({ announcements });
+  } catch (err) {
+    console.error("获取公告失败:", err);
+    res.status(500).json({ error: "服务器错误" });
+  }
+});
+
+// 发布新公告（仅超管）
+router.post("/admin/announcements", requireSuperAdmin, async (req, res) => {
+  try {
+    const admin = (req as any).user as StoredUser;
+    const { title, content } = req.body;
+
+    if (!title || !content) {
+      return res.status(400).json({ error: "公告标题和内容不能为空" });
+    }
+
+    const announcement = await createAnnouncement({
+      title,
+      content,
+      createdBy: admin.id,
+      createdByUsername: admin.username,
+    });
+
+    res.json({ success: true, message: "公告已发布", announcement });
+  } catch (err) {
+    console.error("发布公告失败:", err);
+    res.status(500).json({ error: "服务器错误" });
+  }
+});
+
+// 下架公告（仅超管）
+router.post("/admin/announcements/:id/archive", requireSuperAdmin, async (req, res) => {
+  try {
+    const success = await archiveAnnouncement(req.params.id);
+
+    if (!success) {
+      return res.status(404).json({ error: "公告不存在" });
+    }
+
+    res.json({ success: true, message: "公告已下架" });
+  } catch (err) {
+    console.error("下架公告失败:", err);
     res.status(500).json({ error: "服务器错误" });
   }
 });

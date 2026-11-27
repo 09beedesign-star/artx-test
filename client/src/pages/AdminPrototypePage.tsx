@@ -71,7 +71,8 @@ type AdminSection =
   | "feedback"
   | "integrations"
   | "risk"
-  | "audit";
+  | "audit"
+  | "announcements";
 
 type Status = "normal" | "watch" | "blocked" | "cancelled";
 type AdminRole = "viewer" | "support" | "finance" | "admin" | "super_admin";
@@ -506,6 +507,7 @@ const sections: Array<{
   { id: "integrations", label: "第三方接口", description: "支付、模型、密钥", icon: KeyRound },
   { id: "risk", label: "风控安全", description: "异常、限流、黑名单", icon: ShieldCheck },
   { id: "audit", label: "操作审计", description: "管理员动作追踪", icon: History },
+  { id: "announcements", label: "站内公告", description: "公告发布、管理", icon: Bell },
 ];
 
 function statusLabel(status: Status | OrderStatus | FeedbackStatus) {
@@ -2531,6 +2533,254 @@ function AdminPrototypePage() {
           onUpdateStatus={handleRiskStatus}
           urgentView={riskView === "urgent"}
         />
+      );
+    }
+
+    if (activeSection === "announcements") {
+      const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; content: string; status: string; createdAt: string; createdByUsername: string }>>([]);
+      const [loading, setLoading] = useState(true);
+      const [newTitle, setNewTitle] = useState("");
+      const [newContent, setNewContent] = useState("");
+      const [submitting, setSubmitting] = useState(false);
+      const [feedback, setFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+      useEffect(() => {
+        const fetchAnnouncements = async () => {
+          try {
+            const response = await fetch("/api/community/announcements");
+            const data = await response.json();
+            if (response.ok && data.announcements) {
+              setAnnouncements(data.announcements.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+            }
+          } catch (err) {
+            console.error("获取公告失败:", err);
+          } finally {
+            setLoading(false);
+          }
+        };
+        fetchAnnouncements();
+      }, []);
+
+      useEffect(() => {
+        if (feedback) {
+          const timer = setTimeout(() => setFeedback(null), 3000);
+          return () => clearTimeout(timer);
+        }
+      }, [feedback]);
+
+      const handlePublish = async () => {
+        if (!newTitle.trim()) {
+          setFeedback({ tone: "error", message: "请输入公告标题" });
+          return;
+        }
+        if (!newContent.trim()) {
+          setFeedback({ tone: "error", message: "请输入公告内容" });
+          return;
+        }
+
+        setSubmitting(true);
+        try {
+          const response = await fetch("/api/community/admin/announcements", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: newTitle.trim(), content: newContent.trim() }),
+          });
+
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            if (response.status === 401 || response.status === 403) {
+              setFeedback({ tone: "error", message: "权限不足，仅超级管理员可发布公告" });
+            } else if (response.status === 400) {
+              setFeedback({ tone: "error", message: data.error || "输入数据无效" });
+            } else {
+              setFeedback({ tone: "error", message: data.error || "发布失败，请稍后重试" });
+            }
+            return;
+          }
+
+          const data = await response.json();
+          setFeedback({ tone: "success", message: data.message || "公告已发布" });
+          setNewTitle("");
+          setNewContent("");
+
+          // 刷新公告列表
+          try {
+            const refreshResponse = await fetch("/api/community/announcements");
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              if (refreshData.announcements) {
+                setAnnouncements(refreshData.announcements.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+              }
+            }
+          } catch (refreshErr) {
+            console.error("刷新公告列表失败:", refreshErr);
+          }
+        } catch (err) {
+          setFeedback({ tone: "error", message: "网络错误，请检查连接后重试" });
+          console.error("发布公告失败:", err);
+        } finally {
+          setSubmitting(false);
+        }
+      };
+
+      const handleArchive = async (announcementId: string) => {
+        try {
+          const response = await fetch(`/api/community/admin/announcements/${announcementId}/archive`, { method: "POST" });
+
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            if (response.status === 401 || response.status === 403) {
+              setFeedback({ tone: "error", message: "权限不足，仅超级管理员可下架公告" });
+            } else if (response.status === 404) {
+              setFeedback({ tone: "error", message: "公告不存在" });
+              setAnnouncements((current) => current.filter((item) => item.id !== announcementId));
+            } else {
+              setFeedback({ tone: "error", message: data.error || "下架失败，请稍后重试" });
+            }
+            return;
+          }
+
+          setAnnouncements((current) => current.filter((item) => item.id !== announcementId));
+          setFeedback({ tone: "success", message: "公告已下架" });
+        } catch (err) {
+          setFeedback({ tone: "error", message: "网络错误，请检查连接后重试" });
+          console.error("下架公告失败:", err);
+        }
+      };
+
+      return (
+        <div className="space-y-4">
+          <section className="rounded-md border border-cyan-300/25 bg-cyan-300/[0.045] p-4">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-cyan-50">发布新公告</h2>
+              <p className="mt-1 text-xs text-slate-400">公告发布后会立即显示在站点消息板上。</p>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handlePublish(); }} className="space-y-3">
+              <div className="space-y-1">
+                <label htmlFor="announcement-title" className="block text-xs font-medium text-slate-300">
+                  公告标题
+                  <span className="ml-1 text-rose-400">*</span>
+                </label>
+                <Input
+                  id="announcement-title"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="请输入公告标题"
+                  disabled={submitting}
+                  maxLength={100}
+                  className="border-white/12 bg-slate-950/40"
+                  aria-required="true"
+                  aria-describedby={newTitle.length >= 100 ? "title-maxlength-warning" : undefined}
+                />
+                {newTitle.length >= 100 && (
+                  <p id="title-maxlength-warning" className="text-xs text-slate-500">
+                    已达字数上限（100 字）
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="announcement-content" className="block text-xs font-medium text-slate-300">
+                  公告内容
+                  <span className="ml-1 text-rose-400">*</span>
+                </label>
+                <textarea
+                  id="announcement-content"
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  placeholder="请输入公告内容（支持换行）"
+                  disabled={submitting}
+                  maxLength={500}
+                  className="min-h-24 w-full rounded-md border border-white/12 bg-slate-950/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 disabled:opacity-50"
+                  aria-required="true"
+                  aria-describedby={newContent.length >= 500 ? "content-maxlength-warning" : undefined}
+                />
+                <div className="flex items-center justify-between">
+                  {newContent.length >= 500 && (
+                    <p id="content-maxlength-warning" className="text-xs text-slate-500">
+                      已达字数上限（500 字）
+                    </p>
+                  )}
+                  <p className="ml-auto text-xs text-slate-500">
+                    {newContent.length}/500
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={submitting || !newTitle.trim() || !newContent.trim()}
+                  className="rounded-md bg-cyan-300 px-4 py-2 text-xs font-medium text-slate-950 hover:bg-cyan-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  aria-busy={submitting}
+                >
+                  {submitting ? "发布中..." : "发布公告"}
+                </button>
+                {feedback && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={`text-xs transition-opacity ${feedback.tone === "success" ? "text-emerald-200" : "text-rose-200"}`}
+                  >
+                    {feedback.message}
+                  </div>
+                )}
+              </div>
+            </form>
+          </section>
+
+          <div className="rounded-md border border-white/10 bg-slate-950/40 p-4">
+            <h2 className="mb-4 text-sm font-semibold">已发布的公告</h2>
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="animate-pulse rounded-md border border-white/8 bg-white/[0.03] p-3">
+                    <div className="h-4 w-1/3 rounded bg-slate-700" />
+                    <div className="mt-3 h-3 w-full rounded bg-slate-700" />
+                    <div className="mt-2 h-3 w-2/3 rounded bg-slate-700" />
+                  </div>
+                ))}
+              </div>
+            ) : announcements.length > 0 ? (
+              <div className="space-y-3" role="list">
+                {announcements.map((item) => (
+                  <div key={item.id} className="rounded-md border border-white/8 bg-white/[0.03] p-3" role="listitem">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-sm font-medium text-slate-100">{item.title}</h3>
+                          <Badge className="shrink-0 bg-white/10 text-xs" variant="secondary">
+                            {item.status === "active" ? "发布中" : "已下架"}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400 line-clamp-2">{item.content}</p>
+                        <p className="mt-2 text-xs text-slate-500">
+                          由 <span className="text-slate-300">{item.createdByUsername}</span> 发布于{" "}
+                          <time dateTime={item.createdAt}>
+                            {new Date(item.createdAt).toLocaleString("zh-CN")}
+                          </time>
+                        </p>
+                      </div>
+                      {item.status === "active" && (
+                        <button
+                          type="button"
+                          onClick={() => handleArchive(item.id)}
+                          className="shrink-0 inline-flex items-center gap-1 rounded-md border border-white/12 bg-white/5 px-2 py-1 text-xs text-slate-300 hover:bg-white/10 transition-colors"
+                          aria-label={`下架公告：${item.title}`}
+                        >
+                          <X className="size-3" />
+                          <span>下架</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyPanel title="暂无公告" body="发布的公告会在此显示。" />
+            )}
+          </div>
+        </div>
       );
     }
 
