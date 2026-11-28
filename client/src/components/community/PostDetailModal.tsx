@@ -46,34 +46,38 @@ export default function PostDetailModal({
 
   if (!open || !post) return null;
 
-  // 加载评论
-  const loadComments = async () => {
-    if (!post?.id) return;
-    
-    setLoadingComments(true);
-    try {
-      const response = await fetch(`/api/community/posts/${post.id}/comments`, {
-        headers: communityAuthHeaders(),
-      });
-      
-      if (response.ok) {
-        const data = await response.json() as Comment[];
-        setComments(data);
-      } else {
-        console.error("加载评论失败:", response.statusText);
-      }
-    } catch (err) {
-      console.error("加载评论出错:", err);
-    } finally {
-      setLoadingComments(false);
-    }
-  };
-
   // 在浮窗打开时加载评论
   useEffect(() => {
-    if (open && post?.id) {
-      loadComments().catch(err => console.error("加载评论异常:", err));
-    }
+    if (!open || !post?.id) return;
+    
+    const controller = new AbortController();
+    
+    const loadCommentsWithSignal = async () => {
+      try {
+        const response = await fetch(`/api/community/posts/${post.id}/comments`, {
+          headers: communityAuthHeaders(),
+          signal: controller.signal,
+        });
+        
+        if (response.ok) {
+          const data = await response.json() as Comment[];
+          setComments(data);
+        } else {
+          console.error("加载评论失败:", response.statusText);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name !== "AbortError") {
+          console.error("加载评论出错:", err);
+        }
+      } finally {
+        setLoadingComments(false);
+      }
+    };
+    
+    setLoadingComments(true);
+    loadCommentsWithSignal().catch(err => console.error("加载评论异常:", err));
+    
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, post?.id]);
 
