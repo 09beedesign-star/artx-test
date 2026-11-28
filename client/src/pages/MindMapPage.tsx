@@ -25,6 +25,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Copy,
   Download,
   Edit3,
@@ -671,7 +672,7 @@ export default function MindMapPage() {
         </div>
 
         {/* 手动操作区 */}
-        <SideSection title="手动编辑" dark={dark} subText={subText}>
+        <div className="flex flex-col gap-1.5">
           <SideBtn icon={<Plus size={14} />} label="添加一级节点" dark={dark} textColor={textClr} onClick={addRootChild} />
 
           {selectedId && (
@@ -702,7 +703,7 @@ export default function MindMapPage() {
               )}
             </>
           )}
-        </SideSection>
+        </div>
 
         {/* 节点样式区（有选中节点时显示） */}
         {selectedId && (
@@ -784,93 +785,27 @@ export default function MindMapPage() {
           </SideSection>
         )}
 
-        {/* AI 生成区 */}
-        <SideSection title="AI 生成 · 40 积分" dark={dark} subText={subText}>
-          <SideBtn
-            icon={<Sparkles size={14} />}
-            label="AI 一键生成"
-            dark={dark}
-            textColor={showAiPanel ? (dark ? "#a5b4fc" : "#4f46e5") : textClr}
-            bgOverride={showAiPanel ? (dark ? "#312e81" : "#e0e7ff") : undefined}
-            onClick={() => setShowAiPanel((v) => !v)}
-          />
-
-          {showAiPanel && (
-            <div className="flex flex-col gap-2">
-              <textarea
-                className="w-full text-sm rounded-md px-2 py-1.5 resize-none focus:outline-none"
-                rows={4}
-                placeholder="输入主题，例如：产品设计流程..."
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                style={{
-                  background: dark ? "#3f3f46" : "#ffffff",
-                  border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
-                  color: textClr,
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generateMindMap();
-                }}
-              />
-              <button
-                onClick={generateMindMap}
-                disabled={aiLoading || !aiPrompt.trim()}
-                className="flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-md transition-colors disabled:opacity-50"
-                style={{ background: "#6366f1", color: "#ffffff" }}
-              >
-                {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                {aiLoading ? "生成中..." : "生成思维导图"}
-              </button>
-              <span className="text-xs" style={{ color: subText }}>⌘+Enter 快速生成</span>
-            </div>
-          )}
-        </SideSection>
-
         {/* 导出区 */}
-        <SideSection title="导出" dark={dark} subText={subText}>
-          <div className="grid grid-cols-2 gap-1.5">
-            {(["svg", "png", "jpg", "pdf"] as const).map((fmt) => (
-              <button
-                key={fmt}
-                onClick={() => handleExport(fmt)}
-                disabled={exporting}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  gap: 5, padding: "6px 4px", borderRadius: 6, fontSize: 12,
-                  border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
-                  background: dark ? "#3f3f46" : "#f4f4f5",
-                  color: textClr, cursor: exporting ? "wait" : "pointer",
-                  opacity: exporting ? 0.6 : 1,
-                }}
-              >
-                {fmt === "pdf" ? <FileImage size={12} /> : <Download size={12} />}
-                {fmt.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </SideSection>
-
-        {/* 视图控制 */}
-        <SideSection title="视图控制" dark={dark} subText={subText}>
-          <div className="flex gap-2">
-            <button onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
-              <ZoomIn size={14} />
+        <div className="grid grid-cols-2 gap-1.5">
+          {(["svg", "png", "jpg", "pdf"] as const).map((fmt) => (
+            <button
+              key={fmt}
+              onClick={() => handleExport(fmt)}
+              disabled={exporting}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                gap: 5, height: 36, borderRadius: 6, fontSize: 12,
+                border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                background: dark ? "#3f3f46" : "#f4f4f5",
+                color: textClr, cursor: exporting ? "wait" : "pointer",
+                opacity: exporting ? 0.6 : 1,
+              }}
+            >
+              {fmt === "pdf" ? <FileImage size={12} /> : <Download size={12} />}
+              {fmt.toUpperCase()}
             </button>
-            <button onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))}
-              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
-              <ZoomOut size={14} />
-            </button>
-            <button onClick={resetView}
-              className="flex-1 flex items-center justify-center py-1.5 rounded-md"
-              style={{ background: dark ? "#3f3f46" : "#e4e4e7", color: textClr }}>
-              <Maximize2 size={14} />
-            </button>
-          </div>
-          <span className="text-xs" style={{ color: subText }}>缩放：{Math.round(zoom * 100)}%</span>
-        </SideSection>
+          ))}
+        </div>
 
         {/* 操作提示 */}
         <div className="rounded-lg p-3 text-xs leading-5" style={{ color: subText }}>
@@ -1031,10 +966,192 @@ export default function MindMapPage() {
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center" style={{ color: subText }}>
               <Brain size={48} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm">点击左侧「添加一级节点」或「AI 一键生成」</p>
+              <p className="text-sm">点击左侧「添加一级节点」或底部「AI 生成」</p>
             </div>
           </div>
         )}
+
+        {/* 左下角缩放控件 */}
+        <div
+          className="absolute left-4 bottom-4 flex flex-col gap-1.5"
+          style={{
+            background: dark ? "rgba(20,20,22,0.94)" : "#ffffff",
+            backdropFilter: "blur(12px)",
+            border: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
+            borderRadius: 8,
+            padding: "8px",
+            boxShadow: dark
+              ? "0 8px 32px rgba(0,0,0,0.45)"
+              : "0 4px 20px rgba(0,0,0,0.12)",
+          }}
+        >
+          <button
+            onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
+            className="flex items-center justify-center transition-colors"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              background: dark ? "#3f3f46" : "#f4f4f5",
+              color: textClr,
+              border: "none",
+              cursor: "pointer",
+            }}
+            title="放大"
+          >
+            <ZoomIn size={16} />
+          </button>
+          <button
+            onClick={() => setZoom((z) => Math.max(0.3, z - 0.15))}
+            className="flex items-center justify-center transition-colors"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              background: dark ? "#3f3f46" : "#f4f4f5",
+              color: textClr,
+              border: "none",
+              cursor: "pointer",
+            }}
+            title="缩小"
+          >
+            <ZoomOut size={16} />
+          </button>
+          <button
+            onClick={resetView}
+            className="flex items-center justify-center transition-colors"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              background: dark ? "#3f3f46" : "#f4f4f5",
+              color: textClr,
+              border: "none",
+              cursor: "pointer",
+            }}
+            title="重置视图"
+          >
+            <Maximize2 size={16} />
+          </button>
+          <div
+            className="text-center text-xs mt-0.5"
+            style={{ color: subText, fontSize: 10 }}
+          >
+            {Math.round(zoom * 100)}%
+          </div>
+        </div>
+
+        {/* 底部 AI 生成面板 */}
+        <div
+          className="absolute left-1/2 bottom-4 transition-all"
+          style={{
+            transform: "translateX(-50%)",
+            width: showAiPanel ? 480 : "auto",
+            maxWidth: "calc(100% - 32px)",
+          }}
+        >
+          {showAiPanel ? (
+            <div
+              className="flex flex-col gap-2.5 p-3"
+              style={{
+                background: dark ? "rgba(20,20,22,0.94)" : "#ffffff",
+                backdropFilter: "blur(12px)",
+                border: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
+                borderRadius: 12,
+                boxShadow: dark
+                  ? "0 8px 32px rgba(0,0,0,0.45)"
+                  : "0 4px 20px rgba(0,0,0,0.12)",
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} style={{ color: "#6366f1" }} />
+                  <span className="text-sm font-medium" style={{ color: textClr }}>
+                    AI 生成思维导图
+                  </span>
+                  <span className="text-xs" style={{ color: subText }}>
+                    40 积分
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowAiPanel(false)}
+                  className="flex items-center justify-center transition-colors"
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 4,
+                    background: "transparent",
+                    color: subText,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                  title="收起"
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </div>
+              <textarea
+                className="w-full text-sm px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                rows={3}
+                placeholder="输入主题，例如：产品设计流程..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                style={{
+                  background: dark ? "#3f3f46" : "#f9fafb",
+                  border: `1px solid ${dark ? "#52525b" : "#e5e7eb"}`,
+                  color: textClr,
+                  borderRadius: 8,
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generateMindMap();
+                }}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs" style={{ color: subText }}>
+                  ⌘+Enter 快速生成
+                </span>
+                <button
+                  onClick={generateMindMap}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                  className="flex items-center justify-center gap-2 text-sm px-4 transition-all disabled:opacity-50"
+                  style={{
+                    background: "#6366f1",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: 8,
+                    height: 36,
+                    cursor: aiLoading || !aiPrompt.trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {aiLoading ? "生成中..." : "生成思维导图"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAiPanel(true)}
+              className="flex items-center gap-2 px-4 transition-all"
+              style={{
+                background: dark ? "rgba(20,20,22,0.94)" : "#ffffff",
+                backdropFilter: "blur(12px)",
+                border: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
+                borderRadius: 24,
+                height: 48,
+                color: textClr,
+                cursor: "pointer",
+                boxShadow: dark
+                  ? "0 8px 32px rgba(0,0,0,0.45)"
+                  : "0 4px 20px rgba(0,0,0,0.12)",
+              }}
+              title="展开 AI 生成面板"
+            >
+              <ChevronUp size={16} />
+              <Sparkles size={16} style={{ color: "#6366f1" }} />
+              <span className="text-sm font-medium">AI 生成思维导图</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1069,10 +1186,13 @@ function SideBtn({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors"
+      className="flex items-center gap-2 text-sm px-3 transition-colors"
       style={{
         background: bgOverride ?? (dark ? "#3f3f46" : "#e4e4e7"),
         color: textColor,
+        borderRadius: 6,
+        height: 36,
+        width: "100%",
       }}
     >
       {icon}
