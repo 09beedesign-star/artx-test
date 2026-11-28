@@ -257,9 +257,9 @@ export default function PostDetailModal({
                     alignItems: "center",
                     justifyContent: "center",
                     gap: "var(--space-xs)",
-                    className: "type-body-strong",
+                    fontSize: "14px",
+                    fontWeight: 600,
                   }}
-                  className="type-body-strong"
                 >
                   <Copy size={16} />
                   一键同款
@@ -296,7 +296,7 @@ export default function PostDetailModal({
                 }}
               >
                 {comments.length === 0 ? (
-                  <p className="type-caption" style={{ color: subText, textAlign: "center", paddingY: "var(--space-md)" }}>
+                  <p className="type-caption" style={{ color: subText, textAlign: "center", padding: "var(--space-md) 0" }}>
                     暂无评论
                   </p>
                 ) : (
