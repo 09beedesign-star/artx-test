@@ -9,6 +9,7 @@ import { Users, Upload, Heart, MessageCircle, Star, AlertCircle } from "lucide-r
 import { BG_GLOW } from "@/lib/workspace-data";
 import { useLocation } from "wouter";
 import UploadDialog from "@/components/community/UploadDialog";
+import PostDetailModal from "@/components/community/PostDetailModal";
 
 interface CommunityPost {
   id: string;
@@ -31,6 +32,8 @@ interface CommunityPost {
   hasFavorited?: boolean;
 }
 
+export type { CommunityPost };
+
 export default function CommunityPage() {
   const { resolvedTheme } = useTheme();
   const { user } = useAuth();
@@ -49,6 +52,8 @@ export default function CommunityPage() {
   const [isArtist, setIsArtist] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [permissionError, setPermissionError] = useState("");
+  const [selectedPost, setSelectedPost] = useState<CommunityPost | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   // 检查 URL 查询参数以确定是否自动打开上传对话框
   useEffect(() => {
@@ -161,6 +166,18 @@ export default function CommunityPage() {
     setUploadOpen(true);
   }
 
+  function handlePostClick(post: CommunityPost) {
+    setSelectedPost(post);
+    setDetailOpen(true);
+  }
+
+  function handleCopyPrompt(prompt: string) {
+    // 保存提示词到本地存储，以便在画布中使用
+    sessionStorage.setItem("communityPrompt", prompt);
+    // 跳转到画布
+    navigate("/workspace");
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg }}>
@@ -219,7 +236,28 @@ export default function CommunityPage() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--space-lg)" }}>
             {posts.map(post => (
-              <div key={post.id} style={{ background: cardBg, borderRadius: "var(--radius-lg)", overflow: "hidden", border: `1px solid ${border}` }}>
+              <div
+                key={post.id}
+                onClick={() => handlePostClick(post)}
+                style={{
+                  background: cardBg,
+                  borderRadius: "var(--radius-lg)",
+                  overflow: "hidden",
+                  border: `1px solid ${border}`,
+                  cursor: "pointer",
+                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLElement;
+                  el.style.transform = "translateY(-4px)";
+                  el.style.boxShadow = isDark ? "0 8px 24px rgba(0, 0, 0, 0.4)" : "0 8px 24px rgba(0, 0, 0, 0.1)";
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLElement;
+                  el.style.transform = "translateY(0)";
+                  el.style.boxShadow = "none";
+                }}
+              >
                 {/* Image */}
                 <div style={{ position: "relative", paddingTop: "100%", background: "#f5f5f5" }}>
                   <img
@@ -301,6 +339,15 @@ export default function CommunityPage() {
             void loadPosts();
           }
         }}
+      />
+
+      {/* Post Detail Modal */}
+      <PostDetailModal
+        post={selectedPost}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        isDark={isDark}
+        onCopyPrompt={handleCopyPrompt}
       />
     </div>
   );
