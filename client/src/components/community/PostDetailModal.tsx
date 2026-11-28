@@ -11,6 +11,7 @@ interface PostDetailModalProps {
   onOpenChange: (open: boolean) => void;
   isDark: boolean;
   onCopyPrompt: (prompt: string) => void;
+  onApplySameStyle?: (post: CommunityPost) => void;
 }
 
 export default function PostDetailModal({
@@ -19,6 +20,7 @@ export default function PostDetailModal({
   onOpenChange,
   isDark,
   onCopyPrompt,
+  onApplySameStyle,
 }: PostDetailModalProps) {
   const [comments, setComments] = useState<Array<{ id: string; author: string; text: string; time: string }>>([]);
   const [newComment, setNewComment] = useState("");
@@ -101,19 +103,38 @@ export default function PostDetailModal({
           <h2 className="type-headline" style={{ color: text }}>
             作品详情
           </h2>
-          <button
-            onClick={() => onOpenChange(false)}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: subText,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <X size={24} />
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-md)", alignItems: "center" }}>
+            {onApplySameStyle && post && (
+              <button
+                onClick={() => onApplySameStyle(post)}
+                className="type-body-strong"
+                style={{
+                  padding: "var(--space-sm) var(--space-md)",
+                  background: "#161616",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "var(--radius-md)",
+                  cursor: "pointer",
+                  transition: "background 0.2s ease",
+                }}
+              >
+                一键复刻
+              </button>
+            )}
+            <button
+              onClick={() => onOpenChange(false)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: subText,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}

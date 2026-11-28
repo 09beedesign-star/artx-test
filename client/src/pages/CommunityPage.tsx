@@ -362,6 +362,30 @@ export default function CommunityPage() {
                   <div style={{ marginTop: "var(--space-sm)", paddingTop: "var(--space-sm)", borderTop: `1px solid ${border}` }}>
                     <p className="type-micro" style={{ color: subText }}>by {post.username}</p>
                   </div>
+
+                  {/* Persistent "一键复刻" Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleCardSameStyle(post);
+                    }}
+                    disabled={applyingSameStyle}
+                    className="type-body-strong"
+                    style={{
+                      width: "100%",
+                      padding: "var(--space-sm)",
+                      marginTop: "var(--space-md)",
+                      background: applyingSameStyle ? "#999" : "#161616",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "var(--radius-md)",
+                      cursor: applyingSameStyle ? "not-allowed" : "pointer",
+                      transition: "background 0.2s ease",
+                      opacity: applyingSameStyle ? 0.6 : 1,
+                    }}
+                  >
+                    {applyingSameStyle ? "处理中..." : "一键复刻"}
+                  </button>
                 </div>
               </div>
             ))}
@@ -388,6 +412,7 @@ export default function CommunityPage() {
         onOpenChange={setDetailOpen}
         isDark={isDark}
         onCopyPrompt={handleCopyPrompt}
+        onApplySameStyle={handleCardSameStyle}
       />
     </div>
   );
