@@ -74,6 +74,7 @@ export default function PostDetailModal({
     if (open && post?.id) {
       void loadComments();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, post?.id]);
 
   const handleAddComment = async () => {
