@@ -1,12 +1,13 @@
 /**
  * CommunityPage — 创意社区
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { communityAuthHeaders } from "@/lib/community-client";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Users, Upload, Heart, MessageCircle, Star, AlertCircle } from "lucide-react";
 import { BG_GLOW } from "@/lib/workspace-data";
+import { useLocation } from "wouter";
 import UploadDialog from "@/components/community/UploadDialog";
 
 interface CommunityPost {
@@ -33,6 +34,7 @@ interface CommunityPost {
 export default function CommunityPage() {
   const { resolvedTheme } = useTheme();
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const isDark = resolvedTheme === "dark";
   const bg = isDark ? "#161616" : "var(--design-surface-soft)";
   const cardBg = isDark ? "#1e1e1e" : "#ffffff";
@@ -45,6 +47,17 @@ export default function CommunityPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [isArtist, setIsArtist] = useState(false);
+
+  // 检查 URL 查询参数以确定是否自动打开上传对话框
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("upload") === "true") {
+      setUploadOpen(true);
+      // 清理 URL，移除 upload 参数
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, []);
 
   useEffect(() => {
     void loadPosts();
@@ -246,7 +259,13 @@ export default function CommunityPage() {
       {/* Upload Dialog */}
       <UploadDialog
         open={uploadOpen}
-        onOpenChange={setUploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open);
+          // 当对话框关闭时，刷新帖子列表
+          if (!open) {
+            void loadPosts();
+          }
+        }}
       />
     </div>
   );

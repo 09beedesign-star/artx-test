@@ -6,6 +6,7 @@ import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell, Image, Trash2, Copy } from "lucide-react";
 import { useLocation } from "wouter";
+import { useSearchParams } from "wouter";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
 import { useInspirationReactions } from "@/hooks/useInspirationReactions";
@@ -16,7 +17,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { communityAuthHeaders, readCommunityToken } from "@/lib/community-client";
-import UploadDialog from "@/components/community/UploadDialog";
 import type { CommunityPost } from "@/shared/community-types";
 import {
   AlertDialog,
@@ -301,19 +301,6 @@ export default function ProfilePage() {
   /**
    * 「我的作品」- 用户自己上传的社区作品列表
    */
-  interface CommunityPost {
-    id: string;
-    userId: string;
-    username: string;
-    imageUrl: string;
-    title?: string;
-    description?: string;
-    likes: number;
-    commentsCount: number;
-    favoritesCount: number;
-    viewsCount: number;
-    createdAt: string;
-  }
   const [myPosts, setMyPosts] = useState<CommunityPost[]>([]);
   const [myPostsLoading, setMyPostsLoading] = useState(false);
   const [myPostsError, setMyPostsError] = useState("");
@@ -366,6 +353,13 @@ export default function ProfilePage() {
       { title: item.title, imageUrl: item.imageUrl },
       navigate
     );
+  };
+
+  /**
+   * 导航到社区页面并打开上传对话框
+   */
+  const goToUploadInCommunity = () => {
+    navigate("/community?upload=true");
   };
 
 
@@ -658,6 +652,17 @@ export default function ProfilePage() {
                   </button>
                 );
               })}
+              {reactionTab === "myPosts" && (
+                <button
+                  type="button"
+                  onClick={goToUploadInCommunity}
+                  className="ml-auto flex items-center gap-2 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
+                  style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}
+                >
+                  <Upload size={14} />
+                  上传作品
+                </button>
+              )}
             </div>
 
             {reactionTab === "myPosts" ? (
@@ -696,7 +701,7 @@ export default function ProfilePage() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => navigate("/community")}
+                    onClick={goToUploadInCommunity}
                     className="mt-5 rounded-[var(--radius-pill)] px-4 py-2 type-caption transition-opacity hover:opacity-85"
                     style={{ background: "var(--artx-action-bg)", color: "var(--artx-action-fg)", border: "1px solid var(--artx-action-border)", letterSpacing: 0, textTransform: "none" }}
                   >
