@@ -9,9 +9,12 @@ import type { CommunityPost } from "@/pages/CommunityPage";
 
 interface Comment {
   id: string;
-  author: string;
-  text: string;
-  time: string;
+  postId: string;
+  userId: string;
+  username: string;
+  content: string;
+  createdAt: string;
+  status: string;
 }
 
 interface PostDetailModalProps {
@@ -94,7 +97,7 @@ export default function PostDetailModal({
           ...communityAuthHeaders(),
         },
         body: JSON.stringify({
-          text: newComment,
+          content: newComment,
         }),
       });
 
@@ -398,14 +401,14 @@ export default function PostDetailModal({
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--space-xs)" }}>
                         <p className="type-body-strong" style={{ color: text }}>
-                          {comment.author}
+                          {comment.username}
                         </p>
                         <p className="type-micro" style={{ color: subText }}>
-                          {comment.time}
+                          {formatDate(comment.createdAt)}
                         </p>
                       </div>
                       <p className="type-body" style={{ color: text }}>
-                        {comment.text}
+                        {comment.content}
                       </p>
                     </div>
                   ))
