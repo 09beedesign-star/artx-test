@@ -244,16 +244,10 @@ export default function CommunityPage() {
       </div>
 
       {/* Upload Dialog */}
-      {uploadOpen && (
-        <UploadDialog
-          isOpen={uploadOpen}
-          onClose={() => setUploadOpen(false)}
-          onSuccess={() => {
-            setUploadOpen(false);
-            loadPosts();
-          }}
-        />
-      )}
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+      />
     </div>
   );
 }
