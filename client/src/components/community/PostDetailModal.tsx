@@ -1,9 +1,18 @@
 /**
  * PostDetailModal — 作品详情浮窗
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, MessageSquare, Copy } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { communityAuthHeaders } from "@/lib/community-client";
 import type { CommunityPost } from "@/pages/CommunityPage";
+
+interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  time: string;
+}
 
 interface PostDetailModalProps {
   post: CommunityPost | null;
@@ -22,9 +31,11 @@ export default function PostDetailModal({
   onCopyPrompt,
   onApplySameStyle,
 }: PostDetailModalProps) {
-  const [comments, setComments] = useState<Array<{ id: string; author: string; text: string; time: string }>>([]);
+  const { user } = useAuth();
+  const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [loadingComments, setLoadingComments] = useState(false);
+  const [submittingComment, setSubmittingComment] = useState(false);
 
   const bg = isDark ? "#161616" : "#f5f5f5";
   const cardBg = isDark ? "#1e1e1e" : "#ffffff";
@@ -35,18 +46,68 @@ export default function PostDetailModal({
 
   if (!open || !post) return null;
 
-  const handleAddComment = async () => {
-    if (!newComment.trim()) return;
+  // 加载评论
+  const loadComments = async () => {
+    if (!post?.id) return;
+    
+    setLoadingComments(true);
+    try {
+      const response = await fetch(`/api/community/posts/${post.id}/comments`, {
+        headers: communityAuthHeaders(),
+      });
+      
+      if (response.ok) {
+        const data = await response.json() as Comment[];
+        setComments(data);
+      } else {
+        console.error("加载评论失败:", response.statusText);
+      }
+    } catch (err) {
+      console.error("加载评论出错:", err);
+    } finally {
+      setLoadingComments(false);
+    }
+  };
 
-    // TODO: 调用API保存评论
-    const comment = {
-      id: `comment-${Date.now()}`,
-      author: "当前用户", // 实际应从auth context获取
-      text: newComment,
-      time: new Date().toLocaleString(),
-    };
-    setComments(prev => [comment, ...prev]);
-    setNewComment("");
+  // 在浮窗打开时加载评论
+  useEffect(() => {
+    if (open && post?.id) {
+      void loadComments();
+    }
+  }, [open, post?.id]);
+
+  const handleAddComment = async () => {
+    if (!newComment.trim() || !user) return;
+
+    setSubmittingComment(true);
+    try {
+      // 调用API保存评论
+      const response = await fetch(`/api/community/posts/${post!.id}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...communityAuthHeaders(),
+        },
+        body: JSON.stringify({
+          text: newComment,
+        }),
+      });
+
+      if (response.ok) {
+        const savedComment = await response.json() as Comment;
+        setComments(prev => [savedComment, ...prev]);
+        setNewComment("");
+      } else {
+        const error = await response.json();
+        console.error("发布评论失败:", error);
+        alert(error.error || "发布评论失败");
+      }
+    } catch (err) {
+      console.error("发布评论出错:", err);
+      alert("发布评论出错");
+    } finally {
+      setSubmittingComment(false);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -366,18 +427,18 @@ export default function PostDetailModal({
                 />
                 <button
                   onClick={handleAddComment}
-                  disabled={!newComment.trim()}
+                  disabled={!newComment.trim() || submittingComment || !user}
                   className="type-body-strong"
                   style={{
                     padding: "var(--space-sm) var(--space-md)",
-                    background: newComment.trim() ? "#6366f1" : "#999",
+                    background: (newComment.trim() && !submittingComment && user) ? "#6366f1" : "#999",
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "var(--radius-md)",
-                    cursor: newComment.trim() ? "pointer" : "not-allowed",
+                    cursor: (newComment.trim() && !submittingComment && user) ? "pointer" : "not-allowed",
                   }}
                 >
-                  发送
+                  {submittingComment ? "发送中..." : "发送"}
                 </button>
               </div>
             </div>
