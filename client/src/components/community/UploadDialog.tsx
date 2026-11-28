@@ -107,6 +107,10 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
 
       if (!response.ok) {
         const data = await response.json();
+        // 特殊处理艺术家权限错误
+        if (data.error?.includes("艺术家") || data.error?.includes("artist") || response.status === 403) {
+          throw new Error("您暂无上传权限，需要先获得艺术家认证。请联系管理员申请。");
+        }
         throw new Error(data.error || "上传失败");
       }
 

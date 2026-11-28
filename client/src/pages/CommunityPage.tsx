@@ -142,7 +142,7 @@ export default function CommunityPage() {
             <Users size={24} style={{ color: text }} />
             <h1 className="type-headline" style={{ color: text }}>创意社区</h1>
           </div>
-          {isArtist && !emergencyMode && (
+          {user && !emergencyMode && (
             <button
               onClick={() => setUploadOpen(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg type-body-strong"
