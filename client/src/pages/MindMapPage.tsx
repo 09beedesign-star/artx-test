@@ -14,6 +14,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -41,6 +42,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { callLLM } from "@/lib/ai";
+import { readCreationHistory, type CreationHistoryRecord } from "@/lib/creation-history";
+import { communityAuthHeaders } from "@/lib/community-client";
+import { ECOMMERCE_TEMPLATES } from "@/data/ecommerce-canvas-templates";
 
 // ─── 数据结构 ──────────────────────────────────────────────────────────────
 
@@ -356,6 +360,10 @@ export default function MindMapPage() {
   const [importSortBy, setImportSortBy] = useState<"time" | "tag">("time");
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishImages, setPublishImages] = useState<string[]>([]);
+  
+  // 实际数据源
+  const [creationHistoryRecords, setCreationHistoryRecords] = useState<CreationHistoryRecord[]>([]);
+  const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; imageUrl: string; title?: string; prompt?: string }>>([]);
 
   // 颜色面板
   const [showColorPanel, setShowColorPanel] = useState(false);
@@ -673,6 +681,78 @@ export default function MindMapPage() {
     svg.addEventListener("wheel", handleWheel, { passive: false });
     return () => svg.removeEventListener("wheel", handleWheel);
   }, []);
+
+  // 加载实际数据源
+  useEffect(() => {
+    if (!showImportPanel) return;
+    
+    async function loadData() {
+      if (importCategory === "history" && user?.id) {
+        // 加载创作历史
+        const records = await readCreationHistory(user.id);
+        setCreationHistoryRecords(records);
+      } else if (importCategory === "community") {
+        // 加载社区作品
+        try {
+          const response = await fetch("/api/community/posts", {
+            headers: communityAuthHeaders(),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const posts = Array.isArray(data) ? data : data.posts || [];
+            setCommunityPosts(posts.map((p: { id: string; imageUrl: string; title?: string; prompt?: string }) => ({
+              id: p.id,
+              imageUrl: p.imageUrl,
+              title: p.title,
+              prompt: p.prompt,
+            })));
+          }
+        } catch (error) {
+          console.error("Failed to load community posts:", error);
+        }
+      }
+      // template 使用静态数据 ECOMMERCE_TEMPLATES，无需异步加载
+    }
+    
+    void loadData();
+  }, [showImportPanel, importCategory, user?.id]);
+
+  // 根据 importCategory 计算图片数据和映射表（用于批处理操作）
+  const { importItems, imageMap } = useMemo(() => {
+    const TAGS = ["UI", "插画", "海报", "图标", "背景"];
+    let items: Array<{ imgId: string; label: string; tag: string; imgSrc: string }> = [];
+    
+    if (importCategory === "history") {
+      items = creationHistoryRecords.map((record, i) => ({
+        imgId: record.id,
+        label: record.projectName || `创意-${i + 1}`,
+        tag: record.tagIds?.[0] ? TAGS[record.tagIds[0] % TAGS.length] : TAGS[i % TAGS.length],
+        imgSrc: record.src,
+      }));
+    } else if (importCategory === "template") {
+      items = ECOMMERCE_TEMPLATES.map((tpl, i) => ({
+        imgId: `tpl-${tpl.id}`,
+        label: tpl.name,
+        tag: TAGS[i % TAGS.length],
+        imgSrc: `https://picsum.photos/seed/tpl-${tpl.id}/100/70`,
+      }));
+    } else if (importCategory === "community") {
+      items = communityPosts.map((post, i) => ({
+        imgId: post.id,
+        label: post.title || `社区-${i + 1}`,
+        tag: TAGS[i % TAGS.length],
+        imgSrc: post.imageUrl,
+      }));
+    }
+    
+    // 创建 imgId -> imgSrc 的映射表
+    const map = new Map<string, { imgSrc: string; label: string }>();
+    items.forEach(item => {
+      map.set(item.imgId, { imgSrc: item.imgSrc, label: item.label });
+    });
+    
+    return { importItems: items, imageMap: map };
+  }, [importCategory, creationHistoryRecords, communityPosts]);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -1021,13 +1101,16 @@ export default function MindMapPage() {
                       <button
                         onClick={() => {
                           importSelected.forEach((imgId) => {
-                            const newNode: MindMapNode = {
-                              id: uid(),
-                              label: imgId,
-                              children: [],
-                              imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
-                            };
-                            setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                            const item = imageMap.get(imgId);
+                            if (item) {
+                              const newNode: MindMapNode = {
+                                id: uid(),
+                                label: item.label,
+                                children: [],
+                                imageUrl: item.imgSrc,
+                              };
+                              setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                            }
                           });
                           setImportSelected(new Set());
                           setShowImportPanel(false);
@@ -1048,10 +1131,13 @@ export default function MindMapPage() {
                       <button
                         onClick={() => {
                           importSelected.forEach((imgId) => {
-                            const link = document.createElement("a");
-                            link.href = `https://picsum.photos/seed/${imgId}/800/600`;
-                            link.download = `${imgId}.jpg`;
-                            link.click();
+                            const item = imageMap.get(imgId);
+                            if (item) {
+                              const link = document.createElement("a");
+                              link.href = item.imgSrc;
+                              link.download = `${item.label}.jpg`;
+                              link.click();
+                            }
                           });
                           toast.success(`已下载 ${importSelected.size} 张图片`);
                         }}
@@ -1155,12 +1241,12 @@ export default function MindMapPage() {
                   <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
                     {(() => {
                       const TAGS = ["UI", "插画", "海报", "图标", "背景"];
-                      const items = Array.from({ length: 15 }, (_, i) => {
-                        const imgId = `${importCategory}-${i + 1}`;
-                        const label = `${importCategory === "history" ? "创意" : importCategory === "template" ? "模板" : "社区"}-${i + 1}`;
-                        const tag = TAGS[i % 5];
-                        return { imgId, label, tag, i };
-                      }).filter(({ tag, label }) =>
+                      
+                      // 使用预计算的 importItems
+                      let items = [...importItems];
+                      
+                      // 筛选
+                      items = items.filter(({ tag, label }) =>
                         !importTagFilter || tag.includes(importTagFilter) || label.includes(importTagFilter)
                       );
 
@@ -1169,7 +1255,7 @@ export default function MindMapPage() {
                         items.sort((a, b) => TAGS.indexOf(a.tag) - TAGS.indexOf(b.tag));
                       }
 
-                      return items.map(({ imgId, label, tag }) => {
+                      return items.map(({ imgId, label, tag, imgSrc }) => {
                         const isChosen = importSelected.has(imgId);
                         return (
                           <div
@@ -1196,7 +1282,7 @@ export default function MindMapPage() {
                               className="group"
                             >
                               <img
-                                src={`https://picsum.photos/seed/${imgId}/100/70`}
+                                src={imgSrc}
                                 alt={label}
                                 style={{ width: "100%", aspectRatio: "10/7", objectFit: "cover", display: "block" }}
                               />
@@ -1235,7 +1321,7 @@ export default function MindMapPage() {
                                         id: uid(),
                                         label,
                                         children: [],
-                                        imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
+                                        imageUrl: imgSrc,
                                       };
                                       setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
                                       setShowImportPanel(false);
@@ -1279,8 +1365,8 @@ export default function MindMapPage() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     const link = document.createElement("a");
-                                    link.href = `https://picsum.photos/seed/${imgId}/800/600`;
-                                    link.download = `${imgId}.jpg`;
+                                    link.href = imgSrc;
+                                    link.download = `${label}.jpg`;
                                     link.click();
                                   }}
                                   style={{
