@@ -72,7 +72,7 @@ export default function PostDetailModal({
   // 在浮窗打开时加载评论
   useEffect(() => {
     if (open && post?.id) {
-      void loadComments();
+      loadComments().catch(err => console.error("加载评论异常:", err));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, post?.id]);
