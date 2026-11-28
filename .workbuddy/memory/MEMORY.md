@@ -1,9 +1,10 @@
 # 项目长期记忆 — ArtX（`/Users/ericbi/WorkBuddy/artx/artx-test-main`）
 
-## 图片上传功能整合完成（2026-01-latest）
-- ✅ UploadDialog.tsx 组件签名改为 `open/onOpenChange/prefilledData`，支持外部集成
-- ✅ ProfilePage 新增「我的作品」标签页：加载用户发布作品、删除按钮、空态引导
-- ✅ CreationHistoryPage 右键菜单：弹出 UploadDialog 并预填图片 URL 和提示词
-- ✅ design-tags.ts 创建：5 个分类、32 个标签定义（风格/介质/主题/技术/氛围）
-- ✅ Build 通过：0 errors，所有组件已正确打包
-- 📌 下一步：直接 `git commit/push main`，然后 dispatch 生产部署
+## ProfilePage 上传流程优化完成（2026-11-28）
+- ✅ 修复重复点击上传问题：移除 ProfilePage 本地 UploadDialog，改为导航到社区
+- ✅ 改动文件：`client/src/pages/ProfilePage.tsx`、`client/src/pages/CommunityPage.tsx`（2 文件）
+- ✅ 实现流程：点击「我的作品」上传按钮 → 自动跳转到 `/community?upload=true` → CommunityPage 检测 URL 自动打开上传对话框
+- ✅ 推送到 main：commit 7f1d8366，blob 层面验证二文件已确认上线
+- ✅ 部署工作流 dispatched：Run ID 46102174082，状态 in_progress，分支 main
+- 📌 部署链接：https://github.com/09beedesign-star/artx-test/actions/runs/46102174082
+- 📌 上线地址：https://www.artxsd.com
