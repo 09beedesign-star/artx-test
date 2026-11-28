@@ -726,7 +726,8 @@ export default function MindMapPage() {
       items = creationHistoryRecords.map((record, i) => ({
         imgId: record.id,
         label: record.projectName || `创意-${i + 1}`,
-        tag: record.tagIds?.[0] ? TAGS[record.tagIds[0] % TAGS.length] : TAGS[i % TAGS.length],
+        // tagIds 是 TagColorId[] (字符串)，直接用索引 i 轮转分配标签
+        tag: TAGS[i % TAGS.length],
         imgSrc: record.src,
       }));
     } else if (importCategory === "template") {
