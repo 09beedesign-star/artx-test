@@ -45,6 +45,7 @@ import { callLLM } from "@/lib/ai";
 import { readCreationHistory, type CreationHistoryRecord } from "@/lib/creation-history";
 import { communityAuthHeaders } from "@/lib/community-client";
 import { ECOMMERCE_TEMPLATES } from "@/data/ecommerce-canvas-templates";
+import { CANVAS_SIZE_TEMPLATES, CANVAS_SIZE_TPL_CATEGORIES, type CanvasSizeTpl } from "@/data/canvas-size-templates";
 
 // ─── 数据结构 ──────────────────────────────────────────────────────────────
 
@@ -353,17 +354,22 @@ export default function MindMapPage() {
 
   // 引入创意图弹窗
   const [showImportPanel, setShowImportPanel] = useState(false);
-  const [importCategory, setImportCategory] = useState<"local" | "history" | "template" | "community">("history");
+  const [importCategory, setImportCategory] = useState<"local" | "history" | "template" | "community" | "canvas-size">("history");
   const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
   const [importTagFilter, setImportTagFilter] = useState<string>("");
   const [importEditMode, setImportEditMode] = useState(false);
   const [importSortBy, setImportSortBy] = useState<"time" | "tag">("time");
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishImages, setPublishImages] = useState<string[]>([]);
+  const [canvasSizeCategoryFilter, setCanvasSizeCategoryFilter] = useState<string>("all");
   
   // 实际数据源
   const [creationHistoryRecords, setCreationHistoryRecords] = useState<CreationHistoryRecord[]>([]);
   const [communityPosts, setCommunityPosts] = useState<Array<{ id: string; imageUrl: string; title?: string; prompt?: string }>>([]);
+  
+  // 灵感模板分页
+  const [templatePage, setTemplatePage] = useState(1);
+  const TEMPLATES_PER_PAGE = 50;
 
   // 颜色面板
   const [showColorPanel, setShowColorPanel] = useState(false);
@@ -718,9 +724,11 @@ export default function MindMapPage() {
   }, [showImportPanel, importCategory, user?.id]);
 
   // 根据 importCategory 计算图片数据和映射表（用于批处理操作）
-  const { importItems, imageMap } = useMemo(() => {
+  const { importItems, imageMap, totalTemplates, hasMoreTemplates } = useMemo(() => {
     const TAGS = ["UI", "插画", "海报", "图标", "背景"];
-    let items: Array<{ imgId: string; label: string; tag: string; imgSrc: string }> = [];
+    let items: Array<{ imgId: string; label: string; tag: string; imgSrc: string; width?: number; height?: number; note?: string }> = [];
+    let total = 0;
+    let hasMore = false;
     
     if (importCategory === "history") {
       items = creationHistoryRecords.map((record, i) => ({
@@ -731,11 +739,34 @@ export default function MindMapPage() {
         imgSrc: record.src,
       }));
     } else if (importCategory === "template") {
-      items = ECOMMERCE_TEMPLATES.map((tpl, i) => ({
+      // 灵感模板分页：50 张一批次
+      total = ECOMMERCE_TEMPLATES.length;
+      const startIdx = (templatePage - 1) * TEMPLATES_PER_PAGE;
+      const endIdx = startIdx + TEMPLATES_PER_PAGE;
+      hasMore = endIdx < total;
+      
+      const pageTemplates = ECOMMERCE_TEMPLATES.slice(startIdx, endIdx);
+      items = pageTemplates.map((tpl, i) => ({
         imgId: `tpl-${tpl.id}`,
         label: tpl.name,
         tag: TAGS[i % TAGS.length],
-        imgSrc: `https://picsum.photos/seed/tpl-${tpl.id}/100/70`,
+        // 使用模板 ID 作为 seed 生成一致的缩略图
+        imgSrc: `https://picsum.photos/seed/ecom-${tpl.id}/400/300`,
+      }));
+    } else if (importCategory === "canvas-size") {
+      // 尺寸模板：根据分类过滤
+      const filteredTemplates = canvasSizeCategoryFilter === "all" 
+        ? CANVAS_SIZE_TEMPLATES 
+        : CANVAS_SIZE_TEMPLATES.filter(t => t.categoryId === canvasSizeCategoryFilter);
+      
+      items = filteredTemplates.map((tpl, i) => ({
+        imgId: `size-${tpl.id}`,
+        label: tpl.name,
+        tag: tpl.note || tpl.categoryId,
+        imgSrc: "", // 空白占位符，导入时会创建空白节点
+        width: tpl.width,
+        height: tpl.height,
+        note: tpl.note,
       }));
     } else if (importCategory === "community") {
       items = communityPosts.map((post, i) => ({
@@ -746,14 +777,25 @@ export default function MindMapPage() {
       }));
     }
     
-    // 创建 imgId -> imgSrc 的映射表
-    const map = new Map<string, { imgSrc: string; label: string }>();
+    // 创建 imgId -> 完整信息的映射表
+    const map = new Map<string, { imgSrc: string; label: string; width?: number; height?: number; note?: string }>();
     items.forEach(item => {
-      map.set(item.imgId, { imgSrc: item.imgSrc, label: item.label });
+      map.set(item.imgId, { 
+        imgSrc: item.imgSrc, 
+        label: item.label,
+        width: item.width,
+        height: item.height,
+        note: item.note,
+      });
     });
     
-    return { importItems: items, imageMap: map };
-  }, [importCategory, creationHistoryRecords, communityPosts]);
+    return { 
+      importItems: items, 
+      imageMap: map,
+      totalTemplates: total,
+      hasMoreTemplates: hasMore,
+    };
+  }, [importCategory, creationHistoryRecords, communityPosts, canvasSizeCategoryFilter, templatePage]);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -1010,12 +1052,19 @@ export default function MindMapPage() {
               {([
                 { key: "history", label: "创意历史", icon: "🕐" },
                 { key: "template", label: "灵感模板", icon: "✨" },
+                { key: "canvas-size", label: "画布尺寸", icon: "📐" },
                 { key: "community", label: "设计社区", icon: "🌐" },
                 { key: "local", label: "本地上传", icon: "📂" },
               ] as const).map(({ key, label, icon }) => (
                 <button
                   key={key}
-                  onClick={() => setImportCategory(key)}
+                  onClick={() => {
+                    setImportCategory(key);
+                    // 切换分类时重置模板页码
+                    if (key === "template") {
+                      setTemplatePage(1);
+                    }
+                  }}
                   className="flex items-center gap-2 text-sm px-2 py-2 w-full text-left transition-colors"
                   style={{
                     borderRadius: 6,
@@ -1043,21 +1092,46 @@ export default function MindMapPage() {
                 style={{ borderBottom: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}` }}
               >
                 <div className="flex items-center gap-2 flex-1">
-                  <input
-                    className="text-xs px-2 py-1"
-                    style={{
-                      borderRadius: 6,
-                      background: dark ? "#27272a" : "#f4f4f5",
-                      border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
-                      color: textClr,
-                      outline: "none",
-                      maxWidth: 140,
-                    }}
-                    placeholder="标签筛选…"
-                    value={importTagFilter}
-                    onChange={(e) => setImportTagFilter(e.target.value)}
-                  />
-                  {importCategory !== "local" && (
+                  {/* 画布尺寸分类过滤 */}
+                  {importCategory === "canvas-size" && (
+                    <select
+                      className="text-xs px-2 py-1"
+                      style={{
+                        borderRadius: 6,
+                        background: dark ? "#27272a" : "#f4f4f5",
+                        border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                        color: textClr,
+                        outline: "none",
+                        minWidth: 140,
+                      }}
+                      value={canvasSizeCategoryFilter}
+                      onChange={(e) => setCanvasSizeCategoryFilter(e.target.value)}
+                    >
+                      {CANVAS_SIZE_TPL_CATEGORIES.map((cat) => (
+                        <option key={cat.id} value={cat.id}>{cat.label}</option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  {/* 其他分类的标签筛选 */}
+                  {importCategory !== "canvas-size" && (
+                    <input
+                      className="text-xs px-2 py-1"
+                      style={{
+                        borderRadius: 6,
+                        background: dark ? "#27272a" : "#f4f4f5",
+                        border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                        color: textClr,
+                        outline: "none",
+                        maxWidth: 140,
+                      }}
+                      placeholder="标签筛选…"
+                      value={importTagFilter}
+                      onChange={(e) => setImportTagFilter(e.target.value)}
+                    />
+                  )}
+                  
+                  {importCategory !== "local" && importCategory !== "canvas-size" && (
                     <select
                       className="text-xs px-2 py-1"
                       style={{
@@ -1388,6 +1462,31 @@ export default function MindMapPage() {
                       });
                     })()}
                   </div>
+                  
+                  {/* 灵感模板分页：加载更多按钮 */}
+                  {importCategory === "template" && (
+                    <div className="flex flex-col items-center gap-2 mt-4 pb-4">
+                      <div className="text-xs" style={{ color: subText }}>
+                        已加载 {Math.min(templatePage * TEMPLATES_PER_PAGE, totalTemplates)} / {totalTemplates} 个模板
+                      </div>
+                      {hasMoreTemplates && (
+                        <button
+                          onClick={() => setTemplatePage(p => p + 1)}
+                          className="text-xs px-4 py-2"
+                          style={{
+                            background: dark ? "#3f3f46" : "#f4f4f5",
+                            color: textClr,
+                            border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            fontWeight: 500,
+                          }}
+                        >
+                          加载更多
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
