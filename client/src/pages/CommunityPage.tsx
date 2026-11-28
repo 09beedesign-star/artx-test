@@ -47,6 +47,8 @@ export default function CommunityPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [isArtist, setIsArtist] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [permissionError, setPermissionError] = useState("");
 
   // 检查 URL 查询参数以确定是否自动打开上传对话框
   useEffect(() => {
@@ -96,6 +98,7 @@ export default function CommunityPage() {
         const data = await response.json();
         setEmergencyMode(data.emergencySwitch || false);
         setIsArtist(data.isArtist || false);
+        setIsSuperAdmin(data.isSuperAdmin || false);
       }
     } catch (error) {
       console.error("Failed to check artist status:", error);
@@ -132,6 +135,21 @@ export default function CommunityPage() {
     }
   }
 
+  function handleUploadClick() {
+    if (!user) {
+      setPermissionError("请先登录");
+      return;
+    }
+
+    if (!isArtist && !isSuperAdmin) {
+      setPermissionError("当前并非邀请艺术家，如果要申请上传图片，请发送邀请权限给管理员");
+      return;
+    }
+
+    setPermissionError("");
+    setUploadOpen(true);
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg }}>
@@ -157,7 +175,7 @@ export default function CommunityPage() {
           </div>
           {user && !emergencyMode && (
             <button
-              onClick={() => setUploadOpen(true)}
+              onClick={handleUploadClick}
               className="flex items-center gap-2 px-4 py-2 rounded-lg type-body-strong"
               style={{ background: "#161616", color: "#ffffff", border: "none", cursor: "pointer" }}
             >
@@ -170,6 +188,12 @@ export default function CommunityPage() {
           <div style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm)", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
             <AlertCircle size={16} style={{ color: "#ef4444" }} />
             <p className="type-caption" style={{ color: "#ef4444" }}>社区功能暂时关闭,维护中</p>
+          </div>
+        )}
+        {permissionError && (
+          <div style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm)", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
+            <AlertCircle size={16} style={{ color: "#ef4444" }} />
+            <p className="type-caption" style={{ color: "#ef4444" }}>{permissionError}</p>
           </div>
         )}
       </div>

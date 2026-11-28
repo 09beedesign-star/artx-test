@@ -81,8 +81,11 @@ async function requireArtist(req: express.Request, res: express.Response, next: 
       });
     }
     
-    // 检查艺术家权限
-    if (user.communityRole !== "artist") {
+    // 检查艺术家权限或超级管理员权限
+    const isArtist = user.communityRole === "artist";
+    const isSuperAdmin = effectiveUserRole(user) === "super_admin";
+    
+    if (!isArtist && !isSuperAdmin) {
       return res.status(403).json({ error: "需要艺术家权限才能发布内容" });
     }
     
@@ -126,7 +129,19 @@ router.get("/settings", async (req, res) => {
   try {
     const settings = await getCommunitySettings();
     const user = (req as any).user as StoredUser | undefined;
-    res.json({ ...settings, isArtist: user?.communityRole === "artist" && user.status !== "disabled" && user.communityStatus !== "frozen" });
+    
+    // 检查是否可以上传：艺术家或超级管理员，且账号未被冻结/停用
+    const canUpload = user && (
+      (user.communityRole === "artist" || effectiveUserRole(user) === "super_admin") &&
+      user.status !== "disabled" &&
+      user.communityStatus !== "frozen"
+    );
+    
+    res.json({ 
+      ...settings, 
+      isArtist: canUpload,
+      isSuperAdmin: user ? effectiveUserRole(user) === "super_admin" : false,
+    });
   } catch (err) {
     console.error("获取社区设置失败:", err);
     res.status(500).json({ error: "服务器错误" });

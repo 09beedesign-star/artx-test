@@ -295,12 +295,12 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
           </div>
 
           {/* 免责声明 */}
-          <div style={{ padding: "var(--space-md)", background: "rgba(239, 68, 68, 0.1)", borderRadius: "var(--space-md)", border: `1px solid #ef4444` }}>
+          <div style={{ padding: "var(--space-md)", background: isDark ? "#2a2a2a" : "#f9f9f9", borderRadius: "var(--space-md)", border: `1px solid ${border}` }}>
             <div style={{ display: "flex", gap: "var(--space-sm)", marginBottom: "var(--space-sm)" }}>
-              <AlertCircle size={20} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
+              <AlertCircle size={20} style={{ color: subText, flexShrink: 0, marginTop: "2px" }} />
               <div>
-                <p className="type-body-strong" style={{ color: "#ef4444", marginBottom: "var(--space-xs)" }}>免责声明</p>
-                <p className="type-caption" style={{ color: "#ef4444", lineHeight: 1.6 }}>
+                <p className="type-body-strong" style={{ color: text, marginBottom: "var(--space-xs)" }}>免责声明</p>
+                <p className="type-caption" style={{ color: subText, lineHeight: 1.6 }}>
                   我明确知晓并同意:图片分享和素材上传为用户个人行为,与平台无关。平台只承担素材展示和呈现的义务,一旦产生版权纠纷和责任,平台概不负责。上传即表示我拥有完整的知识产权或已获得必要的授权,并对内容的合法性承担全部责任。
                 </p>
               </div>
@@ -312,7 +312,7 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
                 onChange={e => setDisclaimerAccepted(e.target.checked)}
                 style={{ width: "16px", height: "16px" }}
               />
-              <span className="type-body-strong" style={{ color: "#ef4444" }}>我已阅读并同意以上免责声明</span>
+              <span className="type-body-strong" style={{ color: text }}>我已阅读并同意以上免责声明</span>
             </label>
           </div>
 
