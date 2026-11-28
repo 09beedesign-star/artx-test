@@ -57,6 +57,8 @@ export type MindMapNode = {
   textColor?: string;
   /** 连向子节点的连线样式，undefined = solid */
   edgeStyle?: "solid" | "dashed";
+  /** 图片节点：base64 或 object URL */
+  imageUrl?: string;
 };
 
 type LayoutNode = MindMapNode & {
@@ -69,6 +71,7 @@ type LayoutNode = MindMapNode & {
 
 const NODE_W = 140;
 const NODE_H = 36;
+const NODE_IMAGE_H = 120; // 图片节点高度
 const H_GAP = 80;
 const V_GAP = 12;
 
@@ -91,11 +94,12 @@ function layoutTree(
   startY: number,
 ): { nodes: LayoutNode[]; height: number } {
   const x = depth * (NODE_W + H_GAP);
+  const nodeH = node.imageUrl ? NODE_IMAGE_H : NODE_H;
 
   if (node.collapsed || node.children.length === 0) {
     return {
       nodes: [{ ...node, x, y: startY, depth }],
-      height: NODE_H + V_GAP,
+      height: nodeH + V_GAP,
     };
   }
 
@@ -112,8 +116,8 @@ function layoutTree(
     totalH += r.height;
   });
 
-  const subtreeH = Math.max(totalH, NODE_H + V_GAP);
-  const selfY = startY + subtreeH / 2 - NODE_H / 2;
+  const subtreeH = Math.max(totalH, nodeH + V_GAP);
+  const selfY = startY + subtreeH / 2 - nodeH / 2;
 
   return {
     nodes: [{ ...node, x, y: selfY, depth }, ...positioned],
@@ -166,10 +170,12 @@ function edgePath(
   py: number,
   cx: number,
   cy: number,
+  parentH: number,
+  childH: number,
 ): string {
   const mx = px + NODE_W;
-  const pmid = py + NODE_H / 2;
-  const cmid = cy + NODE_H / 2;
+  const pmid = py + parentH / 2;
+  const cmid = cy + childH / 2;
   const mx2 = cx;
   return `M ${mx} ${pmid} C ${mx + H_GAP / 2} ${pmid}, ${mx2 - H_GAP / 2} ${cmid}, ${mx2} ${cmid}`;
 }
@@ -337,6 +343,15 @@ export default function MindMapPage() {
 
   // 右键菜单
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+
+  // 拖出连线状态
+  const [dragEdge, setDragEdge] = useState<{ fromId: string; toX: number; toY: number } | null>(null);
+
+  // 引入创意图弹窗
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [importCategory, setImportCategory] = useState<"local" | "history" | "template" | "community">("history");
+  const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
+  const [importTagFilter, setImportTagFilter] = useState<string>("");
 
   // 颜色面板
   const [showColorPanel, setShowColorPanel] = useState(false);
@@ -588,18 +603,59 @@ export default function MindMapPage() {
 
   const onSvgPointerMove = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
+      // 拖出连线：更新预览终点
+      if (dragEdge) {
+        const svg = svgRef.current;
+        if (!svg) return;
+        const rect = svg.getBoundingClientRect();
+        const svgX = (e.clientX - rect.left - pan.x) / zoom;
+        const svgY = (e.clientY - rect.top - pan.y) / zoom;
+        setDragEdge((prev) => prev ? { ...prev, toX: svgX, toY: svgY } : null);
+        return;
+      }
       if (!panStart.current) return;
       setPan({
         x: panStart.current.px + e.clientX - panStart.current.sx,
         y: panStart.current.py + e.clientY - panStart.current.sy,
       });
     },
-    [],
+    [dragEdge, pan, zoom],
   );
 
-  const onSvgPointerUp = useCallback(() => {
-    panStart.current = null;
-  }, []);
+  const onSvgPointerUp = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      // 拖出连线：在释放位置创建新子节点
+      if (dragEdge) {
+        const svg = svgRef.current;
+        if (svg) {
+          const rect = svg.getBoundingClientRect();
+          const svgX = (e.clientX - rect.left - pan.x) / zoom;
+          const svgY = (e.clientY - rect.top - pan.y) / zoom;
+          // 检测是否落在已有节点上
+          const target = layoutNodes.find((n) => {
+            const nH = n.imageUrl ? NODE_IMAGE_H : NODE_H;
+            return svgX >= n.x && svgX <= n.x + NODE_W && svgY >= n.y && svgY <= n.y + nH;
+          });
+          if (target && target.id !== dragEdge.fromId) {
+            // 落在已有节点上：不新建，只提示
+          } else {
+            // 在空白处释放：给父节点添加新子节点
+            const newNode: MindMapNode = { id: uid(), label: "新节点", children: [] };
+            setRoot((r) => mapNode(r, dragEdge.fromId, (n) => ({ ...n, children: [...n.children, newNode] })));
+            setTimeout(() => {
+              setEditingId(newNode.id);
+              setEditingLabel("新节点");
+            }, 50);
+          }
+        }
+        setDragEdge(null);
+        panStart.current = null;
+        return;
+      }
+      panStart.current = null;
+    },
+    [dragEdge, pan, zoom, layoutNodes],
+  );
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -820,6 +876,238 @@ export default function MindMapPage() {
 
       {/* ── 右侧 SVG 画布 ── */}
       <div className="flex-1 relative overflow-hidden">
+
+        {/* 右上角「引入创意图」按钮 */}
+        <div className="absolute top-4 right-4 z-10 flex gap-2">
+          <button
+            onClick={() => setShowImportPanel((v) => !v)}
+            className="flex items-center gap-2 text-sm px-3 transition-colors"
+            style={{
+              height: 36,
+              borderRadius: 8,
+              background: dark ? "rgba(20,20,22,0.94)" : "#ffffff",
+              backdropFilter: "blur(12px)",
+              border: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"}`,
+              color: textClr,
+              boxShadow: dark ? "0 4px 16px rgba(0,0,0,0.4)" : "0 2px 8px rgba(0,0,0,0.1)",
+              cursor: "pointer",
+            }}
+          >
+            <FileImage size={15} style={{ color: "#6366f1" }} />
+            <span>引入创意图</span>
+          </button>
+        </div>
+
+        {/* 引入创意图 弹窗 */}
+        {showImportPanel && (
+          <div
+            className="absolute top-14 right-4 z-20 flex overflow-hidden"
+            style={{
+              width: 640,
+              height: 420,
+              borderRadius: 12,
+              background: dark ? "#1c1c1f" : "#ffffff",
+              border: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}`,
+              boxShadow: dark ? "0 16px 48px rgba(0,0,0,0.6)" : "0 8px 32px rgba(0,0,0,0.16)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 左侧分类 */}
+            <div
+              className="flex flex-col gap-1 p-3 shrink-0"
+              style={{
+                width: 140,
+                borderRight: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}`,
+                background: dark ? "#18181b" : "#f9fafb",
+              }}
+            >
+              <div className="text-xs font-semibold mb-1 px-1" style={{ color: dark ? "#a1a1aa" : "#71717a" }}>来源</div>
+              {([
+                { key: "history", label: "创意历史", icon: "🕐" },
+                { key: "template", label: "灵感模板", icon: "✨" },
+                { key: "community", label: "设计社区", icon: "🌐" },
+                { key: "local", label: "本地上传", icon: "📂" },
+              ] as const).map(({ key, label, icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setImportCategory(key)}
+                  className="flex items-center gap-2 text-sm px-2 py-2 w-full text-left transition-colors"
+                  style={{
+                    borderRadius: 6,
+                    background: importCategory === key
+                      ? (dark ? "#3f3f46" : "#e4e4e7")
+                      : "transparent",
+                    color: importCategory === key
+                      ? (dark ? "#e4e4e7" : "#18181b")
+                      : (dark ? "#a1a1aa" : "#71717a"),
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>{icon}</span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* 右侧内容区 */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* 顶部标签筛选 + 关闭 */}
+              <div
+                className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
+                style={{ borderBottom: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}` }}
+              >
+                <input
+                  className="text-xs px-2 py-1 flex-1"
+                  style={{
+                    borderRadius: 6,
+                    background: dark ? "#27272a" : "#f4f4f5",
+                    border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                    color: textClr,
+                    outline: "none",
+                    maxWidth: 180,
+                  }}
+                  placeholder="标签筛选…"
+                  value={importTagFilter}
+                  onChange={(e) => setImportTagFilter(e.target.value)}
+                />
+                <div className="flex items-center gap-2">
+                  {importSelected.size > 0 && (
+                    <button
+                      onClick={() => {
+                        // 将选中的图片作为图片节点插入，连接到根节点
+                        importSelected.forEach((imgId) => {
+                          const newNode: MindMapNode = {
+                            id: uid(),
+                            label: imgId,
+                            children: [],
+                            imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
+                          };
+                          setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                        });
+                        setImportSelected(new Set());
+                        setShowImportPanel(false);
+                        toast.success(`已插入 ${importSelected.size} 张图片节点`);
+                      }}
+                      className="text-xs px-3 py-1"
+                      style={{
+                        borderRadius: 6,
+                        background: "#6366f1",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      插入 {importSelected.size} 张
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setShowImportPanel(false); setImportSelected(new Set()); }}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: dark ? "#71717a" : "#a1a1aa" }}
+                  >✕</button>
+                </div>
+              </div>
+
+              {/* 本地上传区 */}
+              {importCategory === "local" ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
+                  <FileImage size={36} style={{ color: "#6366f1", opacity: 0.6 }} />
+                  <p className="text-sm" style={{ color: dark ? "#a1a1aa" : "#71717a" }}>拖拽图片到此处，或点击选择</p>
+                  <label
+                    className="text-sm px-4 py-2"
+                    style={{
+                      borderRadius: 8,
+                      background: "#6366f1",
+                      color: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    选择本地图片
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        files.forEach((file) => {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const url = ev.target?.result as string;
+                            const newNode: MindMapNode = {
+                              id: uid(),
+                              label: file.name.replace(/\.[^.]+$/, ""),
+                              children: [],
+                              imageUrl: url,
+                            };
+                            setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                          };
+                          reader.readAsDataURL(file);
+                        });
+                        setShowImportPanel(false);
+                        toast.success(`已插入 ${files.length} 张图片节点`);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : (
+                /* 缩略图网格（5列） */
+                <div className="flex-1 overflow-y-auto p-3">
+                  <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+                    {Array.from({ length: 15 }, (_, i) => {
+                      const imgId = `${importCategory}-${i + 1}`;
+                      const label = `${importCategory === "history" ? "创意" : importCategory === "template" ? "模板" : "社区"}-${i + 1}`;
+                      const tag = ["UI", "插画", "海报", "图标", "背景"][i % 5];
+                      const isMatch = !importTagFilter || tag.includes(importTagFilter) || label.includes(importTagFilter);
+                      if (!isMatch) return null;
+                      const isChosen = importSelected.has(imgId);
+                      return (
+                        <div
+                          key={imgId}
+                          onClick={() => {
+                            setImportSelected((prev) => {
+                              const next = new Set(prev);
+                              isChosen ? next.delete(imgId) : next.add(imgId);
+                              return next;
+                            });
+                          }}
+                          className="flex flex-col gap-1 cursor-pointer"
+                          style={{
+                            borderRadius: 6,
+                            border: `2px solid ${isChosen ? "#6366f1" : "transparent"}`,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <img
+                            src={`https://picsum.photos/seed/${imgId}/100/70`}
+                            alt={label}
+                            style={{ width: "100%", aspectRatio: "10/7", objectFit: "cover", display: "block" }}
+                          />
+                          <div className="px-1 pb-1">
+                            <div className="text-xs truncate" style={{ color: textClr, fontSize: 10 }}>{label}</div>
+                            <div
+                              className="text-xs"
+                              style={{
+                                color: "#6366f1",
+                                fontSize: 9,
+                                background: dark ? "rgba(99,102,241,0.15)" : "rgba(99,102,241,0.08)",
+                                borderRadius: 3,
+                                padding: "1px 4px",
+                                display: "inline-block",
+                                marginTop: 2,
+                              }}
+                            >{tag}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <svg
           ref={svgRef}
           className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing"
@@ -835,13 +1123,15 @@ export default function MindMapPage() {
             {layoutNodes.map((node) => {
               if (node.collapsed || node.children.length === 0) return null;
               const isDashed = node.edgeStyle === "dashed";
+              const parentH = node.imageUrl ? NODE_IMAGE_H : NODE_H;
               return node.children.map((child) => {
                 const childLayout = layoutNodes.find((n) => n.id === child.id);
                 if (!childLayout) return null;
+                const childH = childLayout.imageUrl ? NODE_IMAGE_H : NODE_H;
                 return (
                   <path
                     key={`edge-${node.id}-${child.id}`}
-                    d={edgePath(node.x, node.y, childLayout.x, childLayout.y)}
+                    d={edgePath(node.x, node.y, childLayout.x, childLayout.y, parentH, childH)}
                     fill="none"
                     stroke={edgeColor}
                     strokeWidth={1.5}
@@ -858,6 +1148,8 @@ export default function MindMapPage() {
               const isSelected = selectedId === node.id;
               const isEditing = editingId === node.id;
               const hasChildren = node.children.length > 0;
+              const hasImage = !!node.imageUrl;
+              const nodeH = hasImage ? NODE_IMAGE_H : NODE_H;
 
               const fill = node.bgColor ?? (isRoot ? rootFill : nodeFill);
               const stroke = isSelected ? nodeSelectedStroke : nodeStroke;
@@ -878,18 +1170,30 @@ export default function MindMapPage() {
                     const MENU_W = 160;
                     const MENU_H = 120;
                     const GAP = 8;
-                    // 以鼠标位置为基准，右侧 GAP 偏移；超出视口边界则自动收回
                     const rawX = e.clientX + GAP;
                     const rawY = e.clientY + GAP;
                     const finalX = rawX + MENU_W > window.innerWidth ? e.clientX - MENU_W - GAP : rawX;
                     const finalY = rawY + MENU_H > window.innerHeight ? e.clientY - MENU_H - GAP : rawY;
                     setCtxMenu({ x: finalX, y: finalY, nodeId: node.id });
                   }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer.files[0];
+                    if (!file || !file.type.startsWith("image/")) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const url = ev.target?.result as string;
+                      setRoot((t) => mapNode(t, node.id, (n) => ({ ...n, imageUrl: url })));
+                    };
+                    reader.readAsDataURL(file);
+                  }}
                 >
                   {/* 节点矩形 */}
                   <rect
                     width={NODE_W}
-                    height={NODE_H}
+                    height={nodeH}
                     rx={8}
                     fill={fill}
                     stroke={stroke}
@@ -897,8 +1201,57 @@ export default function MindMapPage() {
                     filter={isSelected ? "url(#shadow)" : undefined}
                   />
 
-                  {/* 节点文字或编辑框 */}
-                  {isEditing ? (
+                  {/* 图片内容（图片节点） */}
+                  {hasImage && (
+                    <>
+                      <clipPath id={`clip-${node.id}`}>
+                        <rect width={NODE_W} height={NODE_IMAGE_H - 20} x={0} y={0} rx={8} />
+                      </clipPath>
+                      <image
+                        href={node.imageUrl}
+                        x={0}
+                        y={0}
+                        width={NODE_W}
+                        height={NODE_IMAGE_H - 20}
+                        preserveAspectRatio="xMidYMid slice"
+                        clipPath={`url(#clip-${node.id})`}
+                        style={{ pointerEvents: "none" }}
+                      />
+                      {/* 图片节点底部标签 */}
+                      <rect
+                        x={0}
+                        y={NODE_IMAGE_H - 20}
+                        width={NODE_W}
+                        height={20}
+                        rx={0}
+                        fill={fill}
+                      />
+                      <rect
+                        x={0}
+                        y={NODE_IMAGE_H - 20}
+                        width={NODE_W}
+                        height={20}
+                        rx={8}
+                        fill={fill}
+                        style={{ pointerEvents: "none" }}
+                      />
+                      <text
+                        x={NODE_W / 2}
+                        y={NODE_IMAGE_H - 6}
+                        textAnchor="middle"
+                        fontSize={10}
+                        fill={labelColor}
+                        style={{ userSelect: "none", pointerEvents: "none" }}
+                      >
+                        {node.label.length > 14
+                          ? node.label.slice(0, 14) + "…"
+                          : node.label}
+                      </text>
+                    </>
+                  )}
+
+                  {/* 节点文字或编辑框（非图片节点） */}
+                  {!hasImage && (isEditing ? (
                     <foreignObject x={8} y={4} width={NODE_W - 16} height={NODE_H - 8}>
                       <input
                         // @ts-ignore
@@ -930,12 +1283,12 @@ export default function MindMapPage() {
                         ? node.label.slice(0, 11) + "…"
                         : node.label}
                     </text>
-                  )}
+                  ))}
 
                   {/* 折叠/展开按钮 */}
                   {hasChildren && (
                     <g
-                      transform={`translate(${NODE_W - 2},${NODE_H / 2 - 7})`}
+                      transform={`translate(${NODE_W - 2},${nodeH / 2 - 7})`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleCollapse(node.id);
@@ -949,9 +1302,64 @@ export default function MindMapPage() {
                       )}
                     </g>
                   )}
+
+                  {/* 「+」上传图片按钮（节点右下角，hover 时显示） */}
+                  {!isRoot && (
+                    <g
+                      transform={`translate(${NODE_W - 14},${nodeH - 14})`}
+                      style={{ opacity: isSelected ? 1 : 0.4 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // 触发隐藏的 file input
+                        const inp = document.getElementById(`img-upload-${node.id}`) as HTMLInputElement | null;
+                        inp?.click();
+                      }}
+                    >
+                      <circle r={7} fill="#6366f1" />
+                      <text
+                        x={0}
+                        y={4}
+                        textAnchor="middle"
+                        fontSize={11}
+                        fill="#fff"
+                        style={{ userSelect: "none", pointerEvents: "none", fontWeight: "bold" }}
+                      >+</text>
+                    </g>
+                  )}
+
+                  {/* 右侧拖出连线手柄 */}
+                  <g
+                    transform={`translate(${NODE_W + 6},${nodeH / 2})`}
+                    style={{ cursor: "crosshair", opacity: isSelected ? 1 : 0 }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setDragEdge({ fromId: node.id, toX: node.x + NODE_W, toY: node.y + nodeH / 2 });
+                    }}
+                  >
+                    <circle r={5} fill="#6366f1" stroke="#fff" strokeWidth={1.5} />
+                  </g>
                 </g>
               );
             })}
+
+            {/* 拖出连线预览 */}
+            {dragEdge && (() => {
+              const fromNode = layoutNodes.find(n => n.id === dragEdge.fromId);
+              if (!fromNode) return null;
+              const fromH = fromNode.imageUrl ? NODE_IMAGE_H : NODE_H;
+              return (
+                <path
+                  d={`M ${fromNode.x + NODE_W} ${fromNode.y + fromH / 2} L ${dragEdge.toX} ${dragEdge.toY}`}
+                  fill="none"
+                  stroke="#6366f1"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  strokeLinecap="round"
+                  style={{ pointerEvents: "none" }}
+                />
+              );
+            })()}
           </g>
 
           {/* 阴影滤镜 */}
@@ -1152,6 +1560,29 @@ export default function MindMapPage() {
             </button>
           )}
         </div>
+
+        {/* 隐藏的图片上传 input（每个节点一个） */}
+        {layoutNodes.map((node) => (
+          <input
+            key={`img-upload-${node.id}`}
+            id={`img-upload-${node.id}`}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const url = ev.target?.result as string;
+                setRoot((r) => mapNode(r, node.id, (n) => ({ ...n, imageUrl: url })));
+              };
+              reader.readAsDataURL(file);
+              // 清空 input，允许重复上传同一文件
+              e.target.value = "";
+            }}
+          />
+        ))}
       </div>
     </div>
   );
