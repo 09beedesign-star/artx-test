@@ -61,6 +61,17 @@ export default function CommunityPage() {
     }
   }, []);
 
+  // 检查 URL 查询参数以确定是否自动打开上传对话框
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("upload") === "true") {
+      setUploadOpen(true);
+      // 清理 URL，移除 upload 参数
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, []);
+
   useEffect(() => {
     void loadPosts();
     void checkArtistStatus();
