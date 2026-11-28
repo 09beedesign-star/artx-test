@@ -1,19 +1,24 @@
 /**
  * UploadDialog — 创意社区上传对话框
- * 包含 5 项必选声明 + 免责条款确认
+ * 包含 5 项必选声明 + 免责条款确认 + 标签选择
  */
 import { useState, useRef } from "react";
 import { communityAuthHeaders } from "@/lib/community-client";
 import { useTheme } from "@/contexts/ThemeContext";
 import { X, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { DESIGN_TAGS, TAG_CATEGORIES } from "@/shared/design-tags";
 
 interface UploadDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  prefilledData?: {
+    imageUrl?: string;
+    prompt?: string;
+    title?: string;
+  };
 }
 
-export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialogProps) {
+export default function UploadDialog({ open, onOpenChange, prefilledData }: UploadDialogProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const bg = isDark ? "#1e1e1e" : "#ffffff";
@@ -23,10 +28,11 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
   const inputBg = isDark ? "#2a2a2a" : "#f5f5f5";
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [title, setTitle] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string>(prefilledData?.imageUrl || "");
+  const [title, setTitle] = useState(prefilledData?.title || "");
   const [description, setDescription] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(prefilledData?.prompt || "");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   
   // 5 项必选声明
   const [isAiGenerated, setIsAiGenerated] = useState(false);
@@ -44,7 +50,8 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
     isOriginal !== null && 
     isOpenSource !== null && 
     allowCommercialUse !== null && 
-    disclaimerAccepted;
+    disclaimerAccepted &&
+    selectedTags.length > 0;
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -65,6 +72,14 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
     setError("");
   }
 
+  function toggleTag(tagId: string) {
+    setSelectedTags(prev => 
+      prev.includes(tagId) 
+        ? prev.filter(t => t !== tagId)
+        : [...prev, tagId]
+    );
+  }
+
   async function handleSubmit() {
     if (!canSubmit) return;
 
@@ -77,6 +92,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
       formData.append("title", title);
       formData.append("description", description);
       formData.append("prompt", prompt);
+      formData.append("tags", JSON.stringify(selectedTags));
       formData.append("isAiGenerated", String(isAiGenerated));
       formData.append("isOriginal", String(isOriginal));
       formData.append("isOpenSource", String(isOpenSource));
@@ -94,7 +110,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
         throw new Error(data.error || "上传失败");
       }
 
-      onSuccess();
+      onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "上传失败,请重试");
     } finally {
@@ -102,7 +118,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
     }
   }
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }}>
@@ -110,7 +126,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
         {/* Header */}
         <div style={{ padding: "var(--space-lg)", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 className="type-headline" style={{ color: text }}>上传作品</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: subText }}>
+          <button onClick={() => onOpenChange(false)} style={{ background: "none", border: "none", cursor: "pointer", color: subText }}>
             <X size={20} />
           </button>
         </div>
@@ -187,7 +203,49 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
             />
           </div>
 
-          {/* 5 项必选声明 */}
+          {/* Tags Selection */}
+          <div>
+            <label className="type-body-strong" style={{ color: text, display: "block", marginBottom: "var(--space-sm)" }}>
+              设计标签
+              <span className="ml-1 text-rose-400">*</span>
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: "var(--space-sm)" }}>
+              {Object.entries(TAG_CATEGORIES).map(([catKey, catLabel]) => (
+                <div key={catKey} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+                  <p className="type-micro" style={{ color: subText, fontWeight: 500 }}>{catLabel}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+                    {DESIGN_TAGS.filter(t => t.category === catKey).map(tag => (
+                      <label key={tag.id} style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", cursor: "pointer", padding: "var(--space-xs) var(--space-sm)", borderRadius: "var(--radius-sm)", background: selectedTags.includes(tag.id) ? tag.color + "20" : "transparent", border: `1px solid ${selectedTags.includes(tag.id) ? tag.color : border}`, transition: "all 0.2s" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.includes(tag.id)}
+                          onChange={() => toggleTag(tag.id)}
+                          style={{ width: "14px", height: "14px", cursor: "pointer" }}
+                        />
+                        <span className="type-caption" style={{ color: text, fontSize: "12px" }}>{tag.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {selectedTags.length === 0 && (
+              <p className="type-caption" style={{ color: "#ef4444", marginTop: "var(--space-sm)" }}>请至少选择一个标签</p>
+            )}
+            {selectedTags.length > 0 && (
+              <div style={{ marginTop: "var(--space-sm)", display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
+                {selectedTags.map(tagId => {
+                  const tag = DESIGN_TAGS.find(t => t.id === tagId);
+                  return (
+                    <span key={tagId} className="type-caption" style={{ padding: "2px 8px", background: tag?.color + "20", color: tag?.color, borderRadius: "var(--radius-xs)", border: `1px solid ${tag?.color}` }}>
+                      {tag?.label}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div style={{ padding: "var(--space-md)", background: isDark ? "#2a2a2a" : "#f9f9f9", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
             <p className="type-body-strong" style={{ color: text, marginBottom: "var(--space-xs)" }}>作品声明(必填)</p>
             
@@ -266,7 +324,7 @@ export default function UploadDialog({ isOpen, onClose, onSuccess }: UploadDialo
         {/* Footer */}
         <div style={{ padding: "var(--space-lg)", borderTop: `1px solid ${border}`, display: "flex", gap: "var(--space-sm)", justifyContent: "flex-end" }}>
           <button
-            onClick={onClose}
+            onClick={() => onOpenChange(false)}
             className="type-body"
             style={{ padding: "var(--space-sm) var(--space-lg)", background: "none", border: `1px solid ${border}`, borderRadius: "var(--radius-md)", color: text, cursor: "pointer" }}
           >

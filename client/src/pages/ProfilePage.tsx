@@ -4,7 +4,7 @@
  */
 import { getOwnedItem, ownerScopedKey } from "@/lib/owner-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell, Image } from "lucide-react";
+import { Camera, Heart, KeyRound, LogOut, Mail, MapPin, Pencil, Sparkles, Star, Upload, UserRound, X, Bell, Image, Trash2, Copy } from "lucide-react";
 import { useLocation } from "wouter";
 import { InspirationCard } from "@/components/inspiration/InspirationCard";
 import { InspirationReactionButton } from "@/components/inspiration/InspirationReactionButton";
@@ -16,6 +16,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { communityAuthHeaders, readCommunityToken } from "@/lib/community-client";
+import UploadDialog from "@/components/community/UploadDialog";
+import type { CommunityPost } from "@/shared/community-types";
 import {
   AlertDialog,
   AlertDialogAction,

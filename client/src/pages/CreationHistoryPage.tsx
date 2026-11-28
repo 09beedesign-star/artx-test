@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import UploadDialog from "@/components/community/UploadDialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -124,6 +125,10 @@ export default function CreationHistoryPage() {
   const [folderViewOpen, setFolderViewOpen] = useState(false);
   const [folderFiles, setFolderFiles] = useState<LocalFolderFile[]>([]);
   const [folderLoading, setFolderLoading] = useState(false);
+
+  /** 社区上传对话框 */
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [prefilledUploadData, setPrefilledUploadData] = useState<{ imageUrl: string; prompt: string } | null>(null);
 
   const tagNamesRef = useRef(tagNames);
   tagNamesRef.current = tagNames;
@@ -571,6 +576,14 @@ export default function CreationHistoryPage() {
                           data-artx-history-card={record.id}
                           data-artx-history-selected={selected ? "" : undefined}
                           className="group overflow-hidden rounded-xl"
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            setPrefilledUploadData({
+                              imageUrl: record.src,
+                              prompt: record.prompt || record.style || "未命名作品",
+                            });
+                            setUploadDialogOpen(true);
+                          }}
                           style={{
                             background: c.card,
                             // 🔒 2026-11-14：选中态不用描边，用阴影层次抬起卡片（同画布开关按钮的投影质感）
@@ -915,6 +928,12 @@ export default function CreationHistoryPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UploadDialog
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+        prefilledData={prefilledUploadData || undefined}
+      />
     </div>
   );
 }
