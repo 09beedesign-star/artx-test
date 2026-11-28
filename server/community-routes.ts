@@ -64,15 +64,16 @@ const upload = multer({
 });
 
 // 权限检查中间件
-function requireArtist(req: express.Request, res: express.Response, next: express.NextFunction) {
+async function requireArtist(req: express.Request, res: express.Response, next: express.NextFunction) {
   const user = (req as any).user as StoredUser;
   
   if (!user) {
     return res.status(401).json({ error: "未登录" });
   }
   
-  // 检查应急开关
-  getCommunitySettings().then(settings => {
+  try {
+    // 检查应急开关
+    const settings = await getCommunitySettings();
     if (settings.emergencySwitch) {
       return res.status(503).json({ 
         error: "社区功能暂时关闭,请稍后再试",
@@ -91,10 +92,10 @@ function requireArtist(req: express.Request, res: express.Response, next: expres
     }
     
     next();
-  }).catch(err => {
+  } catch (err) {
     console.error("检查社区设置失败:", err);
     res.status(500).json({ error: "服务器错误" });
-  });
+  }
 }
 
 /** 只要求登录（艺术家查看/回应自己的邀请）。 */
@@ -150,6 +151,7 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       isOpenSource,
       allowCommercialUse,
       disclaimerAccepted,
+      tags: tagsStr,
     } = req.body;
     
     // 验证5项必选声明
@@ -163,6 +165,24 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       return res.status(400).json({ error: "请完成所有必选声明" });
     }
     
+    // 解析标签
+    let tags: string[] = [];
+    if (tagsStr) {
+      try {
+        tags = JSON.parse(typeof tagsStr === "string" ? tagsStr : JSON.stringify(tagsStr));
+        if (!Array.isArray(tags)) {
+          tags = [];
+        }
+      } catch (e) {
+        tags = [];
+      }
+    }
+    
+    // 验证至少选一个标签
+    if (tags.length === 0) {
+      return res.status(400).json({ error: "请至少选择一个设计标签" });
+    }
+    
     const imageUrl = `/uploads/community/${req.file.filename}`;
     
     const post = await createPost({
@@ -172,6 +192,7 @@ router.post("/posts", requireArtist, upload.single("image"), async (req, res) =>
       title,
       prompt,
       description,
+      tags,
       isAiGenerated: isAiGenerated === "true" || isAiGenerated === true,
       isOriginal: isOriginal === "true" || isOriginal === true,
       isOpenSource: isOpenSource === "true" || isOpenSource === true,

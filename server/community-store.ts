@@ -13,6 +13,7 @@ interface CommunityPost {
   prompt?: string;
   title?: string;
   description?: string;
+  tags?: string[];  // 设计标签
   
   // 5项必选声明
   isAiGenerated: boolean;
