@@ -14168,7 +14168,7 @@ function CanvasEmptyStateOverlay({
         zIndex: 4,
       }}
     >
-      {renderButton("upload", "上传图片", <ImagePlus size={30} strokeWidth={1.5} />, onUpload)}
+      {renderButton("upload", "发布到社区", <ImagePlus size={30} strokeWidth={1.5} />, onUpload)}
       {renderButton("generate", "生成图片", <WandSparkles size={30} strokeWidth={1.5} />, onGenerate)}
       {renderButton(
         "model3d",
@@ -20890,8 +20890,8 @@ function CanvasTopToolPalette({
     },
     // { id: "image-ai", label: "智能生图", icon: <Sparkles size={17} /> },
     { id: "move", label: "移动", icon: <MousePointer2 size={17} /> },
-    { id: "upload", label: "上传图片", icon: <ImagePlus size={17} /> },
-    // 2026-10-30：3D 入口紧跟「上传图片」，图标用立方体（原 Zap 闪电不直观，用户找不到）
+    { id: "upload", label: "发布到社区", icon: <ImagePlus size={17} /> },
+    // 2026-10-30：3D 入口紧跟「发布到社区」，图标用立方体（原 Zap 闪电不直观,用户找不到）
     { id: "model3d", label: "添加 3D 画布", icon: <Box size={17} /> },
     {
       id: "smart-canvas",

@@ -352,6 +352,10 @@ export default function MindMapPage() {
   const [importCategory, setImportCategory] = useState<"local" | "history" | "template" | "community">("history");
   const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
   const [importTagFilter, setImportTagFilter] = useState<string>("");
+  const [importEditMode, setImportEditMode] = useState(false);
+  const [importSortBy, setImportSortBy] = useState<"time" | "tag">("time");
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishImages, setPublishImages] = useState<string[]>([]);
 
   // 颜色面板
   const [showColorPanel, setShowColorPanel] = useState(false);
@@ -952,58 +956,147 @@ export default function MindMapPage() {
 
             {/* 右侧内容区 */}
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* 顶部标签筛选 + 关闭 */}
+              {/* 顶部工具栏 */}
               <div
                 className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
                 style={{ borderBottom: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}` }}
               >
-                <input
-                  className="text-xs px-2 py-1 flex-1"
-                  style={{
-                    borderRadius: 6,
-                    background: dark ? "#27272a" : "#f4f4f5",
-                    border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
-                    color: textClr,
-                    outline: "none",
-                    maxWidth: 180,
-                  }}
-                  placeholder="标签筛选…"
-                  value={importTagFilter}
-                  onChange={(e) => setImportTagFilter(e.target.value)}
-                />
-                <div className="flex items-center gap-2">
-                  {importSelected.size > 0 && (
-                    <button
-                      onClick={() => {
-                        // 将选中的图片作为图片节点插入，连接到根节点
-                        importSelected.forEach((imgId) => {
-                          const newNode: MindMapNode = {
-                            id: uid(),
-                            label: imgId,
-                            children: [],
-                            imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
-                          };
-                          setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
-                        });
-                        setImportSelected(new Set());
-                        setShowImportPanel(false);
-                        toast.success(`已插入 ${importSelected.size} 张图片节点`);
-                      }}
-                      className="text-xs px-3 py-1"
+                <div className="flex items-center gap-2 flex-1">
+                  <input
+                    className="text-xs px-2 py-1"
+                    style={{
+                      borderRadius: 6,
+                      background: dark ? "#27272a" : "#f4f4f5",
+                      border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                      color: textClr,
+                      outline: "none",
+                      maxWidth: 140,
+                    }}
+                    placeholder="标签筛选…"
+                    value={importTagFilter}
+                    onChange={(e) => setImportTagFilter(e.target.value)}
+                  />
+                  {importCategory !== "local" && (
+                    <select
+                      className="text-xs px-2 py-1"
                       style={{
                         borderRadius: 6,
-                        background: "#6366f1",
-                        color: "#fff",
-                        border: "none",
+                        background: dark ? "#27272a" : "#f4f4f5",
+                        border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                        color: textClr,
+                        outline: "none",
+                      }}
+                      value={importSortBy}
+                      onChange={(e) => setImportSortBy(e.target.value as "time" | "tag")}
+                    >
+                      <option value="time">按时间排序</option>
+                      <option value="tag">按标签排序</option>
+                    </select>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {importCategory !== "local" && (
+                    <button
+                      onClick={() => {
+                        setImportEditMode((v) => !v);
+                        setImportSelected(new Set());
+                      }}
+                      className="flex items-center justify-center transition-colors"
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        background: importEditMode ? "#6366f1" : "transparent",
+                        color: importEditMode ? "#fff" : textClr,
+                        border: `1px solid ${importEditMode ? "#6366f1" : (dark ? "#52525b" : "#d4d4d8")}`,
                         cursor: "pointer",
                       }}
+                      title={importEditMode ? "退出编辑" : "编辑"}
                     >
-                      插入 {importSelected.size} 张
+                      <Edit3 size={13} />
                     </button>
                   )}
+                  {importEditMode && importSelected.size > 0 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          importSelected.forEach((imgId) => {
+                            const newNode: MindMapNode = {
+                              id: uid(),
+                              label: imgId,
+                              children: [],
+                              imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
+                            };
+                            setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                          });
+                          setImportSelected(new Set());
+                          setShowImportPanel(false);
+                          setImportEditMode(false);
+                          toast.success(`已导入 ${importSelected.size} 张到画布`);
+                        }}
+                        className="text-xs px-2 py-1"
+                        style={{
+                          borderRadius: 6,
+                          background: "#6366f1",
+                          color: "#fff",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        导入画布
+                      </button>
+                      <button
+                        onClick={() => {
+                          importSelected.forEach((imgId) => {
+                            const link = document.createElement("a");
+                            link.href = `https://picsum.photos/seed/${imgId}/800/600`;
+                            link.download = `${imgId}.jpg`;
+                            link.click();
+                          });
+                          toast.success(`已下载 ${importSelected.size} 张图片`);
+                        }}
+                        className="text-xs px-2 py-1"
+                        style={{
+                          borderRadius: 6,
+                          background: dark ? "#3f3f46" : "#f4f4f5",
+                          color: textClr,
+                          border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        下载
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowPublishModal(true);
+                          setPublishImages(Array.from(importSelected));
+                        }}
+                        className="text-xs px-2 py-1"
+                        style={{
+                          borderRadius: 6,
+                          background: dark ? "#3f3f46" : "#f4f4f5",
+                          color: textClr,
+                          border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        发布到社区
+                      </button>
+                    </>
+                  )}
                   <button
-                    onClick={() => { setShowImportPanel(false); setImportSelected(new Set()); }}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", color: dark ? "#71717a" : "#a1a1aa" }}
+                    onClick={() => {
+                      setShowImportPanel(false);
+                      setImportSelected(new Set());
+                      setImportEditMode(false);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: dark ? "#71717a" : "#a1a1aa",
+                      fontSize: 16,
+                    }}
                   >✕</button>
                 </div>
               </div>
@@ -1022,7 +1115,7 @@ export default function MindMapPage() {
                       cursor: "pointer",
                     }}
                   >
-                    选择本地图片
+                    发布到社区
                     <input
                       type="file"
                       accept="image/*"
@@ -1030,6 +1123,11 @@ export default function MindMapPage() {
                       style={{ display: "none" }}
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
+                        if (files.length > 6) {
+                          toast.error("单次发布不能超过 6 张");
+                          e.target.value = "";
+                          return;
+                        }
                         files.forEach((file) => {
                           const reader = new FileReader();
                           reader.onload = (ev) => {
@@ -1055,56 +1153,340 @@ export default function MindMapPage() {
                 /* 缩略图网格（5列） */
                 <div className="flex-1 overflow-y-auto p-3">
                   <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
-                    {Array.from({ length: 15 }, (_, i) => {
-                      const imgId = `${importCategory}-${i + 1}`;
-                      const label = `${importCategory === "history" ? "创意" : importCategory === "template" ? "模板" : "社区"}-${i + 1}`;
-                      const tag = ["UI", "插画", "海报", "图标", "背景"][i % 5];
-                      const isMatch = !importTagFilter || tag.includes(importTagFilter) || label.includes(importTagFilter);
-                      if (!isMatch) return null;
-                      const isChosen = importSelected.has(imgId);
-                      return (
-                        <div
-                          key={imgId}
-                          onClick={() => {
-                            setImportSelected((prev) => {
-                              const next = new Set(prev);
-                              isChosen ? next.delete(imgId) : next.add(imgId);
-                              return next;
-                            });
-                          }}
-                          className="flex flex-col gap-1 cursor-pointer"
-                          style={{
-                            borderRadius: 6,
-                            border: `2px solid ${isChosen ? "#6366f1" : "transparent"}`,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <img
-                            src={`https://picsum.photos/seed/${imgId}/100/70`}
-                            alt={label}
-                            style={{ width: "100%", aspectRatio: "10/7", objectFit: "cover", display: "block" }}
-                          />
-                          <div className="px-1 pb-1">
-                            <div className="text-xs truncate" style={{ color: textClr, fontSize: 10 }}>{label}</div>
-                            <div
-                              className="text-xs"
-                              style={{
-                                color: "#6366f1",
-                                fontSize: 9,
-                                background: dark ? "rgba(99,102,241,0.15)" : "rgba(99,102,241,0.08)",
-                                borderRadius: 3,
-                                padding: "1px 4px",
-                                display: "inline-block",
-                                marginTop: 2,
-                              }}
-                            >{tag}</div>
-                          </div>
-                        </div>
+                    {(() => {
+                      const TAGS = ["UI", "插画", "海报", "图标", "背景"];
+                      const items = Array.from({ length: 15 }, (_, i) => {
+                        const imgId = `${importCategory}-${i + 1}`;
+                        const label = `${importCategory === "history" ? "创意" : importCategory === "template" ? "模板" : "社区"}-${i + 1}`;
+                        const tag = TAGS[i % 5];
+                        return { imgId, label, tag, i };
+                      }).filter(({ tag, label }) =>
+                        !importTagFilter || tag.includes(importTagFilter) || label.includes(importTagFilter)
                       );
-                    })}
+
+                      // 按标签排序
+                      if (importSortBy === "tag") {
+                        items.sort((a, b) => TAGS.indexOf(a.tag) - TAGS.indexOf(b.tag));
+                      }
+
+                      return items.map(({ imgId, label, tag }) => {
+                        const isChosen = importSelected.has(imgId);
+                        return (
+                          <div
+                            key={imgId}
+                            onClick={() => {
+                              if (importEditMode) {
+                                setImportSelected((prev) => {
+                                  const next = new Set(prev);
+                                  isChosen ? next.delete(imgId) : next.add(imgId);
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="flex flex-col cursor-pointer"
+                            style={{
+                              borderRadius: 6,
+                              border: `2px solid ${isChosen && importEditMode ? "#6366f1" : "transparent"}`,
+                              overflow: "hidden",
+                              position: "relative",
+                            }}
+                          >
+                            {/* 图片 + hover 操作层 */}
+                            <div style={{ position: "relative", lineHeight: 0 }}
+                              className="group"
+                            >
+                              <img
+                                src={`https://picsum.photos/seed/${imgId}/100/70`}
+                                alt={label}
+                                style={{ width: "100%", aspectRatio: "10/7", objectFit: "cover", display: "block" }}
+                              />
+                              {/* 编辑模式选中遮罩 */}
+                              {importEditMode && isChosen && (
+                                <div style={{
+                                  position: "absolute", inset: 0,
+                                  background: "rgba(99,102,241,0.35)",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                }}>
+                                  <div style={{
+                                    width: 18, height: 18, borderRadius: "50%",
+                                    background: "#6366f1", border: "2px solid #fff",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    fontSize: 11, color: "#fff", fontWeight: "bold",
+                                  }}>✓</div>
+                                </div>
+                              )}
+                              {/* hover 导入到画布按钮（非编辑模式） */}
+                              {!importEditMode && (
+                                <div style={{
+                                  position: "absolute", inset: 0,
+                                  background: "rgba(0,0,0,0.5)",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  opacity: 0,
+                                  transition: "opacity 0.15s",
+                                }}
+                                  className="import-hover-overlay"
+                                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = "1"; }}
+                                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = "0"; }}
+                                >
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const newNode: MindMapNode = {
+                                        id: uid(),
+                                        label,
+                                        children: [],
+                                        imageUrl: `https://picsum.photos/seed/${imgId}/140/100`,
+                                      };
+                                      setRoot((r) => mapNode(r, "root", (n) => ({ ...n, children: [...n.children, newNode] })));
+                                      setShowImportPanel(false);
+                                      toast.success("已导入到画布");
+                                    }}
+                                    style={{
+                                      background: "rgba(255,255,255,0.95)",
+                                      color: "#18181b",
+                                      border: "none",
+                                      borderRadius: 4,
+                                      padding: "3px 7px",
+                                      fontSize: 10,
+                                      cursor: "pointer",
+                                      fontWeight: 500,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    导入到画布
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 图片信息 + 下载按钮 */}
+                            <div style={{
+                              background: dark ? "#1c1c1f" : "#ffffff",
+                              padding: "3px 4px 4px",
+                            }}>
+                              <div className="text-xs truncate" style={{ color: textClr, fontSize: 10 }}>{label}</div>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                                <div
+                                  style={{
+                                    color: "#6366f1",
+                                    fontSize: 9,
+                                    background: dark ? "rgba(99,102,241,0.15)" : "rgba(99,102,241,0.08)",
+                                    borderRadius: 3,
+                                    padding: "1px 4px",
+                                  }}
+                                >{tag}</div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const link = document.createElement("a");
+                                    link.href = `https://picsum.photos/seed/${imgId}/800/600`;
+                                    link.download = `${imgId}.jpg`;
+                                    link.click();
+                                  }}
+                                  style={{
+                                    background: "transparent",
+                                    color: "#18181b",
+                                    border: "1px solid #18181b",
+                                    borderRadius: 3,
+                                    padding: "1px 5px",
+                                    fontSize: 9,
+                                    cursor: "pointer",
+                                    lineHeight: 1.4,
+                                  }}
+                                >下载</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 发布到社区弹窗 */}
+        {showPublishModal && (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => {
+              setShowPublishModal(false);
+              setPublishImages([]);
+            }}
+          >
+            <div
+              className="flex flex-col gap-3 p-4"
+              style={{
+                width: 480,
+                maxHeight: "80vh",
+                borderRadius: 12,
+                background: dark ? "#1c1c1f" : "#ffffff",
+                border: `1px solid ${dark ? "#3f3f46" : "#e4e4e7"}`,
+                boxShadow: dark ? "0 24px 64px rgba(0,0,0,0.7)" : "0 16px 48px rgba(0,0,0,0.2)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold" style={{ color: textClr }}>发布到社区</span>
+                <button
+                  onClick={() => {
+                    setShowPublishModal(false);
+                    setPublishImages([]);
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: dark ? "#71717a" : "#a1a1aa",
+                    fontSize: 16,
+                  }}
+                >✕</button>
+              </div>
+
+              {/* 图片上传区（最多 6 张） */}
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: `2px dashed ${dark ? "#52525b" : "#d4d4d8"}`,
+                  background: dark ? "#18181b" : "#f9fafb",
+                  padding: 12,
+                  minHeight: 160,
+                }}
+              >
+                <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                  {Array.from({ length: 6 }, (_, idx) => {
+                    const imgId = publishImages[idx];
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          aspectRatio: "1",
+                          borderRadius: 6,
+                          background: dark ? "#27272a" : "#e4e4e7",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {imgId ? (
+                          <>
+                            <img
+                              src={`https://picsum.photos/seed/${imgId}/140/140`}
+                              alt=""
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
+                            <button
+                              onClick={() => {
+                                setPublishImages((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 18,
+                                height: 18,
+                                borderRadius: "50%",
+                                background: "rgba(0,0,0,0.6)",
+                                color: "#fff",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >✕</button>
+                          </>
+                        ) : (
+                          <label
+                            style={{
+                              cursor: publishImages.length >= 6 ? "not-allowed" : "pointer",
+                              width: "100%",
+                              height: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              opacity: publishImages.length >= 6 ? 0.4 : 1,
+                            }}
+                          >
+                            <Plus size={20} style={{ color: dark ? "#71717a" : "#a1a1aa" }} />
+                            {publishImages.length < 6 && (
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                style={{ display: "none" }}
+                                onChange={(e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  const remaining = 6 - publishImages.length;
+                                  if (files.length > remaining) {
+                                    toast.error(`单次发布不能超过 6 张，当前还可添加 ${remaining} 张`);
+                                    return;
+                                  }
+                                  const newIds = files.map((_, i) => `upload-${Date.now()}-${i}`);
+                                  setPublishImages((prev) => [...prev, ...newIds]);
+                                  e.target.value = "";
+                                }}
+                              />
+                            )}
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {publishImages.length >= 6 && (
+                  <p
+                    className="text-xs mt-2"
+                    style={{ color: "#ef4444", textAlign: "center" }}
+                  >单次发布不能超过 6 张</p>
+                )}
+              </div>
+
+              {/* 底部操作 */}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowPublishModal(false);
+                    setPublishImages([]);
+                  }}
+                  className="text-sm px-4 py-2"
+                  style={{
+                    borderRadius: 8,
+                    background: "transparent",
+                    color: textClr,
+                    border: `1px solid ${dark ? "#52525b" : "#d4d4d8"}`,
+                    cursor: "pointer",
+                  }}
+                >取消</button>
+                <button
+                  onClick={() => {
+                    if (publishImages.length === 0) {
+                      toast.error("请至少选择 1 张图片");
+                      return;
+                    }
+                    toast.success(`已发布 ${publishImages.length} 张图片到社区`);
+                    setShowPublishModal(false);
+                    setPublishImages([]);
+                    setImportSelected(new Set());
+                    setImportEditMode(false);
+                  }}
+                  disabled={publishImages.length === 0}
+                  className="text-sm px-4 py-2"
+                  style={{
+                    borderRadius: 8,
+                    background: publishImages.length > 0 ? "#6366f1" : (dark ? "#52525b" : "#d4d4d8"),
+                    color: publishImages.length > 0 ? "#fff" : (dark ? "#71717a" : "#a1a1aa"),
+                    border: "none",
+                    cursor: publishImages.length > 0 ? "pointer" : "not-allowed",
+                  }}
+                >发布</button>
+              </div>
             </div>
           </div>
         )}

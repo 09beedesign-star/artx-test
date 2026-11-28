@@ -129,7 +129,7 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
       <div style={{ background: bg, borderRadius: "var(--radius-lg)", width: "90%", maxWidth: "600px", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${border}` }}>
         {/* Header */}
         <div style={{ padding: "var(--space-lg)", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h2 className="type-headline" style={{ color: text }}>上传作品</h2>
+          <h2 className="type-headline" style={{ color: text }}>发布到社区</h2>
           <button onClick={() => onOpenChange(false)} style={{ background: "none", border: "none", cursor: "pointer", color: subText }}>
             <X size={20} />
           </button>
@@ -139,7 +139,7 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
         <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
           {/* File Upload */}
           <div>
-            <label className="type-body-strong" style={{ color: text, display: "block", marginBottom: "var(--space-xs)" }}>选择图片</label>
+            <label className="type-body-strong" style={{ color: text, display: "block", marginBottom: "var(--space-xs)" }}>发布到社区</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -164,7 +164,7 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
                 style={{ width: "100%", padding: "var(--space-lg)", border: `2px dashed ${border}`, borderRadius: "var(--radius-md)", background: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--space-sm)" }}
               >
                 <Upload size={32} style={{ color: subText }} />
-                <span className="type-body" style={{ color: subText }}>点击选择图片</span>
+                <span className="type-body" style={{ color: subText }}>点击发布到社区</span>
                 <span className="type-caption" style={{ color: subText }}>支持 JPG、PNG、WEBP,最大 10MB</span>
               </button>
             )}
@@ -345,7 +345,7 @@ export default function UploadDialog({ open, onOpenChange, prefilledData }: Uplo
             ) : (
               <>
                 <Upload size={16} />
-                上传作品
+                发布到社区
               </>
             )}
           </button>
