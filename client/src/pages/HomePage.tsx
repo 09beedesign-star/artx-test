@@ -674,59 +674,7 @@ export default function HomePage() {
         />
       )}
       <main ref={mainRef} onScroll={handleMainScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth" style={{ background: bgMain, color: textPrimary }}>
-      <header className={`fixed left-0 right-0 ${isFirstTopUpBannerDismissed ? "top-0" : "top-[80px]"} z-50 flex h-[64px] items-center gap-3 px-4 backdrop-blur-[18px] sm:gap-4`} style={{ background: isDark ? "rgba(34,34,34,0.20)" : "rgba(255,255,255,0.90)" }}>
-        {/*
-          首页顶栏刻意不放 logo（ericbi 2026-11-10 要求）：
-          首页是给人看内容的，不是给自己贴品牌名的地方；导航里的「首页」已经能回顶。
-        */}
-        {/*
-          ⚠️ 导航里的「灵感模板」直接 navigate("/inspiration")，不再只是滚动到本页下方
-          （ericbi 2026-11-10 要求）。页面内的向下箭头按钮仍保留滚动行为 —— 那是浏览动线，不是导航。
-        */}
-        <LandingTopNav
-          activeTab={activeTab}
-          onHome={scrollToHome}
-          onInspiration={openInspirationPage}
-          onSkills={() => {
-            setCurrentLandingTab("skills");
-            navigate("/skills");
-          }}
-          onEcommerce={() => {
-            setCurrentLandingTab("ecommerce");
-            navigate("/ecommerce-canvas");
-          }}
-          onWorkspace={(event) => {
-            if (!isAuthenticated) {
-              showLoginRequired();
-              return;
-            }
-            setCurrentLandingTab("workspace");
-            navigate("/workspace");
-          }}
-          onHelp={(event) => {
-            if (!isAuthenticated) {
-              showLoginRequired();
-              return;
-            }
-            setCurrentLandingTab("help");
-            navigate("/help");
-          }}
-          isDark={isDark}
-        />
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {/* 主题切换按钮暂时屏蔽，仅保留白天模式
-          <ThemeModeSwitcher />
-          */}
-          <button
-            type="button"
-            onClick={handleStartExperience}
-            className="h-10 shrink-0 whitespace-nowrap rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-[#333333] dark:bg-white dark:text-black dark:hover:bg-[#e8e8e8]"
-            style={{ boxShadow: isDark ? "0 4px 16px rgba(255,255,255,0.15)" : "rgba(48,37,25,0.08) 0px 6px 20px 0px" }}
-          >
-            {isAuthenticated ? "进入工作台" : "开始体验"}
-          </button>
-        </div>
-      </header>
+      {/* 顶部导航已移除 —— 侧边栏现已常驻，导航功能由侧边栏负责 */}
       
       {/* 第一屏：居中的提示词输入区域（移除 banner 和左侧大标题） */}
       <section ref={homeRef} className="relative flex min-h-screen items-center justify-center px-6" style={{ background: bgMain }}>
@@ -1038,60 +986,6 @@ export default function HomePage() {
       )}
       </main>
     </div>
-  );
-}
-
-function LandingTopNav({
-  activeTab,
-  onHome,
-  onInspiration,
-  onSkills,
-  onEcommerce,
-  onWorkspace,
-  onHelp,
-  isDark,
-}: {
-  activeTab: LandingTab;
-  onHome: () => void;
-  onInspiration: () => void;
-  onSkills: () => void;
-  onEcommerce: () => void;
-  onWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onHelp: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  isDark: boolean;
-}) {
-  const navItems = [
-    { key: "home" as const, label: "首页", onClick: onHome },
-    { key: "inspiration" as const, label: "灵感模板", onClick: onInspiration },
-    { key: "skills" as const, label: "技能商店", onClick: onSkills },
-    { key: "workspace" as const, label: "工作台", onClick: onWorkspace },
-    // 电商画布紧跟在「工作台」右侧（ericbi 2026-10-17 指定位置）。
-    // 无需登录即可浏览（生成时再拦），与侧栏入口同一路由 /ecommerce-canvas。
-    { key: "ecommerce" as const, label: "电商画布", onClick: onEcommerce },
-    { key: "help" as const, label: "帮助与反馈", onClick: onHelp },
-  ];
-
-  return (
-    <nav className="ml-auto flex min-w-0 flex-1 items-center gap-2 overflow-x-auto sm:gap-3 lg:absolute lg:left-1/2 lg:top-1/2 lg:ml-0 lg:flex-none lg:-translate-x-1/2 lg:-translate-y-1/2 lg:overflow-visible" aria-label="首页导航">
-      {navItems.map(item => (
-        <button
-          key={item.key}
-          type="button"
-          onClick={item.onClick}
-          className={`h-9 shrink-0 appearance-none rounded-full px-4 text-center text-xs font-medium transition-colors sm:min-w-[82px] sm:text-sm ${
-            activeTab === item.key
-              ? isDark
-                ? "bg-white text-black"
-                : "bg-[#161616] text-white"
-              : isDark 
-                ? "bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
-                : "bg-transparent text-[#777472] hover:bg-[#f5f6f8] hover:text-[#262627]"
-          }`}
-        >
-          {item.label}
-        </button>
-      ))}
-    </nav>
   );
 }
 

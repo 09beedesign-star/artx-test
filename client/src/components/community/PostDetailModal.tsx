@@ -47,8 +47,6 @@ export default function PostDetailModal({
   const border = isDark ? "#2a2a2a" : "#e5e5e5";
   const inputBg = isDark ? "#2a2a2a" : "#f9f9f9";
 
-  if (!open || !post) return null;
-
   // 在浮窗打开时加载评论
   useEffect(() => {
     if (!open || !post?.id) return;
@@ -125,6 +123,8 @@ export default function PostDetailModal({
       return dateString;
     }
   };
+
+  if (!open || !post) return null;
 
   return (
     <>

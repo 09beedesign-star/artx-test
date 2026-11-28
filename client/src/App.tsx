@@ -117,6 +117,11 @@ function ShellRoutes() {
       <div key={contentKey} className="artx-page-fade h-full">
         <Suspense fallback={<GeneralPageLoading />}>
           <Switch>
+            {/* 首页 — 现已加入侧边栏布局 */}
+            <Route path="/">
+              <HomePage />
+            </Route>
+
             {/* 工作台（项目列表） */}
             <Route path="/workspace">
               <RequireLogin>
@@ -278,11 +283,6 @@ function AppRoutes() {
   return (
     <Suspense fallback={<RouteChunkFallback />}>
     <Switch>
-      {/* 首页 — 无侧边栏 */}
-      <Route path="/">
-        <HomePage />
-      </Route>
-
       {/*
         项目画布 — 2026-11-13 起常驻左侧边栏（默认展开、可收起）。
         ⚠️ 这里刻意**不**走 ShellRoutes：那边内容区套了 `.artx-page-fade`，
@@ -323,7 +323,7 @@ function AppRoutes() {
       <Route path="/404" component={NotFound} />
 
       {/*
-        所有带侧边栏的路由统一交给 ShellRoutes 处理。
+        所有带侧边栏的路由统一交给 ShellRoutes 处理（包含首页）。
         AppShell 在 ShellRoutes 内只渲染一次，路由切换时侧边栏完全不重建。
         必须放在所有无侧边栏路由之后，避免提前拦截。
       */}
