@@ -10,6 +10,8 @@ import { BG_GLOW } from "@/lib/workspace-data";
 import { useLocation } from "wouter";
 import UploadDialog from "@/components/community/UploadDialog";
 import PostDetailModal from "@/components/community/PostDetailModal";
+import { CardHoverOverlay } from "@/components/ui/card-hover-overlay";
+import { applyInspirationSameStyle } from "@/lib/inspiration-same-style";
 
 interface CommunityPost {
   id: string;
@@ -54,6 +56,8 @@ export default function CommunityPage() {
   const [permissionError, setPermissionError] = useState("");
   const [selectedPost, setSelectedPost] = useState<CommunityPost | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [hoveredPostId, setHoveredPostId] = useState<string | null>(null);
+  const [applyingSameStyle, setApplyingSameStyle] = useState(false);
 
   // 检查 URL 查询参数以确定是否自动打开上传对话框
   useEffect(() => {
@@ -178,6 +182,23 @@ export default function CommunityPage() {
     navigate("/workspace");
   }
 
+  async function handleCardSameStyle(post: CommunityPost) {
+    if (applyingSameStyle) return;
+    
+    setApplyingSameStyle(true);
+    try {
+      void await applyInspirationSameStyle(
+        {
+          title: post.title || "社区作品",
+          imageUrl: post.imageUrl,
+        },
+        navigate
+      );
+    } finally {
+      setApplyingSameStyle(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col h-screen overflow-hidden" style={{ background: bg }}>
@@ -259,11 +280,30 @@ export default function CommunityPage() {
                 }}
               >
                 {/* Image */}
-                <div style={{ position: "relative", paddingTop: "100%", background: "#f5f5f5" }}>
+                <div 
+                  style={{ position: "relative", paddingTop: "100%", background: "#f5f5f5" }}
+                  onMouseEnter={() => setHoveredPostId(post.id)}
+                  onMouseLeave={() => setHoveredPostId(null)}
+                >
                   <img
                     src={post.imageUrl}
                     alt={post.title || ""}
                     style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                  
+                  {/* Hover Overlay with "一键同款" Button */}
+                  <CardHoverOverlay
+                    visible={hoveredPostId === post.id}
+                    dim={0.42}
+                    actions={[
+                      {
+                        label: "一键同款",
+                        onClick: () => {
+                          void handleCardSameStyle(post);
+                        },
+                        variant: "solid",
+                      },
+                    ]}
                   />
                 </div>
                 
